@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HomeBrain - Device Manual Manager</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <h1>🧠 HomeBrain</h1>
+                <p class="tagline">Device Manual Manager</p>
+            </div>
+            
+            <nav class="nav-sections">
+                <!-- Add Device Form -->
+                <div class="section">
+                    <h3>Add New Device</h3>
+                    <form id="add-device-form" class="device-form">
+                        <input type="text" id="device-name" placeholder="Device name (e.g., Living Room TV)" required>
+                        <input type="text" id="device-brand" placeholder="Brand (e.g., Samsung)" required>
+                        <input type="text" id="device-model" placeholder="Model (e.g., QN90A)" required>
+                        <textarea id="device-description" placeholder="Description (optional)" rows="2"></textarea>
+                        <input type="text" id="device-serial-number" placeholder="Serial Number (optional)">
+                        <input type="text" id="device-product-number" placeholder="Product Number (optional)">
+                        <button type="submit" class="btn btn-primary">Add Device</button>
+                    </form>
+                </div>
+                
+                <!-- Device List -->
+                <div class="section">
+                    <h3>My Devices</h3>
+                    <div id="device-list" class="device-list">
+                        <div class="loading">Loading devices...</div>
+                    </div>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="search">🔍 Search</button>
+                <button class="tab-btn" data-tab="chat">💬 AI Chat</button>
+            </div>
+
+            <!-- Search Tab -->
+            <div id="search-tab" class="tab-content active">
+                <div class="search-container">
+                    <div class="search-box">
+                        <input type="text" id="search-input" placeholder="Search manuals (e.g., 'HDMI port location')" />
+                        <select id="device-filter" class="device-filter">
+                            <option value="">All Devices</option>
+                        </select>
+                        <button id="search-btn" class="btn btn-primary">Search</button>
+                    </div>
+                    
+                    <div id="search-results" class="results-container">
+                        <div class="empty-state">
+                            <p>Enter a search query to find information in your device manuals.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Tab -->
+            <div id="chat-tab" class="tab-content">
+                <div class="chat-container">
+                    <div id="chat-messages" class="chat-messages">
+                        <div class="message assistant">
+                            <div class="message-content">
+                                👋 Hello! I'm HomeBrain. Ask me anything about your devices, and I'll search through your manuals to find answers.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <textarea id="chat-input" placeholder="Ask a question about your devices..." rows="2"></textarea>
+                        <button id="send-btn" class="btn btn-primary">Send</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Edit Device Modal -->
+    <div id="edit-device-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeEditModal()">&times;</span>
+            <h2>Edit Device</h2>
+            
+            <form id="edit-device-form" class="device-form">
+                <input type="hidden" id="edit-device-id">
+                <input type="text" id="edit-device-name" placeholder="Device name" required>
+                <input type="text" id="edit-device-brand" placeholder="Brand" required>
+                <input type="text" id="edit-device-model" placeholder="Model" required>
+                <textarea id="edit-device-description" placeholder="Description (optional)" rows="2"></textarea>
+                <input type="text" id="edit-device-serial-number" placeholder="Serial Number">
+                <input type="text" id="edit-device-product-number" placeholder="Product Number">
+                
+                <!-- Custom Attributes Section -->
+                <div class="attributes-section">
+                    <h4>Custom Attributes</h4>
+                    <div id="device-attributes-list" class="attributes-list">
+                        <div class="empty-state">No custom attributes</div>
+                    </div>
+                    
+                    <div class="add-attribute-form">
+                        <input type="text" id="attribute-name-input" placeholder="Attribute name (e.g., Warranty Expiry)">
+                        <input type="text" id="attribute-value-input" placeholder="Value (e.g., 2025-12-31)">
+                        <button type="button" class="btn btn-secondary btn-small" onclick="addDeviceAttribute(parseInt(document.getElementById('edit-device-id').value))">
+                            Add Attribute
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Download Progress Modal -->
+    <div id="download-progress-modal" class="modal">
+        <div class="modal-content modal-medium">
+            <h2>📥 Downloading Manuals</h2>
+            <div id="download-progress-steps" class="progress-steps">
+                <!-- Progress steps will be added here dynamically -->
+            </div>
+            <div id="download-progress-status" class="progress-status">
+                <div class="spinner"></div>
+                <span id="download-current-step">Initializing...</span>
+            </div>
+            <button id="close-download-modal" class="btn btn-secondary" style="margin-top: 20px; display: none;" onclick="closeDownloadModal()">Close</button>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

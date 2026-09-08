@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  homebrain:
+    build: .
+    container_name: homebrain
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent data storage (PDFs, database)
+      - ./data:/data
+    environment:
+      # LLM Configuration - adjust based on your setup
+      - LLM_BASE_URL=http://localhost:11434/v1  # Ollama default
+      - LLM_API_KEY=ollama  # Required but ignored by local servers
+      - LLM_MODEL=llama3.2  # Change to your preferred model
+      
+      # Optional: Override with your settings
+      # - LLM_BASE_URL=https://api.openai.com/v1
+      # - LLM_API_KEY=sk-your-api-key
+      # - LLM_MODEL=gpt-4o-mini
+    
+    restart: unless-stopped
+    
+    # Resource limits (optional, adjust based on your hardware)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+# Optional: Add an LLM service if running Ollama locally
+# Uncomment if you want to run everything in one compose file
+#
+# services:
+#   ollama:
+#     image: ollama/ollama:latest
+#     container_name: ollama
+#     volumes:
+#       - ./ollama-data:/root/.ollama
+#     ports:
+#       - "11434:11434"
+#     deploy:
+#       resources:
+#         reservations:
+#           devices:
+#             - driver: nvidia
+#               count: 1
+#               capabilities: [gpu]
