@@ -103,6 +103,22 @@
                 <input type="text" id="edit-device-serial-number" placeholder="Serial Number">
                 <input type="text" id="edit-device-product-number" placeholder="Product Number">
                 
+                <!-- Manuals Section -->
+                <div class="attributes-section">
+                    <h4>Manuals</h4>
+                    <div id="device-manuals-list" class="manuals-list">
+                        <div class="empty-state">No manuals</div>
+                    </div>
+                    <div class="manual-actions">
+                        <button type="button" class="btn btn-primary btn-small" onclick="downloadManuals(parseInt(document.getElementById('edit-device-id').value))">
+                            Download Manuals
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-small" onclick="triggerUploadManual(parseInt(document.getElementById('edit-device-id').value))">
+                            Upload Manual
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Custom Attributes Section -->
                 <div class="attributes-section">
                     <h4>Custom Attributes</h4>
@@ -135,12 +151,15 @@
                 <!-- Progress steps will be added here dynamically -->
             </div>
             <div id="download-progress-status" class="progress-status">
-                <div class="spinner"></div>
+                <div id="download-spinner" class="spinner"></div>
                 <span id="download-current-step">Initializing...</span>
             </div>
             <button id="close-download-modal" class="btn btn-secondary" style="margin-top: 20px; display: none;" onclick="closeDownloadModal()">Close</button>
         </div>
     </div>
+
+    <!-- Hidden file input used by the "Upload Manual" buttons -->
+    <input type="file" id="manual-upload-input" accept="application/pdf,.pdf" style="display: none;">
 
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>

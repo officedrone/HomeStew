@@ -10,16 +10,41 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 
+def _friendly_error(exc: Exception) -> str:
+    """Turn a raw search-library exception into a human-readable message."""
+    text = str(exc)
+    lowered = text.lower()
+    if "ratelimit" in lowered or ("202" in text and "limit" in lowered):
+        return (
+            "DuckDuckGo is rate-limiting requests (HTTP 202). "
+            "Wait a minute or two and try again."
+        )
+    if "timeout" in lowered or "timed out" in lowered:
+        return "Search request timed out. Check your internet connection and try again."
+    if "connection" in lowered or "network" in lowered:
+        return "Network error while searching. Check your internet connection and try again."
+    return f"Search backend error: {text}"
+
+
 @lru_cache(maxsize=128)
-def _cached_search(query: str, max_results: int) -> tuple[List[dict], bool]:
-    """Cached search to avoid repeated identical searches."""
-    results, error = _perform_search(query, max_results)
-    return results, error is None
+def _cached_search(query: str, max_results: int) -> tuple[List[dict], Optional[str]]:
+    """Cached search to avoid repeated identical searches.
+
+    Returns (results, error_message_or_None). The error message is cached too
+    so the UI can show *why* a search failed instead of a generic 'not found'.
+    """
+    return _perform_search(query, max_results)
 
 
 def _perform_search(query: str, max_results: int) -> tuple[List[dict], Optional[str]]:
-    """Perform actual DuckDuckGo search with multiple fallback strategies."""
+    """Perform actual DuckDuckGo search with multiple fallback strategies.
+
+    Returns (results, error_message_or_None). When every strategy fails the
+    collected per-strategy errors are returned so callers can surface them.
+    """
     from duckduckgo_search import DDGS
+    
+    strategy_errors = []
     
     # Strategy 1: Use HTML backend (more reliable than lite)
     try:
@@ -52,6 +77,7 @@ def _perform_search(query: str, max_results: int) -> tuple[List[dict], Optional[
             
     except Exception as e:
         logger.warning(f"HTML backend failed: {e}")
+        strategy_errors.append(_friendly_error(e))
     
     # Strategy 2: Fallback to API backend with delays
     try:
@@ -84,10 +110,11 @@ def _perform_search(query: str, max_results: int) -> tuple[List[dict], Optional[
             
     except Exception as e:
         logger.warning(f"API backend failed: {e}")
+        strategy_errors.append(_friendly_error(e))
     
     # Strategy 3: Direct requests with proper headers
     logger.info("Using direct HTTP requests as final fallback")
-    return _direct_duckduckgo_search(query, max_results)
+    return _direct_duckduckgo_search(query, max_results, strategy_errors)
 
 
 def search_for_manuals(brand: str, model: str, max_results: int = 10) -> tuple[List[dict], str | None]:
@@ -106,17 +133,21 @@ def search_for_manuals(brand: str, model: str, max_results: int = 10) -> tuple[L
         query = f"{brand} {model} manual pdf"
         logger.info(f"Searching for manuals: {query}")
         
-        # Use cached search to avoid repeated identical queries
-        results, success = _cached_search(query, max_results)
+        # Use cached search to avoid repeated identical queries. The cache also
+        # stores the error message so a transient failure (e.g. rate limiting)
+        # can be reported accurately instead of as "no results".
+        results, error = _cached_search(query, max_results)
         
-        if not success and not results:
-            # Clear cache and retry if we got cached failure
+        if not results and error:
+            # Clear cache and retry once in case the failure was transient.
             _cached_search.cache_clear()
-            results, _ = _cached_search(query, max_results)
+            results, error = _cached_search(query, max_results)
         
         logger.info(f"Found {len(results)} potential manuals")
         
         if not results:
+            if error:
+                return [], error
             return [], "No manuals found. Try a different brand/model or search terms."
             
         return results, None
@@ -129,13 +160,30 @@ def search_for_manuals(brand: str, model: str, max_results: int = 10) -> tuple[L
         return [], error_detail
 
 
-def _direct_duckduckgo_search(query: str, max_results: int) -> tuple[List[dict], Optional[str]]:
+def _direct_duckduckgo_search(
+    query: str,
+    max_results: int,
+    prior_errors: Optional[List[str]] = None,
+) -> tuple[List[dict], Optional[str]]:
     """
     Direct DuckDuckGo search using HTTP requests with proper headers.
     
-    This is the most reliable fallback when the library fails.
+    This is the most reliable fallback when the library fails. If this also
+    fails, ``prior_errors`` (errors from earlier strategies) are included so
+    the caller can surface the real reason for failure.
     """
     import urllib.parse
+    
+    prior_errors = [e for e in (prior_errors or []) if e]
+    
+    def _failure_message(detail: str) -> str:
+        # Prefer the earliest upstream error (usually the most informative,
+        # e.g. a DuckDuckGo rate-limit) but always mention this fallback too.
+        parts = []
+        if prior_errors:
+            parts.append(prior_errors[0])
+        parts.append(f"Direct search failed: {detail}")
+        return " ".join(parts)
     
     encoded_query = urllib.parse.quote(query)
     url = f"https://duckduckgo.com/html/?q={encoded_query}"
@@ -180,15 +228,16 @@ def _direct_duckduckgo_search(query: str, max_results: int) -> tuple[List[dict],
         time.sleep(2)
         
         logger.info(f"Direct search found {len(results)} results")
-        return results, None if results else "Direct search completed but no PDFs found"
+        if results:
+            return results, None
+        # No PDFs found directly; report the earlier backend errors if any.
+        if prior_errors:
+            return [], prior_errors[0]
+        return [], "No manuals found. Try a different brand/model or search terms."
         
     except Exception as e:
         logger.error(f"Direct search failed: {e}")
-        return [], f"Direct search failed: {str(e)}"
-        
-    except Exception as e:
-        logger.error(f"Fallback search failed: {e}")
-        return []
+        return [], _failure_message(str(e))
 
 
 def download_pdf(url: str, save_path: Path, timeout: int = 30) -> bool:
@@ -267,47 +316,67 @@ def download_manuals_for_device(
         
     Returns:
         Tuple of (downloaded_count, list_of_filenames, error_message or None)
+
+    ``progress_callback`` (when provided) receives a dict describing each step,
+    e.g. ``{"type": "step", "message": ..., "status": ...}``. Keeping the payload
+    structured lets the streaming endpoint forward real progress to the UI and
+    avoids emitting raw strings that the browser silently drops.
     """
+    def _emit(message: str, status: str) -> None:
+        if progress_callback:
+            try:
+                progress_callback({"type": "step", "message": message, "status": status})
+            except Exception as exc:  # never let UI plumbing break the download
+                logger.debug(f"progress_callback failed: {exc}")
+
     device_dir.mkdir(parents=True, exist_ok=True)
     
-    # Search for manuals (now returns tuple of results, error)
-    if progress_callback:
-        progress_callback(f"Searching for manuals: {brand} {model} manual pdf")
+    # Search for manuals (returns tuple of results, error)
+    _emit(f"Searching DuckDuckGo for: {brand} {model} manual pdf", "searching")
     
     results, search_error = search_for_manuals(brand, model, max_results=15)
     
     if not results:
         error_detail = search_error or f"No manuals found for {brand} {model}"
-        logger.info(f"No manuals found for {brand} {model}")
-        if progress_callback:
-            progress_callback(f"❌ No manuals found: {error_detail}")
+        logger.info(f"No manuals found for {brand} {model}: {error_detail}")
         return 0, [], error_detail
     
-    if progress_callback:
-        progress_callback(f"✅ Found {len(results)} potential manuals")
+    _emit(f"Found {len(results)} potential manual(s)", "found")
     
     downloaded = []
     failed = []
     
     # Download up to max_downloads PDFs
-    for i, result in enumerate(results[:max_downloads]):
+    candidates = results[:max_downloads]
+    for i, result in enumerate(candidates):
         filename = f"{brand}_{model}_manual_{i+1}.pdf"
         save_path = device_dir / filename
         
-        if progress_callback:
-            progress_callback(f"📥 Downloading: {result.get('title', 'Unknown')} ({i+1}/{len(results[:max_downloads])})")
+        _emit(f"Downloading: {result.get('title', 'Unknown')} ({i + 1}/{len(candidates)})", "downloading")
         
         if download_pdf(result['url'], save_path):
             downloaded.append(filename)
-            if progress_callback:
-                progress_callback(f"✅ Downloaded: {filename}")
+            _emit(f"Downloaded: {filename}", "success")
         else:
             failed.append(filename)
-            if progress_callback:
-                progress_callback(f"❌ Failed to download: {filename}")
+            _emit(f"Failed to download: {result.get('title', filename)}", "error")
     
     logger.info(f"Downloaded {len(downloaded)} manuals, failed {len(failed)}")
-    return len(downloaded), downloaded
+
+    # If nothing was downloaded but the search itself succeeded, explain why so
+    # the UI can show a real reason instead of a generic "no manuals found".
+    error_detail = None
+    if not downloaded:
+        if failed:
+            error_detail = (
+                f"Found {len(candidates)} manual(s) but none could be downloaded. "
+                "The links may be broken or blocked — try again or use different search terms."
+            )
+        else:
+            error_detail = "No downloadable manuals were found for this brand/model."
+
+    return len(downloaded), downloaded, error_detail
+
 
 
 async def download_manuals_for_device_with_progress(

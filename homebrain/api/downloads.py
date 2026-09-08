@@ -124,20 +124,31 @@ async def stream_download_progress(device_id: int):
     # Queue to hold progress messages
     message_queue = Queue()
     download_complete = asyncio.Event()
-    
+
+    def _sse(payload: dict) -> str:
+        """Serialize a payload as a single SSE data frame (safely escaped)."""
+        return "data: " + json.dumps(payload) + "\n\n"
+
     def progress_callback(message):
-        """Callback that puts messages in the queue."""
+        """Callback that forwards structured progress messages to the queue.
+
+        ``download_manuals_for_device`` emits dicts; older callers may still
+        pass plain strings, so normalize both into SSE frames.
+        """
         try:
-            message_queue.put(message)
+            if isinstance(message, dict):
+                message_queue.put(_sse(message))
+            else:
+                message_queue.put(_sse({"type": "step", "message": str(message), "status": "searching"}))
         except Exception as e:
             logger.error(f"Failed to put message in queue: {e}")
-    
+
     async def generate_progress():
         # Start download in a background thread
         def run_download():
             try:
                 from homebrain.services.manual_downloader import download_manuals_for_device
-                
+
                 downloaded_count, filenames, error_msg = download_manuals_for_device(
                     brand=device['brand'],
                     model=device['model'],
@@ -145,21 +156,30 @@ async def stream_download_progress(device_id: int):
                     max_downloads=5,
                     progress_callback=progress_callback
                 )
-                
-                # Send completion message
+
+                # Emit exactly one terminal event. The frontend renders the
+                # outcome (and any error detail) from this single message so we
+                # never show two red X's for the same failure.
                 if len(filenames) > 0:
-                    msg = f"Successfully downloaded {len(filenames)} manual(s)"
-                    progress_callback('data: {"type": "step", "message": "' + msg + '", "status": "success"}\n\n')
-                    progress_callback('data: {"type": "complete", "downloaded_count": ' + str(downloaded_count) + ', "filenames": ' + json.dumps(filenames) + ', "success": true}\n\n')
+                    progress_callback({
+                        "type": "complete",
+                        "downloaded_count": downloaded_count,
+                        "filenames": filenames,
+                        "success": True,
+                    })
                 else:
                     error_detail = error_msg or "No manuals found"
-                    progress_callback('data: {"type": "step", "message": "Download failed: ' + error_detail + '", "status": "error"}\n\n')
-                    progress_callback('data: {"type": "complete", "downloaded_count": 0, "error_detail": "' + error_detail + '", "success": false}\n\n')
-                    
+                    logger.warning(f"Manual download failed for device {device_id}: {error_detail}")
+                    progress_callback({
+                        "type": "complete",
+                        "downloaded_count": 0,
+                        "error_detail": error_detail,
+                        "success": False,
+                    })
+
             except Exception as e:
-                error_msg = str(e)
-                progress_callback('data: {"type": "step", "message": "Error: ' + error_msg + '", "status": "error"}\n\n')
-                progress_callback('data: {"type": "error", "message": "' + error_msg + '"}\n\n')
+                logger.exception(f"Unexpected error during manual download for device {device_id}")
+                progress_callback({"type": "error", "message": str(e)})
             finally:
                 download_complete.set()
         

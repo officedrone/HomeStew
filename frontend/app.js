@@ -6,6 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let devices = [];
 let currentDeviceFilter = null;
+// Device id currently targeted by the hidden manual-upload input.
+let uploadTargetDeviceId = null;
 
 async function initializeApp() {
     await loadDevices();
@@ -38,6 +40,10 @@ function setupEventListeners() {
             sendChatMessage();
         }
     });
+
+    // Manual upload: the hidden input is shared by every device's "Upload
+    // Manual" button; the target device id is stashed before opening it.
+    document.getElementById('manual-upload-input').addEventListener('change', handleManualFileSelected);
 }
 
 async function loadDevices() {
@@ -62,20 +68,17 @@ function renderDeviceList() {
     }
     
     container.innerHTML = devices.map(device => `
-        <div class="device-item" data-id="${device.id}">
+        <div class="device-item" data-id="${device.id}" onclick="editDevice(${device.id})">
             <div class="device-name">${escapeHtml(device.name)}</div>
             <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
             ${device.serial_number ? `<div class="device-meta">Serial: ${escapeHtml(device.serial_number)}</div>` : ''}
             ${device.product_number ? `<div class="device-meta">Product: ${escapeHtml(device.product_number)}</div>` : ''}
             <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
             <div class="device-actions">
-                <button class="btn btn-primary btn-small" onclick="downloadManuals(${device.id})">
-                    Download Manuals
-                </button>
-                <button class="btn btn-secondary btn-small" onclick="editDevice(${device.id})">
+                <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); editDevice(${device.id})">
                     Edit
                 </button>
-                <button class="btn btn-danger btn-small" onclick="deleteDevice(${device.id})">
+                <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteDevice(${device.id})">
                     Delete
                 </button>
             </div>
@@ -144,6 +147,9 @@ async function editDevice(deviceId) {
     
     // Load and render attributes
     await loadDeviceAttributes(deviceId);
+
+    // Load and render manuals
+    await loadManuals(deviceId);
     
     // Show edit modal
     document.getElementById('edit-device-modal').style.display = 'flex';
@@ -253,67 +259,105 @@ async function downloadManuals(deviceId) {
     // Show progress modal
     const modal = document.getElementById('download-progress-modal');
     const stepsContainer = document.getElementById('download-progress-steps');
+    const statusBox = document.getElementById('download-progress-status');
+    const spinner = document.getElementById('download-spinner');
     const statusText = document.getElementById('download-current-step');
     const closeBtn = document.getElementById('close-download-modal');
-    
+
     modal.style.display = 'flex';
     stepsContainer.innerHTML = '';
     closeBtn.style.display = 'none';
+    // Reset the status row to its "in progress" look (spinner visible, neutral).
+    statusBox.classList.remove('done-success', 'done-error');
+    if (spinner) spinner.style.display = '';
     statusText.textContent = 'Initializing...';
-    
+
+    // Guard so a terminal event is only handled once and late messages are ignored.
+    let finished = false;
+
+    // Stop the spinner and turn the status row into a clear success/error state.
+    function finishDownload({ ok, headline, detail }) {
+        if (spinner) spinner.style.display = 'none';
+        statusBox.classList.add(ok ? 'done-success' : 'done-error');
+        statusText.textContent = headline;
+        closeBtn.style.display = 'inline-block';
+        // Reuse the same expandable-detail toast as the device-added popup so the
+        // real reason (e.g. a DuckDuckGo rate-limit) is visible here too.
+        showToast(headline, ok ? 'success' : 'error', detail || null);
+    }
+
     try {
         // Use EventSource for Server-Sent Events streaming
         const eventSource = new EventSource(`/api/downloads/stream/${deviceId}`);
-        
-        eventSource.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            
+
+        eventSource.onmessage = async function(event) {
+            let data;
+            try {
+                data = JSON.parse(event.data);
+            } catch (e) {
+                console.error('Failed to parse progress message:', event.data, e);
+                return;
+            }
+
             switch(data.type) {
                 case 'step':
-                    // Add a progress step
+                    // Intermediate progress only — ignore once finished.
+                    if (finished) break;
                     addProgressStep(stepsContainer, data.message, data.status || 'searching');
                     statusText.textContent = data.message;
                     break;
-                    
+
                 case 'complete':
+                    if (finished) break;
+                    finished = true;
                     eventSource.close();
                     if (data.success) {
-                        addProgressStep(stepsContainer, `✅ Successfully downloaded ${data.downloaded_count} manual(s)`, 'success');
-                        statusText.textContent = `Download complete! ${data.downloaded_count} manual(s) downloaded`;
-                        showToast(`Downloaded ${data.downloaded_count} manuals!`, 'success');
+                        const count = data.downloaded_count ?? 0;
+                        addProgressStep(stepsContainer, `Successfully downloaded ${count} manual(s)`, 'success');
+                        finishDownload({ ok: true, headline: `Download complete! ${count} manual(s) downloaded` });
+                        // Refresh device counts and the modal's manual list if it is open.
+                        await loadDevices();
+                        const editModal = document.getElementById('edit-device-modal');
+                        if (editModal.style.display === 'flex' &&
+                            parseInt(document.getElementById('edit-device-id').value) === deviceId) {
+                            await loadManuals(deviceId);
+                        }
                     } else {
-                        addProgressStep(stepsContainer, `❌ Download failed: ${data.error_detail}`, 'error');
-                        statusText.textContent = 'Download failed';
-                        showToast(data.error_detail || 'Download failed', 'error');
+                        // Backend sends a single terminal event with the real reason.
+                        const reason = data.error_detail || 'No manuals were downloaded.';
+                        addProgressStep(stepsContainer, reason, 'error');
+                        finishDownload({ ok: false, headline: `Download failed: ${reason}`, detail: reason });
                     }
-                    closeBtn.style.display = 'inline-block';
                     break;
-                    
+
                 case 'error':
+                    if (finished) break;
+                    finished = true;
                     eventSource.close();
-                    addProgressStep(stepsContainer, `❌ Error: ${data.message}`, 'error');
-                    statusText.textContent = 'Error occurred';
-                    showToast(data.message, 'error');
-                    closeBtn.style.display = 'inline-block';
+                    const message = data.message || 'An unexpected error occurred.';
+                    addProgressStep(stepsContainer, message, 'error');
+                    finishDownload({ ok: false, headline: `Error: ${message}`, detail: message });
                     break;
             }
         };
-        
+
         eventSource.onerror = function(error) {
+            if (finished) return;
+            finished = true;
             console.error('EventSource failed:', error);
             eventSource.close();
-            addProgressStep(stepsContainer, '❌ Connection lost', 'error');
-            statusText.textContent = 'Connection error';
-            showToast('Download connection error', 'error');
-            closeBtn.style.display = 'inline-block';
+            const reason = 'Connection to the server was lost while downloading.';
+            addProgressStep(stepsContainer, reason, 'error');
+            finishDownload({ ok: false, headline: `Connection error: ${reason}`, detail: reason });
         };
-        
+
     } catch (error) {
+        if (finished) return;
+        finished = true;
         console.error('Failed to start download:', error);
-        addProgressStep(stepsContainer, `❌ Failed to start: ${error.message}`, 'error');
-        statusText.textContent = 'Error';
-        showToast('Failed to start download', 'error');
-        closeBtn.style.display = 'inline-block';
+        const reason = error.message || 'Could not start the download.';
+        addProgressStep(stepsContainer, `Failed to start: ${reason}`, 'error');
+        finishDownload({ ok: false, headline: `Error: ${reason}`, detail: reason });
     }
 }
 
@@ -341,6 +385,114 @@ function addProgressStep(container, message, type = 'searching') {
 
 function closeDownloadModal() {
     document.getElementById('download-progress-modal').style.display = 'none';
+}
+
+// Open the file picker for a specific device's manual upload.
+function triggerUploadManual(deviceId) {
+    uploadTargetDeviceId = deviceId;
+    const input = document.getElementById('manual-upload-input');
+    input.value = ''; // allow re-selecting the same file after a cancel
+    input.click();
+}
+
+// Handle a PDF chosen via the hidden upload input.
+async function handleManualFileSelected(event) {
+    const file = event.target.files[0];
+    const deviceId = uploadTargetDeviceId;
+    uploadTargetDeviceId = null;
+    if (!file || !deviceId) return;
+
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+        showToast('Only PDF files are supported', 'error');
+        return;
+    }
+
+    showToast(`Uploading ${file.name}...`, 'success');
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`/api/devices/${deviceId}/manuals/upload`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            let detail = 'Failed to upload manual';
+            try {
+                const err = await response.json();
+                if (err.detail) detail = err.detail;
+            } catch (e) { /* non-JSON error body */ }
+            throw new Error(detail);
+        }
+
+        const manual = await response.json();
+        showToast(`Uploaded "${manual.filename}"`, 'success');
+        await loadDevices(); // refresh the manual count on the device card
+        // If the edit modal is open for this device, show the new manual too.
+        if (document.getElementById('edit-device-modal').style.display === 'flex' &&
+            parseInt(document.getElementById('edit-device-id').value) === deviceId) {
+            await loadManuals(deviceId);
+        }
+    } catch (error) {
+        console.error('Failed to upload manual:', error);
+        showToast(error.message || 'Failed to upload manual', 'error');
+    }
+}
+
+// Manuals currently shown in the edit modal, so the delete confirm can name
+// the file without embedding filenames into inline onclick handlers.
+let currentManuals = [];
+
+// Render the manuals of a device inside the edit modal.
+async function loadManuals(deviceId) {
+    const container = document.getElementById('device-manuals-list');
+    container.innerHTML = '<div class="loading">Loading manuals...</div>';
+    currentManuals = [];
+
+    try {
+        const response = await fetch(`/api/downloads/${deviceId}/manuals`);
+        if (!response.ok) throw new Error('Failed to load manuals');
+        const manuals = await response.json();
+        currentManuals = manuals;
+
+        if (manuals.length === 0) {
+            container.innerHTML = '<div class="empty-state">No manuals yet. Download or upload one below.</div>';
+            return;
+        }
+
+        container.innerHTML = manuals.map(m => `
+            <div class="manual-item">
+                <span class="manual-filename" title="${escapeHtml(m.filepath)}">${escapeHtml(m.filename)}</span>
+                <button class="btn btn-danger btn-small" onclick="deleteManual(${deviceId}, ${m.id})">
+                    ×
+                </button>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Failed to load manuals:', error);
+        container.innerHTML = '<div class="empty-state">Failed to load manuals.</div>';
+    }
+}
+
+async function deleteManual(deviceId, manualId) {
+    const manual = currentManuals.find(m => m.id === manualId);
+    const label = manual ? manual.filename : `manual ${manualId}`;
+    if (!confirm(`Delete "${label}"?`)) return;
+
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/manuals/${manualId}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) throw new Error('Failed to delete manual');
+
+        showToast('Manual deleted', 'success');
+        await loadManuals(deviceId);
+        await loadDevices(); // refresh the manual count on the device card
+    } catch (error) {
+        console.error('Failed to delete manual:', error);
+        showToast('Failed to delete manual', 'error');
+    }
 }
 
 async function deleteDevice(deviceId) {
@@ -375,12 +527,19 @@ async function performSearch() {
     container.innerHTML = '<div class="loading">Searching...</div>';
     
     try {
-        const params = new URLSearchParams({ query });
+        const body = { query };
         if (currentDeviceFilter) {
-            params.append('device_id', currentDeviceFilter);
+            body.device_id = currentDeviceFilter;
         }
         
-        const response = await fetch(`/api/search?${params}`);
+        const response = await fetch('/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+            throw new Error(`Search request failed: ${response.status}`);
+        }
         const data = await response.json();
         
         renderSearchResults(data);

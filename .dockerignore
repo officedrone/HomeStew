@@ -1,0 +1,80 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python bytecode and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+venv/
+env/
+.venv/
+environment/
+
+# Node / frontend dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+frontend/dist/
+frontend/build/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Data and databases (mounted via volume)
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Downloads / heavy binaries
+downloads/
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+*.gz
+
+# Logs
+*.log
+logs/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files themselves (not needed inside the image)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Docs and tests
+README.md
+QUICKSTART.md
+docs/
+tests/
+test/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/

@@ -9,6 +9,9 @@ uvicorn[standard]==0.32.0
 pydantic==2.9.2
 pydantic-settings==2.6.0
 
+# File uploads (FastAPI multipart form support)
+python-multipart==0.0.12
+
 # Database
 aiosqlite==0.20.0
 
