@@ -286,6 +286,16 @@ async def delete_device(device_id: int):
         
         # Delete device (cascades to manuals and attributes)
         await db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+
+        # Drop the device's full-text index rows so search results don't keep
+        # pointing at now-deleted manuals.
+        cursor = await db.execute(
+            "SELECT rowid FROM pdf_index WHERE device_id = ?",
+            (device_id,)
+        )
+        for r in await cursor.fetchall():
+            await db.execute("DELETE FROM pdf_index WHERE rowid = ?", (r["rowid"],))
+
         await db.commit()
 
 
@@ -428,13 +438,19 @@ async def delete_manual(device_id: int, manual_id: int):
         except OSError as exc:
             logger.warning(f"Could not delete manual file {manual['filepath']}: {exc}")
 
-        # Drop its full-text index rows. The FTS table has no manual_id column,
-        # so match on device + filename, which is how the indexer wrote them.
+        # Drop its full-text index rows via the manual_id link. Fall back to
+        # device + filename for any legacy rows indexed before manual_id.
         cursor = await db.execute(
-            "SELECT rowid FROM pdf_index WHERE device_id = ? AND filename = ?",
-            (device_id, manual["filename"])
+            "SELECT rowid FROM pdf_index WHERE manual_id = ?",
+            (manual_id,)
         )
         rows = await cursor.fetchall()
+        if not rows:
+            cursor = await db.execute(
+                "SELECT rowid FROM pdf_index WHERE device_id = ? AND filename = ?",
+                (device_id, manual["filename"])
+            )
+            rows = await cursor.fetchall()
         for row in rows:
             await db.execute("DELETE FROM pdf_index WHERE rowid = ?", (row["rowid"],))
 

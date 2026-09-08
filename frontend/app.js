@@ -569,8 +569,8 @@ function renderSearchResults(data) {
         ${data.results.map(result => `
             <div class="result-item">
                 <div class="result-header">
-                    <span class="result-title">${escapeHtml(result.filename)}</span>
-                    <span class="result-meta">Page ${result.page_number}</span>
+                    <a class="result-title" href="/api/downloads/manuals/${result.manual_id}/file#page=${result.page_number}" target="_blank" rel="noopener">${escapeHtml(result.filename)}</a>
+                    <a class="result-meta result-page-link" href="/api/downloads/manuals/${result.manual_id}/file#page=${result.page_number}" target="_blank" rel="noopener">Page ${result.page_number} &nearr;</a>
                 </div>
                 <div class="result-snippet">${result.snippet}</div>
             </div>

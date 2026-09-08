@@ -4,7 +4,11 @@ from pathlib import Path
 from typing import Optional
 
 from homebrain.db import get_db_context
-from homebrain.services.pdf_extractor import extract_text_from_pdf, split_text_into_chunks
+from homebrain.services.pdf_extractor import (
+    extract_text_from_pdf,
+    extract_pages_from_pdf,
+    split_text_into_chunks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +21,10 @@ async def index_manual(
 ) -> bool:
     """
     Index a PDF manual into the FTS5 search engine.
-    
+
+    Each real PDF page becomes one indexed row so that search results can
+    link directly to the correct page of the source PDF.
+
     Args:
         manual_id: ID of the manual in database
         device_id: Device ID this manual belongs to
@@ -28,37 +35,45 @@ async def index_manual(
         True if indexing successful, False otherwise
     """
     try:
-        # Extract text from PDF
-        full_text, page_count = extract_text_from_pdf(pdf_path)
-        
-        if not full_text.strip():
+        # Extract text page-by-page so page numbers match the actual PDF.
+        pages = extract_pages_from_pdf(pdf_path)
+
+        if not any(p.strip() for p in pages):
             logger.warning(f"No text extracted from {pdf_path}")
             return False
         
-        # Split into chunks (one per page or paragraph groups)
-        pages = full_text.split('\n\n')
-        
         async with get_db_context() as db:
-            # Insert each page/chunk into FTS5 index
+            # Drop any previous rows for this manual so re-indexing is safe.
+            cursor = await db.execute(
+                "SELECT rowid FROM pdf_index WHERE manual_id = ?",
+                (manual_id,)
+            )
+            existing = await cursor.fetchall()
+            for row in existing:
+                await db.execute("DELETE FROM pdf_index WHERE rowid = ?", (row['rowid'],))
+
+            # Insert one row per PDF page.
+            indexed_pages = 0
             for page_num, page_text in enumerate(pages, start=1):
                 if not page_text.strip():
                     continue
-                
-                # Truncate very long pages
-                if len(page_text) > 5000:
-                    page_text = page_text[:5000] + "..."
-                
-                await db.execute(
-                    """
-                    INSERT INTO pdf_index (device_id, filename, page_number, content)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (device_id, filename, page_num, page_text)
-                )
+
+                # Very long pages are split into chunks that keep the same
+                # (correct) page number so snippets stay linkable to the page.
+                for chunk in split_text_into_chunks(page_text, max_chunk_size=4000):
+                    await db.execute(
+                        """
+                        INSERT INTO pdf_index
+                            (device_id, manual_id, filename, page_number, content)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (device_id, manual_id, filename, page_num, chunk)
+                    )
+                    indexed_pages += 1
             
             await db.commit()
         
-        logger.info(f"Indexed {len(pages)} pages from {filename}")
+        logger.info(f"Indexed {indexed_pages} chunks from {filename}")
         return True
         
     except Exception as e:

@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from typing import List, AsyncGenerator
 import asyncio
 
@@ -17,6 +17,46 @@ from homebrain.services.indexer import index_manual
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/downloads", tags=["downloads"])
+
+
+async def _register_and_index_manuals(
+    device_id: int,
+    device_dir: Path,
+    filenames: List[str],
+) -> int:
+    """Insert downloaded PDFs into the manuals table and index them for search.
+
+    Returns the number of successfully indexed manuals.
+    """
+    indexed_count = 0
+    async with get_db_context() as db:
+        for filename in filenames:
+            filepath = str(device_dir / filename)
+
+            cursor = await db.execute(
+                """
+                INSERT INTO manuals (device_id, filename, filepath)
+                VALUES (?, ?, ?)
+                RETURNING id
+                """,
+                (device_id, filename, filepath)
+            )
+            row = await cursor.fetchone()
+            manual_id = row['id'] if row else None
+
+            if manual_id:
+                success = await index_manual(
+                    manual_id=manual_id,
+                    device_id=device_id,
+                    pdf_path=filepath,
+                    filename=filename
+                )
+                if success:
+                    indexed_count += 1
+
+        await db.commit()
+
+    return indexed_count
 
 
 @router.post("/trigger", response_model=DownloadStatus)
@@ -71,7 +111,7 @@ async def trigger_manual_download(request: DownloadTriggerRequest):
                 VALUES (?, ?, ?)
                 RETURNING id
                 """,
-                (device_id, filename, filepath)
+                (request.device_id, filename, filepath)
             )
             row = await cursor.fetchone()
             manual_id = row['id'] if row else None
@@ -80,7 +120,7 @@ async def trigger_manual_download(request: DownloadTriggerRequest):
                 # Index the PDF
                 success = await index_manual(
                     manual_id=manual_id,
-                    device_id=device_id,
+                    device_id=request.device_id,
                     pdf_path=filepath,
                     filename=filename
                 )
@@ -156,6 +196,17 @@ async def stream_download_progress(device_id: int):
                     max_downloads=5,
                     progress_callback=progress_callback
                 )
+
+                # Register and index the downloaded PDFs so they become
+                # searchable. This runs in a worker thread, so use asyncio.run
+                # (the thread gets its own event loop).
+                if filenames:
+                    try:
+                        downloaded_count = asyncio.run(
+                            _register_and_index_manuals(device_id, device_dir, filenames)
+                        )
+                    except Exception as exc:
+                        logger.error(f"Failed to index downloaded manuals: {exc}")
 
                 # Emit exactly one terminal event. The frontend renders the
                 # outcome (and any error detail) from this single message so we
@@ -256,3 +307,45 @@ async def list_device_manuals(device_id: int):
             )
             for row in rows
         ]
+
+
+@router.get("/manuals/{manual_id}/file")
+async def get_manual_file(manual_id: int):
+    """Serve a stored manual PDF inline (for search-result links).
+
+    The browser's built-in PDF viewer honours the ``#page=N`` fragment, so
+    search results link to ``/api/downloads/manuals/{id}/file#page=N``.
+    """
+    from fastapi.responses import FileResponse
+
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT filename, filepath FROM manuals WHERE id = ?",
+            (manual_id,)
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Manual {manual_id} not found"
+        )
+
+    path = Path(row["filepath"])
+    # Only serve files that live inside the managed devices directory.
+    try:
+        resolved = path.resolve()
+        allowed_root = settings.DEVICES_DIR.resolve()
+        if not str(resolved).startswith(str(allowed_root)) or not resolved.is_file():
+            raise ValueError("outside devices dir")
+    except (OSError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Manual file not found on disk"
+        )
+
+    return FileResponse(
+        str(resolved),
+        media_type="application/pdf",
+        content_disposition_type="inline",
+    )

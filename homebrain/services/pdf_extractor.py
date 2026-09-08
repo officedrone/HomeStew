@@ -46,6 +46,40 @@ def extract_text_from_pdf(pdf_path: str) -> tuple[str, int]:
         raise
 
 
+def extract_pages_from_pdf(pdf_path: str) -> list[str]:
+    """Extract text from a PDF file one page at a time.
+
+    Args:
+        pdf_path: Path to the PDF file
+
+    Returns:
+        List with one text entry per PDF page (empty string for pages
+        without extractable text), so page numbers stay accurate.
+
+    Raises:
+        FileNotFoundError: If PDF doesn't exist
+        Exception: If extraction fails
+    """
+    from pypdf import PdfReader
+
+    path = Path(pdf_path)
+    if not path.exists():
+        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+
+    reader = PdfReader(str(path))
+    pages = []
+    for page in reader.pages:
+        try:
+            text = page.extract_text() or ""
+        except Exception as e:  # a broken page shouldn't kill the whole manual
+            logger.warning(f"Failed to extract page {len(pages) + 1} of {pdf_path}: {e}")
+            text = ""
+        pages.append(text.strip())
+
+    logger.info(f"Extracted {len(pages)} pages (per-page) from {pdf_path}")
+    return pages
+
+
 def split_text_into_chunks(text: str, max_chunk_size: int = 2000) -> list[str]:
     """
     Split text into manageable chunks for indexing.
