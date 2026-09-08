@@ -188,14 +188,28 @@ async function handleEditDevice(e) {
 
 async function loadDeviceAttributes(deviceId) {
     const container = document.getElementById('device-attributes-list');
-    const device = devices.find(d => d.id === deviceId);
-    
-    if (!device || !device.attributes || device.attributes.length === 0) {
+
+    // The devices array comes from GET /api/devices, which does not include
+    // attributes — fetch the single-device endpoint so newly added/removed
+    // attributes are reflected immediately.
+    let attrs = [];
+    try {
+        const response = await fetch(`/api/devices/${deviceId}`);
+        if (!response.ok) throw new Error('Failed to load attributes');
+        const device = await response.json();
+        attrs = device.attributes || [];
+    } catch (error) {
+        console.error('Failed to load device attributes:', error);
+        container.innerHTML = '<div class="empty-state">Failed to load attributes.</div>';
+        return;
+    }
+
+    if (attrs.length === 0) {
         container.innerHTML = '<div class="empty-state">No custom attributes</div>';
         return;
     }
     
-    container.innerHTML = device.attributes.map(attr => `
+    container.innerHTML = attrs.map(attr => `
         <div class="attribute-item">
             <span class="attribute-name">${escapeHtml(attr.attribute_name)}:</span>
             <span class="attribute-value">${escapeHtml(attr.attribute_value)}</span>
