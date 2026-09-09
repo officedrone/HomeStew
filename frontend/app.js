@@ -53,6 +53,7 @@ function setupEventListeners() {
     // Settings modal
     document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
+    document.getElementById('fetch-models-btn').addEventListener('click', fetchLlmModels);
 
     // Escape closes the settings modal
     document.addEventListener('keydown', (e) => {
@@ -810,6 +811,11 @@ function openAddDeviceSection() {
 // Settings modal (LLM configuration)
 // ---------------------------------------------------------------------------
 
+// Shown inside the API key field when a key is already configured. The real
+// value is never sent to the browser — an obscured placeholder just signals
+// "a key exists"; leaving the field blank keeps it, typing replaces it.
+const API_KEY_PLACEHOLDER = '********';
+
 async function openSettingsModal() {
     let settings;
     try {
@@ -824,17 +830,93 @@ async function openSettingsModal() {
 
     document.getElementById('settings-llm-base-url').value = settings.llm_base_url || '';
     document.getElementById('settings-llm-model').value = settings.llm_model || '';
+
     const keyInput = document.getElementById('settings-llm-api-key');
     keyInput.value = '';
-    document.getElementById('settings-api-key-hint').textContent = settings.llm_api_key_set
-        ? 'An API key is configured. Leave blank to keep it, or type a new one to replace it.'
-        : 'No API key is set (not required for Ollama). Enter one to configure it.';
+    if (settings.llm_api_key_set) {
+        keyInput.placeholder = API_KEY_PLACEHOLDER;
+        document.getElementById('settings-api-key-hint').textContent =
+            'An API key is configured. Leave blank to keep it, or type a new one to replace it.';
+    } else {
+        keyInput.placeholder = '';
+        // No hint when nothing is configured — the empty field says it all.
+        document.getElementById('settings-api-key-hint').textContent = '';
+    }
+
+    // Reset the model dropdown for the (possibly new) server.
+    document.getElementById('settings-llm-model-options').innerHTML = '';
+    document.getElementById('model-list-hint').textContent = '';
 
     document.getElementById('settings-modal').style.display = 'flex';
 }
 
 function closeSettingsModal() {
     document.getElementById('settings-modal').style.display = 'none';
+}
+
+// Populate the LLM Model datalist from the server's /models endpoint, using
+// whatever base URL / API key are currently in the form (saved or not).
+async function fetchLlmModels() {
+    const hint = document.getElementById('model-list-hint');
+    const btn = document.getElementById('fetch-models-btn');
+    const datalist = document.getElementById('settings-llm-model-options');
+
+    const keyInput = document.getElementById('settings-llm-api-key');
+    const payload = {
+        llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
+    };
+    // Only send a freshly typed key; if blank, the server probes with the saved one.
+    if (keyInput.value.trim()) {
+        payload.llm_api_key = keyInput.value.trim();
+    }
+
+    btn.disabled = true;
+    hint.textContent = 'Loading models...';
+    try {
+        const response = await fetch('/api/settings/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            let detail = `HTTP ${response.status}`;
+            try {
+                const data = await response.json();
+                if (data.detail) detail = data.detail;
+            } catch (e) { /* non-JSON error body */ }
+            throw new Error(detail);
+        }
+        const data = await response.json();
+        datalist.innerHTML = '';
+        for (const modelId of data.models) {
+            const option = document.createElement('option');
+            option.value = modelId;
+            datalist.appendChild(option);
+        }
+
+        if (data.models.length) {
+            // Clear the field so the dropdown isn't filtered down to the
+            // previously saved name, then pop the list open for selection.
+            const modelInput = document.getElementById('settings-llm-model');
+            modelInput.value = '';
+            modelInput.focus();
+            try {
+                modelInput.showPicker();
+            } catch (e) {
+                // showPicker needs a fresh user gesture; if the request took
+                // too long, just leave focus on the field for manual opening.
+            }
+        }
+
+        hint.textContent = data.models.length
+            ? `Loaded ${data.models.length} model${data.models.length === 1 ? '' : 's'} from the server.`
+            : 'Server responded, but no models were listed.';
+    } catch (error) {
+        datalist.innerHTML = '';
+        hint.textContent = error.message;
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 async function handleSettingsSave(event) {
@@ -845,6 +927,7 @@ async function handleSettingsSave(event) {
         llm_model: document.getElementById('settings-llm-model').value.trim(),
     };
     // Blank API key field means "keep the existing key" — omit it entirely.
+    // (The obscured placeholder is only a visual hint, never a value.)
     const apiKey = document.getElementById('settings-llm-api-key').value.trim();
     if (apiKey) payload.llm_api_key = apiKey;
 

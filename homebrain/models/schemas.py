@@ -150,3 +150,17 @@ class SettingsUpdate(BaseModel):
     llm_base_url: Optional[str] = Field(None, max_length=500)
     llm_api_key: Optional[str] = Field(None, max_length=500)
     llm_model: Optional[str] = Field(None, min_length=1, max_length=200)
+
+
+class ModelListRequest(BaseModel):
+    """Optionally override base URL / API key when probing the LLM server.
+
+    Blank/omitted values fall back to the currently saved settings.
+    """
+    llm_base_url: Optional[str] = Field(None, max_length=500)
+    llm_api_key: Optional[str] = Field(None, max_length=500)
+
+
+class ModelListResponse(BaseModel):
+    """Model ids reported by the LLM server's /models endpoint."""
+    models: list[str]

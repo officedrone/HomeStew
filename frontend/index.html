@@ -180,13 +180,18 @@
                     <input type="text" id="settings-llm-base-url" placeholder="e.g., http://localhost:11434/v1" required>
                 </div>
                 <div class="settings-field">
-                    <label for="settings-llm-model">LLM Model</label>
-                    <input type="text" id="settings-llm-model" placeholder="e.g., llama3.2" required>
-                </div>
-                <div class="settings-field">
                     <label for="settings-llm-api-key">LLM API Key</label>
                     <input type="password" id="settings-llm-api-key" autocomplete="new-password">
                     <p class="settings-hint" id="settings-api-key-hint"></p>
+                </div>
+                <div class="settings-field">
+                    <label for="settings-llm-model">LLM Model</label>
+                    <div class="model-row">
+                        <input type="text" id="settings-llm-model" list="settings-llm-model-options" placeholder="e.g., llama3.2" required>
+                        <datalist id="settings-llm-model-options"></datalist>
+                        <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">&#8635; Models</button>
+                    </div>
+                    <p class="settings-hint" id="model-list-hint"></p>
                 </div>
 
                 <div class="modal-actions">

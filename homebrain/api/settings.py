@@ -1,12 +1,22 @@
 """Application settings API endpoints (LLM configuration)."""
 import logging
 
+import requests
 from fastapi import APIRouter, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 
 from homebrain.config import save_settings_overrides, settings
-from homebrain.models.schemas import SettingsResponse, SettingsUpdate
+from homebrain.models.schemas import (
+    ModelListRequest,
+    ModelListResponse,
+    SettingsResponse,
+    SettingsUpdate,
+)
 
 logger = logging.getLogger(__name__)
+
+# How long to wait for the LLM server when probing its model list.
+MODEL_LIST_TIMEOUT = 10
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -76,3 +86,53 @@ async def update_settings(update: SettingsUpdate):
 
     logger.info("Settings updated: %s", sorted(changes.keys()))
     return _current_settings()
+
+
+@router.post("/models", response_model=ModelListResponse)
+async def list_llm_models(probe: ModelListRequest):
+    """Query the LLM server's OpenAI-compatible ``/models`` endpoint.
+
+    Uses the base URL / API key from the request body when provided (so a
+    freshly typed, unsaved configuration can be probed), otherwise falls back
+    to the currently saved settings. The key is only ever sent to the server
+    itself and never logged or returned.
+    """
+    base_url = (probe.llm_base_url or "").strip() or settings.LLM_BASE_URL
+    base_url = base_url.rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="LLM base URL must start with http:// or https://"
+        )
+
+    api_key = (probe.llm_api_key or "").strip() or settings.LLM_API_KEY
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    try:
+        resp = await run_in_threadpool(
+            lambda: requests.get(
+                f"{base_url}/models", headers=headers, timeout=MODEL_LIST_TIMEOUT
+            )
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except requests.RequestException as exc:
+        logger.warning("Could not list LLM models from %s: %s", base_url, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not reach the model list at {base_url}/models"
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Model list endpoint returned an unexpected response"
+        )
+
+    models = []
+    for item in payload.get("data", []) if isinstance(payload, dict) else []:
+        model_id = item.get("id") if isinstance(item, dict) else None
+        if isinstance(model_id, str) and model_id and model_id not in models:
+            models.append(model_id)
+    models.sort(key=str.lower)
+
+    return ModelListResponse(models=models)

@@ -12,7 +12,9 @@ services:
     environment:
       # LLM Configuration - adjust based on your setup
       - LLM_BASE_URL=http://localhost:11434/v1  # Ollama default
-      - LLM_API_KEY=ollama  # Required but ignored by local servers
+      # No API key needed for local servers (a dummy is used automatically).
+      # Uncomment to configure one, e.g. for hosted providers:
+      # - LLM_API_KEY=sk-your-api-key
       - LLM_MODEL=llama3.2  # Change to your preferred model
       
       # Optional: Override with your settings

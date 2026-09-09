@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     
     # LLM Configuration
     LLM_BASE_URL: str = "http://localhost:11434/v1"
-    LLM_API_KEY: str = "changeme"
+    # Empty by default — local servers (Ollama etc.) ignore the key, and an
+    # empty value means "no API key configured" in the Settings UI.
+    LLM_API_KEY: str = ""
     LLM_MODEL: str = "llama3.2"
     
     # Data directories

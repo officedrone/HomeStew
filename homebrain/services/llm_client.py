@@ -19,7 +19,9 @@ class LLMClient:
             model: Model name to use
         """
         self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
+        # OpenAI-compatible clients require a non-empty key even when the
+        # server ignores it (local Ollama etc.) — substitute a dummy.
+        self.api_key = api_key if api_key and api_key.strip() else "not-needed"
         self.model = model
         
         # Try to import openai library, fallback to requests if not available
@@ -28,7 +30,7 @@ class LLMClient:
             self._use_openai = True
             self.client = OpenAI(
                 base_url=self.base_url,
-                api_key=api_key
+                api_key=self.api_key
             )
             logger.info("Using OpenAI library for LLM client")
         except ImportError:
