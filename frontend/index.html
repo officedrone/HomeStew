@@ -9,18 +9,18 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Sidebar (slide-out drawer, pinnable) -->
+        <!-- Sidebar (docked, expanded / collapsed modes) -->
         <aside class="sidebar" id="sidebar">
-            <div class="sidebar-header">
-                <button type="button" class="icon-btn" id="sidebar-pin" title="Pin sidebar open">⤢</button>
-                <button type="button" class="icon-btn" id="sidebar-close" title="Close menu">&times;</button>
+            <div class="sidebar-top">
+                <button type="button" class="icon-btn" id="sidebar-toggle-btn" title="Collapse sidebar">&lt;</button>
+                <button type="button" class="icon-btn rail-only" id="rail-add-device" title="Add new device">+</button>
             </div>
-            <div class="logo">
+            <div class="logo content-only">
                 <h1>🧠 HomeBrain</h1>
                 <p class="tagline">Device Manual Manager</p>
             </div>
             
-            <nav class="nav-sections">
+            <nav class="nav-sections content-only">
                 <!-- Add Device Form -->
                 <div class="section">
                     <h3>Add New Device</h3>
@@ -45,16 +45,11 @@
             </nav>
         </aside>
 
-        <!-- Sidebar backdrop (drawer mode) -->
-        <div id="sidebar-scrim" class="scrim"></div>
-
         <!-- Main Content -->
         <main class="main-content">
             <!-- Top bar -->
             <header class="topbar">
-                <button type="button" class="icon-btn" id="sidebar-toggle" title="Open menu">☰</button>
                 <span class="topbar-spacer"></span>
-                <button type="button" class="icon-btn" id="open-add-device" title="Add new device">+</button>
                 <button type="button" class="icon-btn" id="settings-btn" title="Settings">⚙</button>
             </header>
 

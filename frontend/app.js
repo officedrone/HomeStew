@@ -45,27 +45,21 @@ function setupEventListeners() {
     // Manual" button; the target device id is stashed before opening it.
     document.getElementById('manual-upload-input').addEventListener('change', handleManualFileSelected);
 
-    // Sidebar drawer (slide-out menu)
-    applySidebarPinState();
-    document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
-    document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
-    document.getElementById('sidebar-scrim').addEventListener('click', closeSidebar);
-    document.getElementById('sidebar-pin').addEventListener('click', toggleSidebarPin);
-    document.getElementById('open-add-device').addEventListener('click', openAddDeviceSection);
-    window.addEventListener('resize', updateScrimVisibility);
+    // Sidebar (docked, expanded / collapsed modes)
+    applySidebarState();
+    document.getElementById('sidebar-toggle-btn').addEventListener('click', toggleSidebar);
+    document.getElementById('rail-add-device').addEventListener('click', openAddDeviceSection);
 
     // Settings modal
     document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
 
-    // Escape closes the drawer and settings modal
+    // Escape closes the settings modal
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
         const settingsModal = document.getElementById('settings-modal');
         if (settingsModal.style.display === 'flex') {
             closeSettingsModal();
-        } else if (isOverlayMode() && document.getElementById('sidebar').classList.contains('open')) {
-            closeSidebar();
         }
     });
 }
@@ -775,58 +769,36 @@ function escapeHtml(text) {
 }
 
 // ---------------------------------------------------------------------------
-// Sidebar drawer (slide-out menu with pin/dock mode)
+// Sidebar (docked, pushes content; expanded / collapsed modes)
 // ---------------------------------------------------------------------------
 
-// The sidebar is an overlay drawer whenever it is unpinned, and always on
-// small screens (mirrors the CSS media query).
-function isOverlayMode() {
-    return !document.body.classList.contains('sidebar-pinned') || window.innerWidth <= 768;
-}
-
-function applySidebarPinState() {
-    const pinned = localStorage.getItem('sidebarPinned') === '1';
-    document.body.classList.toggle('sidebar-pinned', pinned);
-    if (pinned) {
-        // A pinned sidebar is shown inline by default.
-        document.getElementById('sidebar').classList.add('open');
-    }
-    updateScrimVisibility();
-}
-
-function updateScrimVisibility() {
-    const open = document.getElementById('sidebar').classList.contains('open');
-    document.getElementById('sidebar-scrim')
-        .classList.toggle('show', open && isOverlayMode());
+// The sidebar is always docked inline and behaves the same at every screen
+// size. It defaults to expanded; the collapsed/expanded choice persists.
+function applySidebarState() {
+    const collapsed = localStorage.getItem('sidebarCollapsed') === '1';
+    document.body.classList.toggle('sidebar-collapsed', collapsed);
+    updateSidebarToggle();
 }
 
 function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    sidebar.classList.toggle('open');
-    updateScrimVisibility();
+    const collapsed = document.body.classList.toggle('sidebar-collapsed');
+    localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+    updateSidebarToggle();
 }
 
-function closeSidebar() {
-    document.getElementById('sidebar').classList.remove('open');
-    updateScrimVisibility();
-}
-
-function toggleSidebarPin() {
-    const pinned = document.body.classList.toggle('sidebar-pinned');
-    localStorage.setItem('sidebarPinned', pinned ? '1' : '0');
-    if (pinned) {
-        // Keep the sidebar visible now that it is docked inline.
-        document.getElementById('sidebar').classList.add('open');
-    }
-    updateScrimVisibility();
+function updateSidebarToggle() {
+    const collapsed = document.body.classList.contains('sidebar-collapsed');
+    const btn = document.getElementById('sidebar-toggle-btn');
+    // Chevron points in the direction the toggle action takes the sidebar.
+    btn.textContent = collapsed ? '>' : '<';
+    btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
 }
 
 function openAddDeviceSection() {
-    const sidebar = document.getElementById('sidebar');
-    sidebar.classList.add('open');
-    updateScrimVisibility();
-    // Wait for the slide-in transition before focusing so the browser does
-    // not scroll the (still off-screen) input into view.
+    // The rail's "+" lives in collapsed mode: expand first, then focus.
+    if (document.body.classList.contains('sidebar-collapsed')) {
+        toggleSidebar();
+    }
     setTimeout(() => {
         const form = document.getElementById('add-device-form');
         form.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -870,13 +842,11 @@ async function handleSettingsSave(event) {
 
     const payload = {
         llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
-        llm_model: document.getElementById('settings-llm-model').value.trim()
+        llm_model: document.getElementById('settings-llm-model').value.trim(),
     };
-    // Blank key means "keep the existing one" — omit it entirely.
+    // Blank API key field means "keep the existing key" — omit it entirely.
     const apiKey = document.getElementById('settings-llm-api-key').value.trim();
-    if (apiKey) {
-        payload.llm_api_key = apiKey;
-    }
+    if (apiKey) payload.llm_api_key = apiKey;
 
     const saveBtn = document.getElementById('settings-save-btn');
     saveBtn.disabled = true;
@@ -884,17 +854,21 @@ async function handleSettingsSave(event) {
         const response = await fetch('/api/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
         });
         if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.detail || `HTTP ${response.status}`);
+            let detail = `HTTP ${response.status}`;
+            try {
+                const data = await response.json();
+                if (data.detail) detail = data.detail;
+            } catch (e) { /* non-JSON error body */ }
+            throw new Error(detail);
         }
         closeSettingsModal();
-        showToast('Settings saved', 'success');
+        showToast('Settings saved');
     } catch (error) {
         console.error('Failed to save settings:', error);
-        showToast(`Failed to save settings: ${error.message}`, 'error');
+        showToast('Failed to save settings', 'error', error.message);
     } finally {
         saveBtn.disabled = false;
     }
