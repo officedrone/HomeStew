@@ -15,6 +15,7 @@ from homebrain.api.devices import router as devices_router
 from homebrain.api.downloads import router as downloads_router
 from homebrain.api.search import router as search_router
 from homebrain.api.chat import router as chat_router
+from homebrain.api.settings import router as settings_router
 
 # Configure logging
 logging.basicConfig(
@@ -61,6 +62,7 @@ app.include_router(devices_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
 
 
 @app.get("/health")

@@ -9,8 +9,12 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
+        <!-- Sidebar (slide-out drawer, pinnable) -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <button type="button" class="icon-btn" id="sidebar-pin" title="Pin sidebar open">⤢</button>
+                <button type="button" class="icon-btn" id="sidebar-close" title="Close menu">&times;</button>
+            </div>
             <div class="logo">
                 <h1>🧠 HomeBrain</h1>
                 <p class="tagline">Device Manual Manager</p>
@@ -41,8 +45,19 @@
             </nav>
         </aside>
 
+        <!-- Sidebar backdrop (drawer mode) -->
+        <div id="sidebar-scrim" class="scrim"></div>
+
         <!-- Main Content -->
         <main class="main-content">
+            <!-- Top bar -->
+            <header class="topbar">
+                <button type="button" class="icon-btn" id="sidebar-toggle" title="Open menu">☰</button>
+                <span class="topbar-spacer"></span>
+                <button type="button" class="icon-btn" id="open-add-device" title="Add new device">+</button>
+                <button type="button" class="icon-btn" id="settings-btn" title="Settings">⚙</button>
+            </header>
+
             <!-- Tabs -->
             <div class="tabs">
                 <button class="tab-btn active" data-tab="search">🔍 Search</button>
@@ -155,6 +170,35 @@
                 <span id="download-current-step">Initializing...</span>
             </div>
             <button id="close-download-modal" class="btn btn-secondary" style="margin-top: 20px; display: none;" onclick="closeDownloadModal()">Close</button>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeSettingsModal()">&times;</span>
+            <h2>⚙ Settings</h2>
+
+            <form id="settings-form" class="device-form">
+                <div class="settings-field">
+                    <label for="settings-llm-base-url">LLM Base URL</label>
+                    <input type="text" id="settings-llm-base-url" placeholder="e.g., http://localhost:11434/v1" required>
+                </div>
+                <div class="settings-field">
+                    <label for="settings-llm-model">LLM Model</label>
+                    <input type="text" id="settings-llm-model" placeholder="e.g., llama3.2" required>
+                </div>
+                <div class="settings-field">
+                    <label for="settings-llm-api-key">LLM API Key</label>
+                    <input type="password" id="settings-llm-api-key" autocomplete="new-password">
+                    <p class="settings-hint" id="settings-api-key-hint"></p>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeSettingsModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="settings-save-btn">Save Settings</button>
+                </div>
+            </form>
         </div>
     </div>
 

@@ -134,3 +134,19 @@ class DownloadStatus(BaseModel):
     message: str
     downloaded_count: int = 0
     error_detail: str | None = None
+
+
+class SettingsResponse(BaseModel):
+    """Current application settings (secrets are never included)."""
+    llm_base_url: str
+    llm_model: str
+    llm_api_key_set: bool = Field(
+        ..., description="True if an LLM API key is configured (value not exposed)"
+    )
+
+
+class SettingsUpdate(BaseModel):
+    """Update application settings. Omitted/blank fields are left unchanged."""
+    llm_base_url: Optional[str] = Field(None, max_length=500)
+    llm_api_key: Optional[str] = Field(None, max_length=500)
+    llm_model: Optional[str] = Field(None, min_length=1, max_length=200)

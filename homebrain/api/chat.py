@@ -29,6 +29,12 @@ def get_llm_client() -> LLMClient:
     return _llm_client
 
 
+def reset_llm_client() -> None:
+    """Drop the cached client so updated settings take effect on next request."""
+    global _llm_client
+    _llm_client = None
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Send a chat message and get LLM response with manual search capability."""

@@ -1,8 +1,15 @@
 """Configuration management for HomeBrain."""
+import json
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
+
+# Settings that can be changed at runtime via the UI and persisted to disk.
+EDITABLE_SETTINGS = ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL")
 
 
 class Settings(BaseSettings):
@@ -43,3 +50,54 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def _overrides_path() -> Path:
+    """Path to the persisted settings-override file (inside the /data volume)."""
+    return settings.DATA_DIR / "settings.json"
+
+
+def load_settings_overrides() -> None:
+    """Apply persisted UI overrides on top of env/default values.
+
+    Precedence: settings.json > environment variables > defaults.
+    Called once at import time so overrides survive container restarts.
+    """
+    path = _overrides_path()
+    if not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Could not read settings overrides from %s: %s", path, exc)
+        return
+    for key in EDITABLE_SETTINGS:
+        if key in data and data[key] is not None:
+            setattr(settings, key, data[key])
+    logger.info("Loaded settings overrides from %s", path)
+
+
+def save_settings_overrides(values: dict) -> None:
+    """Merge the given values into the persisted override file.
+
+    Only keys present in EDITABLE_SETTINGS are written. Existing stored
+    values for keys not included here are preserved.
+    """
+    path = _overrides_path()
+    existing = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    for key in EDITABLE_SETTINGS:
+        if key in values and values[key] is not None:
+            existing[key] = values[key]
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+
+
+# Apply any persisted overrides immediately after the singleton is created.
+load_settings_overrides()

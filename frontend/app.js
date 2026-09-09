@@ -44,6 +44,30 @@ function setupEventListeners() {
     // Manual upload: the hidden input is shared by every device's "Upload
     // Manual" button; the target device id is stashed before opening it.
     document.getElementById('manual-upload-input').addEventListener('change', handleManualFileSelected);
+
+    // Sidebar drawer (slide-out menu)
+    applySidebarPinState();
+    document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+    document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+    document.getElementById('sidebar-scrim').addEventListener('click', closeSidebar);
+    document.getElementById('sidebar-pin').addEventListener('click', toggleSidebarPin);
+    document.getElementById('open-add-device').addEventListener('click', openAddDeviceSection);
+    window.addEventListener('resize', updateScrimVisibility);
+
+    // Settings modal
+    document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
+    document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
+
+    // Escape closes the drawer and settings modal
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const settingsModal = document.getElementById('settings-modal');
+        if (settingsModal.style.display === 'flex') {
+            closeSettingsModal();
+        } else if (isOverlayMode() && document.getElementById('sidebar').classList.contains('open')) {
+            closeSidebar();
+        }
+    });
 }
 
 async function loadDevices() {
@@ -748,4 +772,130 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar drawer (slide-out menu with pin/dock mode)
+// ---------------------------------------------------------------------------
+
+// The sidebar is an overlay drawer whenever it is unpinned, and always on
+// small screens (mirrors the CSS media query).
+function isOverlayMode() {
+    return !document.body.classList.contains('sidebar-pinned') || window.innerWidth <= 768;
+}
+
+function applySidebarPinState() {
+    const pinned = localStorage.getItem('sidebarPinned') === '1';
+    document.body.classList.toggle('sidebar-pinned', pinned);
+    if (pinned) {
+        // A pinned sidebar is shown inline by default.
+        document.getElementById('sidebar').classList.add('open');
+    }
+    updateScrimVisibility();
+}
+
+function updateScrimVisibility() {
+    const open = document.getElementById('sidebar').classList.contains('open');
+    document.getElementById('sidebar-scrim')
+        .classList.toggle('show', open && isOverlayMode());
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('open');
+    updateScrimVisibility();
+}
+
+function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    updateScrimVisibility();
+}
+
+function toggleSidebarPin() {
+    const pinned = document.body.classList.toggle('sidebar-pinned');
+    localStorage.setItem('sidebarPinned', pinned ? '1' : '0');
+    if (pinned) {
+        // Keep the sidebar visible now that it is docked inline.
+        document.getElementById('sidebar').classList.add('open');
+    }
+    updateScrimVisibility();
+}
+
+function openAddDeviceSection() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.add('open');
+    updateScrimVisibility();
+    // Wait for the slide-in transition before focusing so the browser does
+    // not scroll the (still off-screen) input into view.
+    setTimeout(() => {
+        const form = document.getElementById('add-device-form');
+        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.getElementById('device-name').focus();
+    }, 260);
+}
+
+// ---------------------------------------------------------------------------
+// Settings modal (LLM configuration)
+// ---------------------------------------------------------------------------
+
+async function openSettingsModal() {
+    let settings;
+    try {
+        const response = await fetch('/api/settings');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        settings = await response.json();
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+        showToast('Failed to load settings', 'error');
+        return;
+    }
+
+    document.getElementById('settings-llm-base-url').value = settings.llm_base_url || '';
+    document.getElementById('settings-llm-model').value = settings.llm_model || '';
+    const keyInput = document.getElementById('settings-llm-api-key');
+    keyInput.value = '';
+    document.getElementById('settings-api-key-hint').textContent = settings.llm_api_key_set
+        ? 'An API key is configured. Leave blank to keep it, or type a new one to replace it.'
+        : 'No API key is set (not required for Ollama). Enter one to configure it.';
+
+    document.getElementById('settings-modal').style.display = 'flex';
+}
+
+function closeSettingsModal() {
+    document.getElementById('settings-modal').style.display = 'none';
+}
+
+async function handleSettingsSave(event) {
+    event.preventDefault();
+
+    const payload = {
+        llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
+        llm_model: document.getElementById('settings-llm-model').value.trim()
+    };
+    // Blank key means "keep the existing one" — omit it entirely.
+    const apiKey = document.getElementById('settings-llm-api-key').value.trim();
+    if (apiKey) {
+        payload.llm_api_key = apiKey;
+    }
+
+    const saveBtn = document.getElementById('settings-save-btn');
+    saveBtn.disabled = true;
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${response.status}`);
+        }
+        closeSettingsModal();
+        showToast('Settings saved', 'success');
+    } catch (error) {
+        console.error('Failed to save settings:', error);
+        showToast(`Failed to save settings: ${error.message}`, 'error');
+    } finally {
+        saveBtn.disabled = false;
+    }
 }
