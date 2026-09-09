@@ -143,6 +143,18 @@ class SettingsResponse(BaseModel):
     llm_api_key_set: bool = Field(
         ..., description="True if an LLM API key is configured (value not exposed)"
     )
+    chat_system_prompt: str = Field(
+        ..., description="System prompt sent with every chat request"
+    )
+    search_tool_description: str = Field(
+        ..., description="Description of the search_manuals tool shown to the LLM"
+    )
+    chat_system_prompt_default: str = Field(
+        ..., description="Built-in default for chat_system_prompt (Restore Default)"
+    )
+    search_tool_description_default: str = Field(
+        ..., description="Built-in default for search_tool_description (Restore Default)"
+    )
 
 
 class SettingsUpdate(BaseModel):
@@ -150,6 +162,12 @@ class SettingsUpdate(BaseModel):
     llm_base_url: Optional[str] = Field(None, max_length=500)
     llm_api_key: Optional[str] = Field(None, max_length=500)
     llm_model: Optional[str] = Field(None, min_length=1, max_length=200)
+    chat_system_prompt: Optional[str] = Field(
+        None, max_length=8000, description="Custom chat system prompt"
+    )
+    search_tool_description: Optional[str] = Field(
+        None, max_length=4000, description="Custom search_manuals tool description"
+    )
 
 
 class ModelListRequest(BaseModel):

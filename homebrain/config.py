@@ -6,10 +6,21 @@ from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
 
+from homebrain.default_prompts import (
+    DEFAULT_CHAT_SYSTEM_PROMPT,
+    DEFAULT_SEARCH_TOOL_DESCRIPTION,
+)
+
 logger = logging.getLogger(__name__)
 
 # Settings that can be changed at runtime via the UI and persisted to disk.
-EDITABLE_SETTINGS = ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL")
+EDITABLE_SETTINGS = (
+    "LLM_BASE_URL",
+    "LLM_API_KEY",
+    "LLM_MODEL",
+    "CHAT_SYSTEM_PROMPT",
+    "SEARCH_TOOL_DESCRIPTION",
+)
 
 
 class Settings(BaseSettings):
@@ -30,6 +41,11 @@ class Settings(BaseSettings):
     # empty value means "no API key configured" in the Settings UI.
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "llama3.2"
+
+    # LLM prompts (editable under Settings > Advanced Settings). Defaults are
+    # the built-in prompt texts from homebrain.default_prompts.
+    CHAT_SYSTEM_PROMPT: str = DEFAULT_CHAT_SYSTEM_PROMPT
+    SEARCH_TOOL_DESCRIPTION: str = DEFAULT_SEARCH_TOOL_DESCRIPTION
     
     # Data directories
     DATA_DIR: Path = Path("/data")

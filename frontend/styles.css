@@ -779,6 +779,81 @@ a.result-page-link:hover {
     opacity: 0.7;
 }
 
+/* Advanced Settings (collapsible, closed by default) */
+.advanced-settings {
+    margin: 4px 0 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-light);
+}
+
+.advanced-settings > summary {
+    cursor: pointer;
+    padding: 12px 14px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    user-select: none;
+    list-style: none;
+}
+
+.advanced-settings > summary::-webkit-details-marker {
+    display: none;
+}
+
+.advanced-settings > summary::before {
+    content: "\25B8"; /* small right-pointing triangle */
+    display: inline-block;
+    margin-right: 8px;
+    transition: transform 0.15s ease;
+}
+
+.advanced-settings[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+/* Indent the contents so they read as nested under the summary */
+.advanced-settings .settings-field,
+.advanced-settings-intro {
+    margin-left: 14px;
+    margin-right: 14px;
+}
+
+.advanced-settings-intro {
+    margin-top: -4px;
+    margin-bottom: 14px;
+}
+
+/* Label + inline "Restore Default" button on one row */
+.prompt-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.prompt-label-row label {
+    margin-bottom: 0;
+}
+
+.settings-field textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.settings-field textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
 /* Download Progress Modal */
 .modal-medium {
     max-width: 700px;

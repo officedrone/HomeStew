@@ -3,6 +3,9 @@ import logging
 from typing import Optional, List, Dict, Any, AsyncGenerator
 import json
 
+from homebrain.config import settings
+from homebrain.default_prompts import DEFAULT_SEARCH_TOOL_DESCRIPTION
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,7 +137,10 @@ def create_search_tool() -> Dict[str, Any]:
         "type": "function",
         "function": {
             "name": "search_manuals",
-            "description": "Search device manuals for information. Use this when the user asks about device setup, troubleshooting, specifications, or any question that might be answered in a manual.",
+            # User-editable via Settings > Advanced Settings; falls back to the
+            # built-in default when blank (defaults are kept non-empty anyway).
+            "description": settings.SEARCH_TOOL_DESCRIPTION
+            or DEFAULT_SEARCH_TOOL_DESCRIPTION,
             "parameters": {
                 "type": "object",
                 "properties": {

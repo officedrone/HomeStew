@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from typing import List, AsyncGenerator
 
 from homebrain.config import settings
+from homebrain.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
 from homebrain.models.schemas import ChatRequest, ChatMessage, ChatResponse
 from homebrain.services.llm_client import LLMClient, chat_with_tool_support
 from homebrain.services.search_engine import search_manuals
@@ -53,13 +54,10 @@ async def chat(request: ChatRequest):
             for msg in request.messages
         ]
         
-        # Add system prompt if needed
-        system_prompt = (
-            "You are HomeBrain, a helpful assistant that can search through device manuals. "
-            "When users ask about devices, setup, troubleshooting, or specifications, use the search_manuals tool to find relevant information from their manuals. "
-            "Always provide clear, concise answers based on the manual content."
-        )
-        
+        # Add system prompt if needed (user-editable via Settings > Advanced
+        # Settings; a blank value falls back to the built-in default).
+        system_prompt = settings.CHAT_SYSTEM_PROMPT.strip() or DEFAULT_CHAT_SYSTEM_PROMPT
+
         if messages[0]['role'] != 'system':
             messages.insert(0, {"role": "system", "content": system_prompt})
         
@@ -103,12 +101,10 @@ async def chat_stream(request: ChatRequest):
                 for msg in request.messages
             ]
             
-            # Add system prompt
-            system_prompt = (
-                "You are HomeBrain, a helpful assistant that can search through device manuals. "
-                "When users ask about devices, setup, troubleshooting, or specifications, use the search_manuals tool to find relevant information from their manuals."
-            )
-            
+            # Add system prompt (user-editable via Settings > Advanced
+            # Settings; a blank value falls back to the built-in default).
+            system_prompt = settings.CHAT_SYSTEM_PROMPT.strip() or DEFAULT_CHAT_SYSTEM_PROMPT
+
             if messages[0]['role'] != 'system':
                 messages.insert(0, {"role": "system", "content": system_prompt})
             

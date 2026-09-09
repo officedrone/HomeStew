@@ -55,6 +55,12 @@ function setupEventListeners() {
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', fetchLlmModels);
 
+    // "Restore Default" buttons in Advanced Settings repopulate the built-in
+    // prompt text (fetched from the API) into the matching textarea.
+    document.querySelectorAll('[data-restore-default]').forEach((btn) => {
+        btn.addEventListener('click', () => restorePromptDefault(btn.dataset.restoreDefault));
+    });
+
     // Escape closes the settings modal
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
@@ -816,6 +822,17 @@ function openAddDeviceSection() {
 // "a key exists"; leaving the field blank keeps it, typing replaces it.
 const API_KEY_PLACEHOLDER = '********';
 
+// Built-in prompt defaults fetched from the API, used by the "Restore
+// Default" buttons in Advanced Settings. Keyed by setting name.
+let promptDefaults = {};
+
+function restorePromptDefault(settingName) {
+    const fieldId = settingName === 'chat_system_prompt'
+        ? 'settings-chat-system-prompt'
+        : 'settings-search-tool-description';
+    document.getElementById(fieldId).value = promptDefaults[settingName] || '';
+}
+
 async function openSettingsModal() {
     let settings;
     try {
@@ -846,6 +863,18 @@ async function openSettingsModal() {
     // Reset the model dropdown for the (possibly new) server.
     document.getElementById('settings-llm-model-options').innerHTML = '';
     document.getElementById('model-list-hint').textContent = '';
+
+    // Advanced settings: current prompts + built-in defaults (for Restore).
+    promptDefaults = {
+        chat_system_prompt: settings.chat_system_prompt_default || '',
+        search_tool_description: settings.search_tool_description_default || '',
+    };
+    document.getElementById('settings-chat-system-prompt').value =
+        settings.chat_system_prompt || '';
+    document.getElementById('settings-search-tool-description').value =
+        settings.search_tool_description || '';
+    // Always open the modal with Advanced Settings collapsed.
+    document.getElementById('advanced-settings-section').open = false;
 
     document.getElementById('settings-modal').style.display = 'flex';
 }
@@ -925,6 +954,10 @@ async function handleSettingsSave(event) {
     const payload = {
         llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
         llm_model: document.getElementById('settings-llm-model').value.trim(),
+        // Prompts are always sent; the server treats a blank value as
+        // "restore the built-in default".
+        chat_system_prompt: document.getElementById('settings-chat-system-prompt').value.trim(),
+        search_tool_description: document.getElementById('settings-search-tool-description').value.trim(),
     };
     // Blank API key field means "keep the existing key" — omit it entirely.
     // (The obscured placeholder is only a visual hint, never a value.)

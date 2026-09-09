@@ -6,6 +6,10 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
 from homebrain.config import save_settings_overrides, settings
+from homebrain.default_prompts import (
+    DEFAULT_CHAT_SYSTEM_PROMPT,
+    DEFAULT_SEARCH_TOOL_DESCRIPTION,
+)
 from homebrain.models.schemas import (
     ModelListRequest,
     ModelListResponse,
@@ -25,11 +29,17 @@ def _current_settings() -> SettingsResponse:
     """Build the response from the live settings singleton.
 
     The API key value is never returned — only whether one is configured.
+    The built-in prompt defaults are included so the UI's "Restore Default"
+    buttons can repopulate them without shipping a second copy of the text.
     """
     return SettingsResponse(
         llm_base_url=settings.LLM_BASE_URL,
         llm_model=settings.LLM_MODEL,
         llm_api_key_set=bool(settings.LLM_API_KEY),
+        chat_system_prompt=settings.CHAT_SYSTEM_PROMPT,
+        search_tool_description=settings.SEARCH_TOOL_DESCRIPTION,
+        chat_system_prompt_default=DEFAULT_CHAT_SYSTEM_PROMPT,
+        search_tool_description_default=DEFAULT_SEARCH_TOOL_DESCRIPTION,
     )
 
 
@@ -62,6 +72,17 @@ async def update_settings(update: SettingsUpdate):
 
     if update.llm_api_key is not None and update.llm_api_key.strip():
         changes["LLM_API_KEY"] = update.llm_api_key.strip()
+
+    # LLM prompts: a blank value means "use the built-in default", so a user
+    # who clears (or goofs up) a prompt can always get back to a working one.
+    if update.chat_system_prompt is not None:
+        changes["CHAT_SYSTEM_PROMPT"] = (
+            update.chat_system_prompt.strip() or DEFAULT_CHAT_SYSTEM_PROMPT
+        )
+    if update.search_tool_description is not None:
+        changes["SEARCH_TOOL_DESCRIPTION"] = (
+            update.search_tool_description.strip() or DEFAULT_SEARCH_TOOL_DESCRIPTION
+        )
 
     if not changes:
         return _current_settings()

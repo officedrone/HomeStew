@@ -194,6 +194,30 @@
                     <p class="settings-hint" id="model-list-hint"></p>
                 </div>
 
+                <!-- Advanced Settings: collapsed by default -->
+                <details id="advanced-settings-section" class="advanced-settings">
+                    <summary>Advanced Settings</summary>
+                    <p class="settings-hint advanced-settings-intro">
+                        Customize the prompts HomeBrain sends to your LLM. Clear a field and save
+                        to restore its built-in default.
+                    </p>
+                    <div class="settings-field">
+                        <div class="prompt-label-row">
+                            <label for="settings-chat-system-prompt">Chat System Prompt</label>
+                            <button type="button" class="btn btn-small btn-secondary" data-restore-default="chat_system_prompt">Restore Default</button>
+                        </div>
+                        <textarea id="settings-chat-system-prompt" rows="5" spellcheck="false"></textarea>
+                    </div>
+                    <div class="settings-field">
+                        <div class="prompt-label-row">
+                            <label for="settings-search-tool-description">Search Tool Description</label>
+                            <button type="button" class="btn btn-small btn-secondary" data-restore-default="search_tool_description">Restore Default</button>
+                        </div>
+                        <textarea id="settings-search-tool-description" rows="4" spellcheck="false"></textarea>
+                        <p class="settings-hint">Tells the LLM when to search your manuals.</p>
+                    </div>
+                </details>
+
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeSettingsModal()">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="settings-save-btn">Save Settings</button>
