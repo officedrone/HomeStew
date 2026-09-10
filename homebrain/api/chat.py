@@ -1,4 +1,5 @@
 """Chat API endpoints with LLM integration."""
+import json
 import logging
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -7,7 +8,11 @@ from typing import List, AsyncGenerator
 from homebrain.config import settings
 from homebrain.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
 from homebrain.models.schemas import ChatRequest, ChatMessage, ChatResponse
-from homebrain.services.llm_client import LLMClient, chat_with_tool_support
+from homebrain.services.llm_client import (
+    LLMClient,
+    chat_with_tool_support,
+    chat_with_tool_events,
+)
 from homebrain.services.search_engine import search_manuals
 
 logger = logging.getLogger(__name__)
@@ -85,7 +90,11 @@ async def chat(request: ChatRequest):
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest):
-    """Stream chat response with tool calling support."""
+    """Stream typed SSE status events (thinking / tool calls) plus the final answer.
+
+    Event frames are JSON objects: {"type":"status",...}, {"type":"message",...},
+    {"type":"done"} or {"type":"error",...}.
+    """
     if not request.messages or not request.messages[-1].content:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -108,61 +117,27 @@ async def chat_stream(request: ChatRequest):
             if messages[0]['role'] != 'system':
                 messages.insert(0, {"role": "system", "content": system_prompt})
             
-            # For streaming with tools, we'll do non-streaming tool calls
-            # then stream the final response
-            from homebrain.services.llm_client import create_search_tool
-            
-            tools = [create_search_tool()]
-            current_messages = messages.copy()
-            
-            # Execute tool calls if needed (non-streaming)
-            max_calls = 3
-            for _ in range(max_calls):
-                response = client.chat_completion(
-                    messages=current_messages,
-                    tools=tools,
-                    stream=False
-                )
-                
-                choice = response.choices[0]
-                message = choice.message
-                
-                if hasattr(message, 'tool_calls') and message.tool_calls:
-                    # Handle tool calls (simplified)
-                    from homebrain.services.llm_client import handle_tool_call
-                    
-                    for tool_call in message.tool_calls:
-                        tool_response = await handle_tool_call(tool_call, search_manuals)
-                        
-                        current_messages.append({
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [{"id": tool_call.id}]
-                        })
-                        current_messages.append(tool_response)
-                    
-                    continue
-                
-                # Got final response, stream it
-                if hasattr(message, 'content') and message.content:
-                    # Stream the response character by character for effect
-                    for i in range(0, len(message.content), 50):
-                        chunk = message.content[i:i+50]
-                        yield f"data: {chunk}\n\n"
-                    
-                    break
-            
-            yield "data: [DONE]\n\n"
+            async for event in chat_with_tool_events(
+                client=client,
+                messages=messages,
+                search_func=lambda q, d=None: search_manuals(q, d, limit=10),
+                max_tool_calls=3
+            ):
+                # json.dumps keeps each frame on a single line, as SSE requires.
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             
         except Exception as e:
+            # Headers are already sent, so report the failure as an event.
             logger.error(f"Streaming chat failed: {e}")
-            yield f'data: Error: {str(e)}\n\n'
+            error_event = {"type": "error", "message": str(e)}
+            yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(
         generate_response(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive"
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
         }
     )

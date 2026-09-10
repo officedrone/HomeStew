@@ -627,14 +627,16 @@ async function sendChatMessage() {
     addMessageToChat('user', message);
     input.value = '';
     
-    // Show loading indicator
+    // Build history BEFORE adding the loading bubble so its status text
+    // never leaks into the conversation sent to the backend.
+    const messages = getChatMessages();
+    
+    // Show loading indicator (its text is updated by streamed status events)
     const loadingId = addLoadingIndicator();
     
     try {
-        // Get conversation history
-        const messages = getChatMessages();
-        
-        const response = await fetch('/api/chat', {
+        // EventSource can't POST, so consume the SSE stream with fetch + reader.
+        const response = await fetch('/api/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -645,18 +647,71 @@ async function sendChatMessage() {
             })
         });
         
-        const data = await response.json();
+        if (!response.ok || !response.body) {
+            throw new Error(`Chat request failed (${response.status})`);
+        }
         
-        // Remove loading indicator
-        removeMessage(loadingId);
+        let finished = false;
+        await readSseStream(response, (event) => {
+            switch (event.type) {
+                case 'status':
+                    setLoadingStatus(loadingId, event.message || 'Thinking...');
+                    break;
+                case 'message':
+                    removeMessage(loadingId);
+                    finished = true;
+                    addMessageToChat('assistant', event.content || '');
+                    break;
+                case 'error':
+                    removeMessage(loadingId);
+                    finished = true;
+                    console.error('Chat stream error:', event.message);
+                    addMessageToChat('assistant', 'Sorry, I encountered an error. Please try again.');
+                    break;
+                case 'done':
+                    break;
+            }
+        });
         
-        // Add assistant response
-        addMessageToChat('assistant', data.message);
-        
+        if (!finished) {
+            // Stream ended without a final message (e.g. connection dropped).
+            removeMessage(loadingId);
+            addMessageToChat('assistant', 'Sorry, the response was interrupted. Please try again.');
+        }
     } catch (error) {
         console.error('Chat failed:', error);
         removeMessage(loadingId);
         addMessageToChat('assistant', 'Sorry, I encountered an error. Please try again.');
+    }
+}
+
+// Parse an SSE response body, invoking onEvent for each JSON data frame.
+// Frames can split across network chunks, so buffer until the "\n\n" boundary.
+async function readSseStream(response, onEvent) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        let sepIndex;
+        while ((sepIndex = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, sepIndex);
+            buffer = buffer.slice(sepIndex + 2);
+            
+            for (const line of frame.split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    onEvent(JSON.parse(line.slice(6)));
+                } catch (e) {
+                    console.error('Failed to parse chat stream message:', line, e);
+                }
+            }
+        }
     }
 }
 
@@ -665,6 +720,9 @@ function getChatMessages() {
     const messages = [];
     
     container.querySelectorAll('.message').forEach(msgEl => {
+        // Skip the transient loading/status bubble.
+        if (msgEl.classList.contains('loading')) return;
+        
         const role = msgEl.classList.contains('user') ? 'user' : 'assistant';
         const content = msgEl.querySelector('.message-content').textContent;
         
@@ -695,16 +753,28 @@ function addLoadingIndicator() {
     const id = 'loading-' + Date.now();
     
     const messageDiv = document.createElement('div');
-    messageDiv.className = 'message assistant';
+    messageDiv.className = 'message assistant loading';
     messageDiv.id = id;
     messageDiv.innerHTML = `
-        <div class="message-content">Thinking...</div>
+        <div class="message-content"><span class="loading-status">Thinking...</span></div>
     `;
     
     container.appendChild(messageDiv);
     container.scrollTop = container.scrollHeight;
     
     return id;
+}
+
+// Update the status text of a loading bubble (textContent: safe against HTML).
+function setLoadingStatus(id, text) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    const statusEl = element.querySelector('.loading-status');
+    if (statusEl) {
+        statusEl.textContent = text;
+        const container = document.getElementById('chat-messages');
+        container.scrollTop = container.scrollHeight;
+    }
 }
 
 function removeMessage(id) {
