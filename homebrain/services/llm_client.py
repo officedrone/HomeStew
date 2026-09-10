@@ -131,6 +131,174 @@ class LLMClient:
                     except (json.JSONDecodeError, KeyError):
                         continue
 
+    def stream_chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict]] = None
+    ):
+        """Open a streaming chat completion and return an event iterator.
+
+        Blocking call: returns a (lazy) generator yielding normalised dicts:
+          - {"type": "reasoning", "delta": str}  — model thinking tokens
+          - {"type": "content", "delta": str}    — answer text tokens
+          - {"type": "tool_call", "call": {"id","name","arguments"}}
+          - {"type": "finish", "reason": str}
+
+        Reasoning deltas come from the non-standard ``reasoning`` /
+        ``reasoning_content`` delta fields that Ollama, llama.cpp and vLLM
+        expose for thinking models; servers without them simply never emit
+        reasoning events.
+        """
+        if self._use_openai:
+            kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+            }
+            if tools:
+                kwargs["tools"] = tools
+            raw_chunks = self.client.chat.completions.create(**kwargs)
+        else:
+            import requests
+
+            url = f"{self.base_url}/chat/completions"
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,
+            }
+            if tools:
+                payload["tools"] = tools
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            }
+            response = requests.post(url, json=payload, headers=headers, stream=True)
+            response.raise_for_status()
+            raw_chunks = self._iter_sse_json_lines(response.iter_lines())
+
+        return _normalize_stream(raw_chunks)
+
+    @staticmethod
+    def _iter_sse_json_lines(lines):
+        """Yield parsed JSON chunks from an SSE byte-line iterator."""
+        for line in lines:
+            if not line:
+                continue
+            text = line.decode('utf-8')
+            if not text.startswith('data: '):
+                continue
+            data = text[6:]
+            if data == '[DONE]':
+                break
+            try:
+                yield json.loads(data)
+            except json.JSONDecodeError:
+                continue
+
+
+# Delta fields carrying model "thinking" output across common servers.
+_REASONING_KEYS = ("reasoning", "reasoning_content")
+
+
+def _pick(obj, key):
+    """Read a field from either an SDK object or a plain dict chunk."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(key)
+    value = getattr(obj, key, None)
+    if value is None:
+        # OpenAI SDK stores non-standard fields (reasoning etc.) here.
+        extra = getattr(obj, "model_extra", None) or {}
+        value = extra.get(key)
+    return value
+
+
+def _flush_tool_calls(acc: Dict[int, Dict[str, Any]]):
+    """Emit accumulated streamed tool-call fragments as completed calls."""
+    for index in sorted(acc):
+        call = acc[index]
+        if call["id"] or call["name"] or call["arguments"]:
+            yield {
+                "type": "tool_call",
+                "call": {
+                    "id": call["id"],
+                    "name": call["name"] or "search_manuals",
+                    "arguments": call["arguments"] or "{}",
+                },
+            }
+    acc.clear()
+
+
+def _normalize_stream(raw_chunks):
+    """Translate raw stream chunks (SDK objects or dicts) into events."""
+    tool_calls_acc: Dict[int, Dict[str, Any]] = {}
+
+    for chunk in raw_chunks:
+        choices = _pick(chunk, "choices")
+        if not choices:
+            continue
+        choice = choices[0]
+        delta = _pick(choice, "delta")
+
+        reasoning = None
+        if delta is not None:
+            for key in _REASONING_KEYS:
+                reasoning = _pick(delta, key)
+                if reasoning:
+                    break
+
+        # Accumulate tool-call fragments across chunks (arguments stream in
+        # pieces; id/name usually arrive with the first fragment).
+        for frag in (_pick(delta, "tool_calls") or []):
+            index = _pick(frag, "index") or 0
+            slot = tool_calls_acc.setdefault(
+                index, {"id": None, "name": "", "arguments": ""}
+            )
+            call_id = _pick(frag, "id")
+            if call_id:
+                slot["id"] = call_id
+            fn = _pick(frag, "function")
+            if fn is not None:
+                name = _pick(fn, "name")
+                if name:
+                    slot["name"] += name
+                arguments = _pick(fn, "arguments")
+                if arguments:
+                    slot["arguments"] += arguments
+
+        if reasoning:
+            yield {"type": "reasoning", "delta": reasoning}
+        content = _pick(delta, "content")
+        if content:
+            yield {"type": "content", "delta": content}
+
+        finish_reason = _pick(choice, "finish_reason")
+        if finish_reason is not None:
+            yield from _flush_tool_calls(tool_calls_acc)
+            yield {"type": "finish", "reason": finish_reason}
+
+    # Servers that never send a finish_reason still get their calls flushed.
+    yield from _flush_tool_calls(tool_calls_acc)
+
+
+async def _aiter_stream(client: LLMClient, messages, tools):
+    """Bridge the blocking stream iterator to async event generation.
+
+    Each ``next()`` on the underlying HTTP stream blocks; running them in
+    worker threads keeps the event loop free so SSE events flush promptly.
+    """
+    stream_iter = await asyncio.to_thread(
+        client.stream_chat_completion, messages=messages, tools=tools
+    )
+    sentinel = object()
+    while True:
+        item = await asyncio.to_thread(next, stream_iter, sentinel)
+        if item is sentinel:
+            break
+        yield item
+
 
 def create_search_tool() -> Dict[str, Any]:
     """Create the search_manuals tool definition."""
@@ -247,13 +415,22 @@ async def chat_with_tool_events(
     max_tool_calls: int = 3
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
-    Chat with tool calling, yielding status events as the conversation progresses.
+    Chat with tool calling, streaming the model's work as typed SSE events.
 
     Event shapes (JSON-serialisable dicts, consumed by the SSE endpoint):
-      - {"type": "status", "message": str}   — friendly progress text
+      - {"type": "thinking_start"}                — a thinking block begins
+      - {"type": "thinking_delta", "delta": str}  — streamed reasoning tokens
+      - {"type": "thinking_end"}                  — the thinking block closed
+      - {"type": "content_delta", "delta": str}   — streamed answer text
+      - {"type": "tool_call", "id", "name", "arguments"}     — full call once
+        its streamed argument fragments are complete
+      - {"type": "tool_result", "id", "ok", "result_count"}  — execution outcome
       - {"type": "message", "content": str, "used_search": bool,
-         "search_results_count": int}        — final answer (terminal for content)
-      - {"type": "done"}                     — stream finished
+         "search_results_count": int}             — final answer (terminal)
+      - {"type": "done"}                          — stream finished
+
+    Thinking events only appear when the server exposes reasoning deltas
+    (Ollama / llama.cpp thinking models etc.); other servers just skip them.
 
     Args:
         client: LLMClient instance
@@ -266,53 +443,60 @@ async def chat_with_tool_events(
     tool_call_count = 0
 
     while True:
-        yield {"type": "status", "message": "Thinking..."}
+        thinking_open = False
+        content_parts: List[str] = []
+        pending_tool_calls: List[Dict[str, Any]] = []
 
-        # The underlying SDK call is blocking; run it off the event loop so
-        # status events above flush to the client immediately.
-        response = await asyncio.to_thread(
-            client.chat_completion,
-            messages=current_messages,
-            tools=tools,
-            stream=False,
-        )
+        # The underlying SDK stream is blocking; _aiter_stream runs each read
+        # in a worker thread so events flush to the client as they arrive.
+        async for ev in _aiter_stream(client, current_messages, tools):
+            if ev["type"] == "reasoning":
+                if not thinking_open:
+                    thinking_open = True
+                    yield {"type": "thinking_start"}
+                yield {"type": "thinking_delta", "delta": ev["delta"]}
+            elif ev["type"] == "content":
+                content_parts.append(ev["delta"])
+                yield {"type": "content_delta", "delta": ev["delta"]}
+            elif ev["type"] == "tool_call":
+                pending_tool_calls.append(ev["call"])
 
-        choice = response.choices[0]
-        message = choice.message
+        if thinking_open:
+            yield {"type": "thinking_end"}
 
-        # Check if LLM wants to call a tool
-        if hasattr(message, 'tool_calls') and message.tool_calls:
-            tool_call_count += 1
+        # The LLM wants to call tools: execute them and loop for the answer.
+        if pending_tool_calls:
+            tool_call_count += len(pending_tool_calls)
 
-            for tool_call in message.tool_calls:
-                yield {"type": "status", "message": "Searching manuals..."}
+            for call in pending_tool_calls:
+                tc_id = call["id"]
+                tc_name = call["name"] or "search_manuals"
+                tc_args = call["arguments"] or "{}"
+
+                # Full arguments are known now, so the UI can show a summary.
+                yield {
+                    "type": "tool_call",
+                    "id": tc_id,
+                    "name": tc_name,
+                    "arguments": tc_args,
+                }
+
+                # _execute_search_tool accepts plain dicts shaped like this.
+                tool_response, result_count = await _execute_search_tool(
+                    {"id": tc_id, "function": {"name": tc_name, "arguments": tc_args}},
+                    search_func,
+                )
+
+                yield {
+                    "type": "tool_result",
+                    "id": tc_id,
+                    "ok": result_count is not None,
+                    "result_count": result_count,
+                }
 
                 # Echo metadata (strict OpenAI-compatible servers, e.g.
                 # llama.cpp, match the tool reply against this call and
                 # reject partial tool_call objects).
-                if hasattr(tool_call, 'function'):
-                    tc_id = tool_call.id
-                    tc_name = tool_call.function.name or "search_manuals"
-                    tc_args = tool_call.function.arguments or "{}"
-                else:
-                    tc_id = tool_call.get('id')
-                    tc_name = tool_call['function'].get('name', 'search_manuals')
-                    tc_args = tool_call['function'].get('arguments') or "{}"
-
-                tool_response, result_count = await _execute_search_tool(
-                    tool_call, search_func
-                )
-
-                if result_count is None:
-                    # Search itself failed; the tool message carries the error.
-                    pass
-                elif result_count == 0:
-                    yield {"type": "status",
-                           "message": "No matching manuals found. Rephrasing..."}
-                else:
-                    yield {"type": "status",
-                           "message": f"Found {result_count} results. Composing answer..."}
-
                 current_messages.append({
                     "role": "assistant",
                     # Some OpenAI-compatible servers (llama.cpp) reject a null
@@ -339,21 +523,15 @@ async def chat_with_tool_events(
                 return
             continue
 
-        if hasattr(message, 'content') and message.content:
-            # Final response
-            yield {
-                "type": "message",
-                "content": message.content,
-                "used_search": tool_call_count > 0,
-                "search_results_count": tool_call_count,
-            }
-            yield {"type": "done"}
-            return
+        final_content = "".join(content_parts)
+        if not final_content.strip():
+            logger.warning("Unexpected LLM response format")
+            final_content = "I'm sorry, I couldn't process that request."
 
-        logger.warning("Unexpected LLM response format")
+        # Final response (authoritative content; UI replaces streamed text).
         yield {
             "type": "message",
-            "content": "I'm sorry, I couldn't process that request.",
+            "content": final_content,
             "used_search": tool_call_count > 0,
             "search_results_count": tool_call_count,
         }

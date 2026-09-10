@@ -144,10 +144,11 @@ async def chat(request: ChatRequest):
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest):
-    """Stream typed SSE status events (thinking / tool calls) plus the final answer.
+    """Stream typed SSE events (thinking deltas / tool calls) plus the answer.
 
-    Event frames are JSON objects: {"type":"status",...}, {"type":"message",...},
-    {"type":"done"} or {"type":"error",...}.
+    Event frames are JSON objects: {"type":"thinking_start"|"thinking_delta"|
+    "thinking_end"|"content_delta"|"tool_call"|"tool_result",...},
+    {"type":"message",...}, {"type":"done"} or {"type":"error",...}.
     """
     if not request.messages or not request.messages[-1].content:
         raise HTTPException(

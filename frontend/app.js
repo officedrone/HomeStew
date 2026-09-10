@@ -659,13 +659,14 @@ async function sendChatMessage() {
     addMessageToChat('user', message);
     input.value = '';
     
-    // Build history BEFORE adding the loading bubble so its status text
-    // never leaks into the conversation sent to the backend.
+    // Build history BEFORE adding the streaming bubble so its transient
+    // content never leaks into the conversation sent to the backend.
     const messages = getChatMessages();
-    
-    // Show loading indicator (its text is updated by streamed status events)
-    const loadingId = addLoadingIndicator();
-    
+
+    // Streaming assistant bubble: collapsible thinking / tool-call trace plus
+    // the live answer text (see createStreamRenderer).
+    const renderer = createStreamRenderer();
+
     try {
         // EventSource can't POST, so consume the SSE stream with fetch + reader.
         const chatPayload = {
@@ -692,35 +693,237 @@ async function sendChatMessage() {
         let finished = false;
         await readSseStream(response, (event) => {
             switch (event.type) {
-                case 'status':
-                    setLoadingStatus(loadingId, event.message || 'Thinking...');
+                case 'thinking_start':
+                    renderer.openThinking();
+                    break;
+                case 'thinking_delta':
+                    renderer.appendThinking(event.delta || '');
+                    break;
+                case 'thinking_end':
+                    renderer.closeThinking();
+                    break;
+                case 'tool_call':
+                    renderer.addToolCall(event);
+                    break;
+                case 'tool_result':
+                    renderer.finishToolCall(event);
+                    break;
+                case 'content_delta':
+                    renderer.appendContent(event.delta || '');
                     break;
                 case 'message':
-                    removeMessage(loadingId);
+                    // Authoritative final answer: replaces any streamed text.
+                    renderer.finalize(event.content || '');
                     finished = true;
-                    addMessageToChat('assistant', event.content || '');
                     break;
                 case 'error':
-                    removeMessage(loadingId);
-                    finished = true;
                     console.error('Chat stream error:', event.message);
-                    addMessageToChat('assistant', 'Sorry, I encountered an error. Please try again.');
+                    renderer.fail('Sorry, I encountered an error. Please try again.');
+                    finished = true;
                     break;
                 case 'done':
                     break;
             }
         });
-        
+
         if (!finished) {
             // Stream ended without a final message (e.g. connection dropped).
-            removeMessage(loadingId);
-            addMessageToChat('assistant', 'Sorry, the response was interrupted. Please try again.');
+            renderer.fail('Sorry, the response was interrupted. Please try again.');
         }
     } catch (error) {
         console.error('Chat failed:', error);
-        removeMessage(loadingId);
-        addMessageToChat('assistant', 'Sorry, I encountered an error. Please try again.');
+        renderer.fail('Sorry, I encountered an error. Please try again.');
     }
+}
+
+// Build the streaming assistant bubble and its event handlers.
+//
+// Layout inside one assistant message:
+//   - a <details> "Thinking..." block that streams live while the model
+//     reasons (auto-expanded during thinking, collapsed when done);
+//   - one collapsed <details> per tool call showing a short summary in the
+//     summary line; expanding reveals the full arguments and result info;
+//   - the answer text itself, streamed into .message-content.
+function createStreamRenderer() {
+    const container = document.getElementById('chat-messages');
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant streaming';
+
+    // Trace (thinking + tool calls) sits above the answer bubble.
+    const trace = document.createElement('div');
+    trace.className = 'trace';
+    trace.style.display = 'none';
+
+    const contentEl = document.createElement('div');
+    contentEl.className = 'message-content';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message-body';
+    wrapper.appendChild(trace);
+    wrapper.appendChild(contentEl);
+    messageDiv.appendChild(wrapper);
+    container.appendChild(messageDiv);
+    container.scrollTop = container.scrollHeight;
+
+    let thinkingDetails = null;
+    let thinkingPre = null;
+    // Tool-call <details> elements keyed by tool call id.
+    const toolCallEls = new Map();
+    let contentText = '';
+    let settled = false;
+
+    function scroll() {
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function showTrace() {
+        trace.style.display = 'block';
+    }
+
+    // Placeholder status shown until there is anything concrete to display.
+    const placeholder = document.createElement('div');
+    placeholder.className = 'loading-status';
+    placeholder.textContent = 'Thinking';
+    contentEl.appendChild(placeholder);
+
+    function removePlaceholder() {
+        if (placeholder.parentNode) placeholder.remove();
+    }
+
+    return {
+        openThinking() {
+            showTrace();
+            thinkingDetails = document.createElement('details');
+            thinkingDetails.className = 'trace-item trace-thinking';
+            // Expanded while streaming so the user watches reasoning arrive.
+            thinkingDetails.open = true;
+            const summary = document.createElement('summary');
+            summary.textContent = 'Thinking…';
+            thinkingPre = document.createElement('pre');
+            thinkingDetails.appendChild(summary);
+            thinkingDetails.appendChild(thinkingPre);
+            trace.appendChild(thinkingDetails);
+            scroll();
+        },
+
+        appendThinking(delta) {
+            if (!thinkingPre) return;
+            thinkingPre.textContent += delta;
+            // Keep the newest reasoning line in view inside the block.
+            thinkingPre.scrollTop = thinkingPre.scrollHeight;
+            scroll();
+        },
+
+        closeThinking() {
+            if (thinkingDetails) {
+                // Collapse once finished; user can expand to review.
+                thinkingDetails.open = false;
+                const summary = thinkingDetails.querySelector('summary');
+                if (summary) summary.textContent = 'Thought for a moment';
+            }
+            thinkingDetails = null;
+            thinkingPre = null;
+        },
+
+        addToolCall(event) {
+            showTrace();
+            let argsText = event.arguments || '{}';
+            try {
+                argsText = JSON.stringify(JSON.parse(argsText), null, 2);
+            } catch (e) {
+                /* keep raw string if not valid JSON */
+            }
+
+            const details = document.createElement('details');
+            details.className = 'trace-item trace-tool';
+            details.open = false;
+
+            const summary = document.createElement('summary');
+            // Summary line: tool name plus a compact argument preview.
+            let argPreview = '';
+            try {
+                const parsed = JSON.parse(event.arguments || '{}');
+                if (parsed.query) argPreview = `: ${parsed.query}`;
+                else if (Object.keys(parsed).length) argPreview = `: ${event.arguments}`;
+            } catch (e) {
+                /* no preview */
+            }
+            summary.textContent = `🔧 ${event.name || 'tool'}${argPreview}`;
+
+            const body = document.createElement('div');
+            body.className = 'trace-tool-body';
+
+            const argsLabel = document.createElement('div');
+            argsLabel.className = 'trace-label';
+            argsLabel.textContent = 'Arguments';
+            const argsPre = document.createElement('pre');
+            argsPre.textContent = argsText;
+
+            const resultLine = document.createElement('div');
+            resultLine.className = 'trace-tool-result pending';
+            resultLine.textContent = 'Running…';
+
+            body.appendChild(argsLabel);
+            body.appendChild(argsPre);
+            body.appendChild(resultLine);
+            details.appendChild(summary);
+            details.appendChild(body);
+            trace.appendChild(details);
+
+            if (event.id) toolCallEls.set(event.id, { details, resultLine });
+            scroll();
+        },
+
+        finishToolCall(event) {
+            const entry = toolCallEls.get(event.id);
+            if (!entry) return;
+            if (event.ok) {
+                const n = event.result_count ?? 0;
+                entry.resultLine.textContent = n > 0
+                    ? `Found ${n} result${n !== 1 ? 's' : ''}`
+                    : 'No results found';
+                entry.resultLine.classList.remove('pending');
+            } else {
+                entry.resultLine.textContent = 'Search failed';
+                entry.resultLine.classList.add('failed');
+            }
+            scroll();
+        },
+
+        appendContent(delta) {
+            removePlaceholder();
+            contentText += delta;
+            // Render as plain text while streaming (final markdown/formatting
+            // is applied when the authoritative message event arrives).
+            contentEl.textContent = contentText;
+            scroll();
+        },
+
+        finalize(finalContent) {
+            if (settled) return;
+            settled = true;
+            removePlaceholder();
+            this.closeThinking();
+            contentText = finalContent;
+            contentEl.textContent = finalContent;
+            messageDiv.classList.remove('streaming');
+            scroll();
+        },
+
+        fail(message) {
+            if (settled) return;
+            settled = true;
+            this.closeThinking();
+            removePlaceholder();
+            // Keep whatever partial answer streamed in, then note the failure.
+            contentEl.textContent = contentText
+                ? `${contentText}\n\n${message}`
+                : message;
+            messageDiv.classList.remove('streaming');
+            scroll();
+        }
+    };
 }
 
 // Parse an SSE response body, invoking onEvent for each JSON data frame.
@@ -758,8 +961,9 @@ function getChatMessages() {
     const messages = [];
     
     container.querySelectorAll('.message').forEach(msgEl => {
-        // Skip the transient loading/status bubble.
-        if (msgEl.classList.contains('loading')) return;
+        // Skip the in-progress streaming bubble: its thinking/tool trace and
+        // partial answer must not leak into the conversation history.
+        if (msgEl.classList.contains('streaming')) return;
         
         const role = msgEl.classList.contains('user') ? 'user' : 'assistant';
         const content = msgEl.querySelector('.message-content').textContent;
@@ -784,42 +988,6 @@ function addMessageToChat(role, content) {
     
     container.appendChild(messageDiv);
     container.scrollTop = container.scrollHeight;
-}
-
-function addLoadingIndicator() {
-    const container = document.getElementById('chat-messages');
-    const id = 'loading-' + Date.now();
-    
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message assistant loading';
-    messageDiv.id = id;
-    messageDiv.innerHTML = `
-        <div class="message-content"><span class="loading-status">Thinking...</span></div>
-    `;
-    
-    container.appendChild(messageDiv);
-    container.scrollTop = container.scrollHeight;
-    
-    return id;
-}
-
-// Update the status text of a loading bubble (textContent: safe against HTML).
-function setLoadingStatus(id, text) {
-    const element = document.getElementById(id);
-    if (!element) return;
-    const statusEl = element.querySelector('.loading-status');
-    if (statusEl) {
-        statusEl.textContent = text;
-        const container = document.getElementById('chat-messages');
-        container.scrollTop = container.scrollHeight;
-    }
-}
-
-function removeMessage(id) {
-    const element = document.getElementById(id);
-    if (element) {
-        element.remove();
-    }
 }
 
 function switchTab(tabName) {
@@ -977,7 +1145,9 @@ function updateSidebarToggle() {
     const collapsed = document.body.classList.contains('sidebar-collapsed');
     const btn = document.getElementById('sidebar-toggle-btn');
     // Chevron points in the direction the toggle action takes the sidebar.
-    btn.textContent = collapsed ? '>' : '<';
+    // Chevron Left (collapse) / Chevron Right (expand), Feather-style icons.
+    const points = collapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6';
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="${points}"></polyline></svg>`;
     btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
 }
 
