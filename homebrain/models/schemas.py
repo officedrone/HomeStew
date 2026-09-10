@@ -182,3 +182,22 @@ class ModelListRequest(BaseModel):
 class ModelListResponse(BaseModel):
     """Model ids reported by the LLM server's /models endpoint."""
     models: list[str]
+
+
+class ModelStatusResponse(BaseModel):
+    """Result of probing the saved LLM settings for chat readiness.
+
+    ``reachable`` is False when the server's model list could not be fetched;
+    in that case ``error`` explains why and ``available_models_count`` is None.
+    When reachable, ``model_available`` says whether the currently selected
+    model appears in the server's list.
+    """
+    reachable: bool
+    model_configured: bool = Field(
+        ..., description="True if an LLM model name is configured in settings"
+    )
+    model_available: Optional[bool] = None
+    llm_base_url: str
+    llm_model: str
+    available_models_count: Optional[int] = None
+    error: Optional[str] = None

@@ -13,6 +13,7 @@ from homebrain.default_prompts import (
 from homebrain.models.schemas import (
     ModelListRequest,
     ModelListResponse,
+    ModelStatusResponse,
     SettingsResponse,
     SettingsUpdate,
 )
@@ -157,3 +158,38 @@ async def list_llm_models(probe: ModelListRequest):
     models.sort(key=str.lower)
 
     return ModelListResponse(models=models)
+
+
+@router.get("/model-status", response_model=ModelStatusResponse)
+async def get_model_status():
+    """Check whether the saved LLM settings are usable for chat.
+
+    Probes the server's model list with the currently saved configuration
+    and reports whether it is reachable and whether the selected model is
+    available. Never raises on a connection failure — the caller (the chat
+    tab) needs a structured answer to show the user, not an HTTP error.
+    """
+    base_url = settings.LLM_BASE_URL
+    model_selected = bool((settings.LLM_MODEL or "").strip())
+
+    try:
+        result = await list_llm_models(ModelListRequest())
+    except HTTPException as exc:
+        return ModelStatusResponse(
+            reachable=False,
+            model_configured=model_selected,
+            llm_base_url=base_url,
+            llm_model=settings.LLM_MODEL,
+            error=str(exc.detail),
+        )
+
+    selected = (settings.LLM_MODEL or "").strip()
+    available = any(m.lower() == selected.lower() for m in result.models)
+    return ModelStatusResponse(
+        reachable=True,
+        model_configured=model_selected,
+        model_available=available,
+        llm_base_url=base_url,
+        llm_model=settings.LLM_MODEL,
+        available_models_count=len(result.models),
+    )

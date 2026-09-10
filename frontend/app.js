@@ -6,8 +6,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let devices = [];
 let currentDeviceFilter = null;
+// Selected device filter for the AI Chat tab (null = all devices). Mirrors
+// currentDeviceFilter, but scoped to chat so the two tabs stay independent.
+let currentChatDeviceFilter = null;
 // Device id currently targeted by the hidden manual-upload input.
 let uploadTargetDeviceId = null;
+
+// Result of the last chat model availability check (see checkChatModelStatus).
+// null = unknown/not yet checked; true/false = whether chatting is allowed.
+let chatModelAvailable = null;
 
 async function initializeApp() {
     await loadDevices();
@@ -31,6 +38,14 @@ function setupEventListeners() {
     document.getElementById('search-input').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') performSearch();
     });
+
+    // Device filters: search and chat keep independent selections.
+    document.getElementById('device-filter').addEventListener('change', (e) => {
+        currentDeviceFilter = e.target.value || null;
+    });
+    document.getElementById('chat-device-filter').addEventListener('change', (e) => {
+        currentChatDeviceFilter = e.target.value || null;
+    });
     
     // Chat functionality
     document.getElementById('send-btn').addEventListener('click', sendChatMessage);
@@ -53,7 +68,11 @@ function setupEventListeners() {
     // Settings modal
     document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
-    document.getElementById('fetch-models-btn').addEventListener('click', fetchLlmModels);
+    document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
+    setupModelDropdownRefresh();
+
+    // Chat model warning banner: takes the user straight to Settings.
+    document.getElementById('chat-open-settings-btn').addEventListener('click', openSettingsModal);
 
     // "Restore Default" buttons in Advanced Settings repopulate the built-in
     // prompt text (fetched from the API) into the matching textarea.
@@ -112,19 +131,25 @@ function renderDeviceList() {
 }
 
 function updateDeviceFilter() {
+    const optionsHtml = devices.map(device =>
+        `<option value="${device.id}">${escapeHtml(device.name)}</option>`
+    ).join('');
+
     const select = document.getElementById('device-filter');
-    select.innerHTML = '<option value="">All Devices</option>' + 
-        devices.map(device => 
-            `<option value="${device.id}">${escapeHtml(device.name)}</option>`
-        ).join('');
-    
+    select.innerHTML = '<option value="">All Devices</option>' + optionsHtml;
+
     if (currentDeviceFilter) {
         select.value = currentDeviceFilter;
     }
-    
-    select.addEventListener('change', (e) => {
-        currentDeviceFilter = e.target.value || null;
-    });
+
+    // The AI Chat tab gets its own independent device filter, kept in sync
+    // with the same device list.
+    const chatSelect = document.getElementById('chat-device-filter');
+    chatSelect.innerHTML = '<option value="">All Devices</option>' + optionsHtml;
+
+    if (currentChatDeviceFilter) {
+        chatSelect.value = currentChatDeviceFilter;
+    }
 }
 
 async function handleAddDevice(e) {
@@ -622,7 +647,14 @@ async function sendChatMessage() {
     const message = input.value.trim();
     
     if (!message) return;
-    
+
+    // If the last model probe failed, don't waste a round-trip: keep the
+    // warning banner visible and point the user at Settings instead.
+    if (chatModelAvailable === false) {
+        showToast('No model is available — update the connection in Settings', 'error');
+        return;
+    }
+
     // Add user message to chat
     addMessageToChat('user', message);
     input.value = '';
@@ -636,15 +668,21 @@ async function sendChatMessage() {
     
     try {
         // EventSource can't POST, so consume the SSE stream with fetch + reader.
+        const chatPayload = {
+            messages: messages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+            }))
+        };
+        // The chat device filter scopes manual searches to one device.
+        if (currentChatDeviceFilter) {
+            chatPayload.device_id = parseInt(currentChatDeviceFilter, 10);
+        }
+
         const response = await fetch('/api/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                messages: messages.map(msg => ({
-                    role: msg.role,
-                    content: msg.content
-                }))
-            })
+            body: JSON.stringify(chatPayload)
         });
         
         if (!response.ok || !response.body) {
@@ -794,6 +832,78 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.toggle('active', content.id === `${tabName}-tab`);
     });
+
+    // Opening the chat re-runs the settings "model refresh" probe against the
+    // saved configuration so a broken/unconfigured LLM is surfaced up front.
+    if (tabName === 'chat') {
+        checkChatModelStatus();
+    }
+}
+
+// Ask the backend to probe the saved LLM connection (the same model-list call
+// the Settings "Fetch Models" button uses) and reflect the outcome in the chat:
+//  - endpoint unreachable            -> warn + point to Settings, block sending
+//  - selected model missing          -> warn + point to Settings, block sending
+//  - reachable and model present      -> clear any warning, allow chatting
+async function checkChatModelStatus() {
+    const banner = document.getElementById('chat-model-warning');
+    const textEl = document.getElementById('chat-model-warning-text');
+
+    // Show a neutral "checking" state so the tab doesn't look broken while the
+    // probe (up to MODEL_LIST_TIMEOUT) is in flight.
+    chatModelAvailable = null;
+    banner.style.display = 'flex';
+    banner.classList.remove('is-error');
+    textEl.textContent = 'Checking model availability...';
+
+    let status;
+    try {
+        const response = await fetch('/api/settings/model-status');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        status = await response.json();
+    } catch (error) {
+        // The status probe itself failed — treat as unavailable but keep the
+        // chat usable-looking rather than blocking on our own error.
+        console.error('Model status check failed:', error);
+        chatModelAvailable = false;
+        banner.classList.add('is-error');
+        textEl.textContent =
+            'Could not verify the model connection. Open Settings to check your LLM configuration.';
+        return;
+    }
+
+    if (!status.reachable) {
+        chatModelAvailable = false;
+        banner.classList.add('is-error');
+        const detail = status.error
+            ? ` (${escapeHtml(status.error)})`
+            : '';
+        textEl.innerHTML =
+            `Cannot reach the configured model server at ${escapeHtml(status.llm_base_url)}.` +
+            `<br>Open Settings to update your LLM connection details.${detail}`;
+        return;
+    }
+
+    if (!status.model_configured) {
+        chatModelAvailable = false;
+        banner.classList.add('is-error');
+        textEl.innerHTML =
+            'No model is selected yet. Open Settings and pick one from the connected server.';
+        return;
+    }
+
+    if (status.model_available === false) {
+        chatModelAvailable = false;
+        banner.classList.add('is-error');
+        textEl.innerHTML =
+            `The selected model "${escapeHtml(status.llm_model)}" is not available on the server at ${escapeHtml(status.llm_base_url)}.` +
+            `<br>Open Settings to choose a different model.`;
+        return;
+    }
+
+    // Reachable and the selected model is present: clear the warning.
+    chatModelAvailable = true;
+    banner.style.display = 'none';
 }
 
 function showToast(message, type = 'success', detailedError = null) {
@@ -916,7 +1026,6 @@ async function openSettingsModal() {
     }
 
     document.getElementById('settings-llm-base-url').value = settings.llm_base_url || '';
-    document.getElementById('settings-llm-model').value = settings.llm_model || '';
 
     const keyInput = document.getElementById('settings-llm-api-key');
     keyInput.value = '';
@@ -930,9 +1039,17 @@ async function openSettingsModal() {
         document.getElementById('settings-api-key-hint').textContent = '';
     }
 
-    // Reset the model dropdown for the (possibly new) server.
-    document.getElementById('settings-llm-model-options').innerHTML = '';
-    document.getElementById('model-list-hint').textContent = '';
+    // The model field is a plain <select>: seed it with the saved value so it
+    // displays before any refresh; clicking the dropdown loads fresh options.
+    const modelSelect = document.getElementById('settings-llm-model');
+    modelSelect.innerHTML = '';
+    const savedModelOption = document.createElement('option');
+    savedModelOption.value = settings.llm_model || '';
+    savedModelOption.textContent = settings.llm_model || 'No model selected';
+    modelSelect.appendChild(savedModelOption);
+
+    document.getElementById('model-list-hint').textContent =
+        'Click the dropdown to load models from the server.';
 
     // Advanced settings: current prompts + built-in defaults (for Restore).
     promptDefaults = {
@@ -953,22 +1070,68 @@ function closeSettingsModal() {
     document.getElementById('settings-modal').style.display = 'none';
 }
 
-// Populate the LLM Model datalist from the server's /models endpoint, using
+// Fill the LLM Model <select> from a model id list. The currently selected
+// value is preserved; if the server no longer offers it, it stays visible
+// (marked) so saving does not silently drop the configured model.
+function populateModelSelect(modelIds) {
+    const select = document.getElementById('settings-llm-model');
+    const current = select.value;
+
+    select.innerHTML = '';
+    for (const modelId of modelIds) {
+        const option = document.createElement('option');
+        option.value = modelId;
+        option.textContent = modelId;
+        select.appendChild(option);
+    }
+
+    if (current && !modelIds.includes(current)) {
+        const staleOption = document.createElement('option');
+        staleOption.value = current;
+        staleOption.textContent = `${current} (not on this server)`;
+        select.appendChild(staleOption);
+    }
+
+    if (!select.options.length) {
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'No models available';
+        select.appendChild(emptyOption);
+    }
+
+    if (current) {
+        select.value = current;
+    }
+}
+
+// Guards against overlapping refreshes when the dropdown is clicked rapidly.
+let modelRefreshInFlight = false;
+
+// Refresh the LLM Model <select> from the server's /models endpoint, using
 // whatever base URL / API key are currently in the form (saved or not).
-async function fetchLlmModels() {
+// When openPicker is true, pop the native list open right after loading so a
+// click on the dropdown feels like a normal (but always fresh) select.
+async function fetchLlmModels({ openPicker = false } = {}) {
+    if (modelRefreshInFlight) return;
+
     const hint = document.getElementById('model-list-hint');
     const btn = document.getElementById('fetch-models-btn');
-    const datalist = document.getElementById('settings-llm-model-options');
+    const select = document.getElementById('settings-llm-model');
+
+    const baseUrl = document.getElementById('settings-llm-base-url').value.trim();
+    if (!baseUrl) {
+        hint.textContent = 'Enter the LLM Base URL first, then pick a model.';
+        return;
+    }
 
     const keyInput = document.getElementById('settings-llm-api-key');
-    const payload = {
-        llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
-    };
+    const payload = { llm_base_url: baseUrl };
     // Only send a freshly typed key; if blank, the server probes with the saved one.
     if (keyInput.value.trim()) {
         payload.llm_api_key = keyInput.value.trim();
     }
 
+    modelRefreshInFlight = true;
     btn.disabled = true;
     hint.textContent = 'Loading models...';
     try {
@@ -986,36 +1149,48 @@ async function fetchLlmModels() {
             throw new Error(detail);
         }
         const data = await response.json();
-        datalist.innerHTML = '';
-        for (const modelId of data.models) {
-            const option = document.createElement('option');
-            option.value = modelId;
-            datalist.appendChild(option);
-        }
+        populateModelSelect(data.models);
 
-        if (data.models.length) {
-            // Clear the field so the dropdown isn't filtered down to the
-            // previously saved name, then pop the list open for selection.
-            const modelInput = document.getElementById('settings-llm-model');
-            modelInput.value = '';
-            modelInput.focus();
+        if (openPicker && data.models.length) {
             try {
-                modelInput.showPicker();
-            } catch (e) {
                 // showPicker needs a fresh user gesture; if the request took
-                // too long, just leave focus on the field for manual opening.
-            }
+                // too long, just leave the loaded list for manual opening.
+                select.showPicker();
+            } catch (e) { /* activation expired — list is still populated */ }
         }
 
         hint.textContent = data.models.length
             ? `Loaded ${data.models.length} model${data.models.length === 1 ? '' : 's'} from the server.`
             : 'Server responded, but no models were listed.';
     } catch (error) {
-        datalist.innerHTML = '';
         hint.textContent = error.message;
     } finally {
+        modelRefreshInFlight = false;
         btn.disabled = false;
     }
+}
+
+// Clicking (or keyboard-opening) the model dropdown refreshes its options
+// from the server first, then opens the list — so users always see fresh
+// models without a separate "fetch" step.
+function setupModelDropdownRefresh() {
+    const select = document.getElementById('settings-llm-model');
+
+    // mousedown fires before the native picker opens: cancel that open and
+    // re-open it ourselves once the fresh list has loaded.
+    select.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        select.focus();
+        fetchLlmModels({ openPicker: true });
+    });
+
+    // Keyboard access: Enter / Space / ArrowDown open the picker natively —
+    // intercept them the same way.
+    select.addEventListener('keydown', (e) => {
+        if (!['Enter', ' ', 'ArrowDown'].includes(e.key)) return;
+        e.preventDefault();
+        fetchLlmModels({ openPicker: true });
+    });
 }
 
 async function handleSettingsSave(event) {
@@ -1052,6 +1227,11 @@ async function handleSettingsSave(event) {
         }
         closeSettingsModal();
         showToast('Settings saved');
+        // If the chat tab is open behind the modal, re-probe so a fixed
+        // configuration clears its warning banner right away.
+        if (document.getElementById('chat-tab').classList.contains('active')) {
+            checkChatModelStatus();
+        }
     } catch (error) {
         console.error('Failed to save settings:', error);
         showToast('Failed to save settings', 'error', error.message);

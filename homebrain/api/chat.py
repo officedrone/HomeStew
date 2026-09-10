@@ -3,9 +3,10 @@ import json
 import logging
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-from typing import List, AsyncGenerator
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from homebrain.config import settings
+from homebrain.db import get_db_context
 from homebrain.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
 from homebrain.models.schemas import ChatRequest, ChatMessage, ChatResponse
 from homebrain.services.llm_client import (
@@ -41,6 +42,53 @@ def reset_llm_client() -> None:
     _llm_client = None
 
 
+async def resolve_device_filter(device_id: Optional[int]) -> Optional[Dict[str, Any]]:
+    """Validate the optional chat device filter and return the device row.
+
+    Returns None when no filter is set; raises 404 for an unknown id so the
+    UI gets a clear error instead of silently searching every manual.
+    """
+    if device_id is None:
+        return None
+
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT id, name, brand, model FROM devices WHERE id = ?",
+            (device_id,),
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Device {device_id} not found",
+        )
+    return dict(row)
+
+
+def device_filter_note(device: Dict[str, Any]) -> str:
+    """System-prompt addition telling the LLM which device is in scope."""
+    return (
+        f"\n\nThe user has filtered this conversation to one specific device: "
+        f"{device['name']} ({device['brand']} {device['model']}), "
+        f"device_id={device['id']}. Treat every question as being about this "
+        f"device and search only its manuals."
+    )
+
+
+def scoped_search_func(device_id: Optional[int]):
+    """Search callback with the chat device filter applied.
+
+    When a device is selected, it overrides whatever device_id the LLM puts
+    into a tool call so results can never leak from other devices' manuals.
+    """
+
+    async def _search(query: str, device_id_arg: Optional[int] = None):
+        return await search_manuals(query, device_id or device_id_arg, limit=10)
+
+    return _search
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Send a chat message and get LLM response with manual search capability."""
@@ -50,27 +98,33 @@ async def chat(request: ChatRequest):
             detail="Message content cannot be empty"
         )
     
+    # Resolve before the try so a 404 for an unknown device isn't swallowed
+    # into a generic 500.
+    device = await resolve_device_filter(request.device_id)
+
     try:
         client = get_llm_client()
-        
+
         # Convert to OpenAI message format
         messages = [
             {"role": msg.role, "content": msg.content}
             for msg in request.messages
         ]
-        
+
         # Add system prompt if needed (user-editable via Settings > Advanced
         # Settings; a blank value falls back to the built-in default).
         system_prompt = settings.CHAT_SYSTEM_PROMPT.strip() or DEFAULT_CHAT_SYSTEM_PROMPT
+        if device:
+            system_prompt += device_filter_note(device)
 
         if messages[0]['role'] != 'system':
             messages.insert(0, {"role": "system", "content": system_prompt})
-        
+
         # Chat with tool support
         response_text, used_search, search_count = await chat_with_tool_support(
             client=client,
             messages=messages,
-            search_func=lambda q, d=None: search_manuals(q, d, limit=10),
+            search_func=scoped_search_func(request.device_id),
             max_tool_calls=3
         )
         
@@ -100,27 +154,32 @@ async def chat_stream(request: ChatRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Message content cannot be empty"
         )
-    
+
+    # Resolve before streaming starts so an unknown device is a plain 404.
+    device = await resolve_device_filter(request.device_id)
+
     async def generate_response() -> AsyncGenerator[str, None]:
         try:
             client = get_llm_client()
-            
+
             messages = [
                 {"role": msg.role, "content": msg.content}
                 for msg in request.messages
             ]
-            
+
             # Add system prompt (user-editable via Settings > Advanced
             # Settings; a blank value falls back to the built-in default).
             system_prompt = settings.CHAT_SYSTEM_PROMPT.strip() or DEFAULT_CHAT_SYSTEM_PROMPT
+            if device:
+                system_prompt += device_filter_note(device)
 
             if messages[0]['role'] != 'system':
                 messages.insert(0, {"role": "system", "content": system_prompt})
-            
+
             async for event in chat_with_tool_events(
                 client=client,
                 messages=messages,
-                search_func=lambda q, d=None: search_manuals(q, d, limit=10),
+                search_func=scoped_search_func(request.device_id),
                 max_tool_calls=3
             ):
                 # json.dumps keeps each frame on a single line, as SSE requires.

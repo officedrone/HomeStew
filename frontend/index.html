@@ -81,6 +81,10 @@
             <!-- Chat Tab -->
             <div id="chat-tab" class="tab-content">
                 <div class="chat-container">
+                    <div id="chat-model-warning" class="chat-model-warning" style="display: none;">
+                        <span id="chat-model-warning-text" class="chat-model-warning-text"></span>
+                        <button type="button" class="btn btn-primary btn-small" id="chat-open-settings-btn">Open Settings</button>
+                    </div>
                     <div id="chat-messages" class="chat-messages">
                         <div class="message assistant">
                             <div class="message-content">
@@ -90,6 +94,9 @@
                     </div>
                     
                     <div class="chat-input-container">
+                        <select id="chat-device-filter" class="device-filter" title="Limit answers to one device">
+                            <option value="">All Devices</option>
+                        </select>
                         <textarea id="chat-input" placeholder="Ask a question about your devices..." rows="2"></textarea>
                         <button id="send-btn" class="btn btn-primary">Send</button>
                     </div>
@@ -187,8 +194,9 @@
                 <div class="settings-field">
                     <label for="settings-llm-model">LLM Model</label>
                     <div class="model-row">
-                        <input type="text" id="settings-llm-model" list="settings-llm-model-options" placeholder="e.g., llama3.2" required>
-                        <datalist id="settings-llm-model-options"></datalist>
+                        <!-- Plain select (no free text): the option list is
+                             refreshed from the server whenever it is opened. -->
+                        <select id="settings-llm-model" required></select>
                         <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">&#8635; Models</button>
                     </div>
                     <p class="settings-hint" id="model-list-hint"></p>

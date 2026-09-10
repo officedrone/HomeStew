@@ -287,6 +287,18 @@ async def chat_with_tool_events(
             for tool_call in message.tool_calls:
                 yield {"type": "status", "message": "Searching manuals..."}
 
+                # Echo metadata (strict OpenAI-compatible servers, e.g.
+                # llama.cpp, match the tool reply against this call and
+                # reject partial tool_call objects).
+                if hasattr(tool_call, 'function'):
+                    tc_id = tool_call.id
+                    tc_name = tool_call.function.name or "search_manuals"
+                    tc_args = tool_call.function.arguments or "{}"
+                else:
+                    tc_id = tool_call.get('id')
+                    tc_name = tool_call['function'].get('name', 'search_manuals')
+                    tc_args = tool_call['function'].get('arguments') or "{}"
+
                 tool_response, result_count = await _execute_search_tool(
                     tool_call, search_func
                 )
@@ -303,8 +315,14 @@ async def chat_with_tool_events(
 
                 current_messages.append({
                     "role": "assistant",
-                    "content": None,
-                    "tool_calls": [{"id": tool_call.id, "function": {"name": "search_manuals"}}]
+                    # Some OpenAI-compatible servers (llama.cpp) reject a null
+                    # content; an empty string is accepted everywhere.
+                    "content": "",
+                    "tool_calls": [{
+                        "id": tc_id,
+                        "type": "function",
+                        "function": {"name": tc_name, "arguments": tc_args},
+                    }],
                 })
                 current_messages.append(tool_response)
 
