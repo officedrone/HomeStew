@@ -4,6 +4,7 @@ from typing import List
 
 from homebrain.models.schemas import SearchRequest, SearchResponse, SearchResult
 from homebrain.services.search_engine import search_manuals, count_indexed_documents
+from homebrain.services.indexer import reindex_all_manuals
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -38,4 +39,20 @@ async def get_search_stats():
     return {
         "indexed_documents": count,
         "status": "ready" if count > 0 else "no_indexed_content"
+    }
+
+
+@router.post("/reindex")
+async def reindex_manuals():
+    """Re-index every stored manual.
+
+    Useful when a manual failed to index earlier (e.g. an extractor bug that
+    has since been fixed) and its content is missing from search results.
+    """
+    indexed = await reindex_all_manuals()
+    count = await count_indexed_documents()
+
+    return {
+        "manuals_indexed": indexed,
+        "indexed_documents": count,
     }

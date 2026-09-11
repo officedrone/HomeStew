@@ -3,7 +3,7 @@ import json
 import logging
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from homebrain.config import settings
 from homebrain.db import get_db_context
@@ -77,6 +77,37 @@ async def resolve_device_filter(device_id: Optional[int]) -> Optional[Dict[str, 
     return device
 
 
+async def list_all_device_ids() -> List[int]:
+    """Every registered device id — used to validate LLM-supplied filters."""
+    async with get_db_context() as db:
+        cursor = await db.execute("SELECT id FROM devices")
+        return [row["id"] for row in await cursor.fetchall()]
+
+
+async def device_roster_note() -> str:
+    """System-prompt section listing every device and its real id.
+
+    Without this the model invents plausible-looking device ids (it called
+    search with device_id=202 for a laptop whose real id is 1), and every
+    search scoped to a nonexistent id returns nothing — which the model then
+    (correctly!) reports as "the manuals do not cover this".
+    """
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT id, name, brand, model FROM devices ORDER BY id"
+        )
+        rows = [dict(r) for r in await cursor.fetchall()]
+
+    if not rows:
+        return ""
+
+    lines = [f"- device_id={r['id']}: {r['name']} ({r['brand']} {r['model']})" for r in rows]
+    return (
+        "\n\nThe user's registered devices (these are the ONLY valid "
+        "device_id values — never invent or guess an id):\n" + "\n".join(lines)
+    )
+
+
 def device_filter_note(device: Dict[str, Any]) -> str:
     """System-prompt addition with the full device entry currently in scope.
 
@@ -107,15 +138,44 @@ def device_filter_note(device: Dict[str, Any]) -> str:
     )
 
 
-def scoped_search_func(device_id: Optional[int]):
+def scoped_search_func(
+    device_id: Optional[int],
+    valid_ids: List[int],
+):
     """Search callback with the chat device filter applied.
 
     When a device is selected, it overrides whatever device_id the LLM puts
     into a tool call so results can never leak from other devices' manuals.
+
+    A device id coming from the LLM that does not exist (small local models
+    happily invent them) would silently scope the search to zero documents;
+    instead of returning an empty result set — which the model reads as "the
+    manuals say nothing" — the bogus filter is dropped and the note explains
+    what happened so the model can retry with a real id.
+
+    Returns either a plain result list or a (results, note) tuple.
     """
 
-    async def _search(query: str, device_id_arg: Optional[int] = None):
-        return await search_manuals(query, device_id or device_id_arg, limit=10)
+    async def _search(
+        query: str, device_id_arg: Optional[int] = None
+    ) -> Tuple[List[Any], str]:
+        note = ""
+        if device_id is None and device_id_arg is not None:
+            try:
+                device_id_arg = int(device_id_arg)
+            except (TypeError, ValueError):
+                device_id_arg = None
+            if device_id_arg is not None and device_id_arg not in valid_ids:
+                note = (
+                    f"device_id={device_id_arg} does not match any registered "
+                    "device, so the filter was dropped and this search covered "
+                    "ALL devices. Use one of the real device ids from the "
+                    "system prompt (or none) on retry."
+                )
+                device_id_arg = None
+
+        results = await search_manuals(query, device_id or device_id_arg, limit=10)
+        return results, note
 
     return _search
 
@@ -132,6 +192,7 @@ async def chat(request: ChatRequest):
     # Resolve before the try so a 404 for an unknown device isn't swallowed
     # into a generic 500.
     device = await resolve_device_filter(request.device_id)
+    valid_ids = await list_all_device_ids()
 
     try:
         client = get_llm_client()
@@ -147,6 +208,10 @@ async def chat(request: ChatRequest):
         system_prompt = settings.CHAT_SYSTEM_PROMPT.strip() or DEFAULT_CHAT_SYSTEM_PROMPT
         if device:
             system_prompt += device_filter_note(device)
+        else:
+            # No filter: tell the model which device ids actually exist so it
+            # can scope per-device searches instead of inventing ids.
+            system_prompt += await device_roster_note()
 
         if messages[0]['role'] != 'system':
             messages.insert(0, {"role": "system", "content": system_prompt})
@@ -155,8 +220,8 @@ async def chat(request: ChatRequest):
         response_text, used_search, search_count = await chat_with_tool_support(
             client=client,
             messages=messages,
-            search_func=scoped_search_func(request.device_id),
-            max_tool_calls=3
+            search_func=scoped_search_func(request.device_id, valid_ids),
+            max_tool_calls=8
         )
         
         return ChatResponse(
@@ -189,6 +254,7 @@ async def chat_stream(request: ChatRequest):
 
     # Resolve before streaming starts so an unknown device is a plain 404.
     device = await resolve_device_filter(request.device_id)
+    valid_ids = await list_all_device_ids()
 
     async def generate_response() -> AsyncGenerator[str, None]:
         try:
@@ -204,6 +270,9 @@ async def chat_stream(request: ChatRequest):
             system_prompt = settings.CHAT_SYSTEM_PROMPT.strip() or DEFAULT_CHAT_SYSTEM_PROMPT
             if device:
                 system_prompt += device_filter_note(device)
+            else:
+                # No filter: give the model the real device ids (see above).
+                system_prompt += await device_roster_note()
 
             if messages[0]['role'] != 'system':
                 messages.insert(0, {"role": "system", "content": system_prompt})
@@ -211,8 +280,8 @@ async def chat_stream(request: ChatRequest):
             async for event in chat_with_tool_events(
                 client=client,
                 messages=messages,
-                search_func=scoped_search_func(request.device_id),
-                max_tool_calls=3
+                search_func=scoped_search_func(request.device_id, valid_ids),
+                max_tool_calls=8
             ):
                 # json.dumps keeps each frame on a single line, as SSE requires.
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"

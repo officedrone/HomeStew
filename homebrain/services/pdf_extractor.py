@@ -6,6 +6,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _relax_pypdf_limits() -> None:
+    """Raise pypdf's strict numeric-token length limit.
+
+    Some vendor PDFs (e.g. BEHRINGER manuals) contain numeric tokens longer
+    than pypdf's default 64-byte cap, which aborts the entire read with a
+    LimitReachedError before any page can be extracted. Raising the limit
+    lets such files be indexed normally.
+    """
+    try:
+        from pypdf.generic._base import NumberObject
+
+        if getattr(NumberObject, "_LENGTH_LIMIT", 0) < 4096:
+            NumberObject._LENGTH_LIMIT = 4096
+    except Exception:  # pragma: no cover - internal API may change
+        pass
+
+
+_relax_pypdf_limits()
+
+
 def extract_text_from_pdf(pdf_path: str) -> tuple[str, int]:
     """
     Extract text from a PDF file.

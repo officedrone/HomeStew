@@ -352,20 +352,38 @@ async def _execute_search_tool(
 
         logger.info(f"Executing search tool: '{query}' (device={device_id})")
 
-        # Execute search
+        # Execute search. The callback may return either a plain result list
+        # or a (results, note) tuple — the note carries warnings the model
+        # must see (e.g. an invented device id whose filter was dropped).
         results = await search_func(query, device_id)
+        note = ""
+        if isinstance(results, tuple):
+            results, note = results
 
         # Format results for LLM
         if not results:
             content = (
-                f"No manuals found matching '{query}'. Try different keywords. "
-                "If retries also fail, tell the user the manuals do not cover "
-                "this instead of answering from your own knowledge."
+                f"No manuals found matching '{query}'. Retry with fewer or "
+                "different keywords (drop generic words like 'connection', "
+                "'port' or 'laptop'; keep the device's model number and one "
+                "distinctive spec word), and if you passed a device_id try "
+                "again without it. If retries also fail, tell the user the "
+                "manuals do not cover this instead of answering from your own "
+                "knowledge."
             )
+            # A dropped/invalid device filter means nothing was actually
+            # searched in that device's manuals — the model must retry
+            # without it rather than conclude the manuals are silent.
+            if note:
+                content = f"{note}\n\n{content}"
         else:
             formatted_results = []
             for i, result in enumerate(results[:8], 1):
-                snippet_clean = ''.join(c for c in result.snippet if c not in '<>')
+                # Snippets wrap hits in <mark> tags for the web UI; here we
+                # want plain text. Remove the tags themselves — stripping
+                # only the angle brackets would leave stray "mark" words
+                # that the model then quotes verbatim ("markUSBmark").
+                snippet_clean = re.sub(r"</?mark>", "", result.snippet)
                 if result.manual_id == 0:
                     # Hit inside a device's own record (details / custom
                     # attributes), not a PDF page — no file link exists.
@@ -383,7 +401,11 @@ async def _execute_search_tool(
                     f'   Snippet from this page: "{snippet_clean[:600]}"'
                 )
 
+            # Same as the no-results case: a dropped bogus device_id means
+            # these hits may come from other devices' manuals — say so.
+            prefix = f"{note}\n\n" if note else ""
             content = (
+                prefix +
                 f"Found {len(results)} relevant sections:\n\n" +
                 "\n\n".join(formatted_results) +
                 "\n\nUse ONLY these snippets to answer. Each snippet is the "
