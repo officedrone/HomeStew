@@ -24,6 +24,18 @@ ranking:
    in close proximity > weighted partial coverage, with hit density and
    bm25 as tie-breakers.
 
+Two query features sit on top of that pipeline:
+
+- **Explicit phrases**: text in double quotes ("memory speed") must appear
+  verbatim (whole words, adjacent). Phrase groups are OR-ed with the loose
+  terms for retrieval — like mainstream search engines — and a page holding
+  an explicit phrase always ranks in the top tier.
+- **Device entries**: when no device filter is set, each device's own
+  record (name, brand, model, description, serial/product numbers and
+  custom attributes) is scored with the same qualification + tiering logic
+  as manual pages, so "How much RAM does my laptop support" surfaces a
+  device whose entry says "RAM: 64GB" even when no manual page matches.
+
 Snippets are built in Python (not SQL) so each hit paragraph can be shown
 separately with the matched keyword wrapped in <mark> tags.
 """
@@ -94,27 +106,80 @@ STOPWORDS = frozenset({
 })
 
 
-def _extract_terms(query: str) -> List[str]:
-    """Pull the meaningful search terms out of a user query.
+_PHRASE_RE = re.compile(r'"([^"]+)"')
 
-    Stopwords are dropped so natural-language questions don't dilute the
-    weighted matching; if that removes everything (the query was all
-    stopwords), the raw terms are kept so the search still does something.
+
+def _tokenize(text: str) -> List[str]:
+    """Lowercase word tokens of a text, keeping hyphenated words intact."""
+    return [t.lower() for t in re.findall(r"[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*", text)]
+
+
+class ParsedQuery(NamedTuple):
+    """Explicit quoted phrases plus the loose (unquoted) terms of a query."""
+
+    phrases: List[List[str]]  # each explicit "quoted phrase" as its word list
+    loose: List[str]          # unquoted terms with stopwords dropped
+    terms: List[str]          # every unique term (loose + phrase words)
+
+
+def _parse_query(query: str) -> ParsedQuery:
+    """Split a query into explicit quoted phrases and loose terms.
+
+    Text in double quotes is an explicit phrase that must appear verbatim,
+    like on mainstream search engines ('"memory speed" upgrade'). Phrase
+    groups are OR-ed with the loose terms for retrieval (a page holding the
+    phrase qualifies even without the other words, and vice versa), but a
+    page containing the phrase always ranks in the top tier. Stopwords are
+    dropped from the loose terms only — inside quotes every word counts.
+    If stopword filtering removes everything, the raw tokens are kept so
+    the search still does something.
     """
-    tokens = [t.lower() for t in re.findall(r"[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*", query)]
-    filtered = [t for t in tokens if t not in STOPWORDS]
-    return filtered or tokens
+    phrases: List[List[str]] = []
+
+    def _grab(match: re.Match) -> str:
+        words = _tokenize(match.group(1))
+        if words:
+            phrases.append(words)
+        return " "  # keep the remainder tokenizable at the same positions
+
+    remainder = _PHRASE_RE.sub(_grab, query)
+    loose_tokens = _tokenize(remainder)
+    loose = [t for t in loose_tokens if t not in STOPWORDS] or loose_tokens
+
+    terms: List[str] = []
+    seen: set = set()
+    for t in loose + [w for ph in phrases for w in ph]:
+        if t not in seen:
+            seen.add(t)
+            terms.append(t)
+    return ParsedQuery(phrases=phrases, loose=loose, terms=terms)
 
 
-def _build_match_query(terms: List[str]) -> str:
+def _phrase_strings(phrases: List[List[str]]) -> Tuple[List[str], List[str]]:
+    """Split joined phrase strings into trigram-indexable and LIKE-only ones.
+
+    A quoted phrase is matched as a verbatim substring by the trigram
+    tokenizer, but phrases shorter than one trigram cannot go through MATCH
+    and need a LIKE fallback instead (same rule as single short terms).
+    """
+    joined = [" ".join(ph) for ph in phrases]
+    indexable = [p for p in joined if len(p) >= MIN_TRIGRAM_LEN]
+    like_only = [p for p in joined if len(p) < MIN_TRIGRAM_LEN]
+    return indexable, like_only
+
+
+def _build_match_query(terms: List[str], phrases: List[List[str]]) -> str:
     """Build an FTS5 MATCH expression that does substring matching.
 
     Each term is quoted as a phrase (the trigram tokenizer treats a quoted
-    string as a substring match), and terms are OR-ed together so that a
-    page matching any subset of the query becomes a candidate — final
-    qualification happens in Python via weighted coverage (_score_row).
+    string as a substring match) and so is every explicit query phrase, all
+    OR-ed together so that a page matching any subset of the query becomes
+    a candidate — final qualification happens in Python (_score_row).
     """
-    return ' OR '.join(f'"{t}"' for t in terms)
+    indexable_phrases, _ = _phrase_strings(phrases)
+    parts = [f'"{t}"' for t in terms]
+    parts += [f'"{p}"' for p in indexable_phrases]
+    return ' OR '.join(parts)
 
 
 class SearchPlan(NamedTuple):
@@ -125,7 +190,10 @@ class SearchPlan(NamedTuple):
 
 
 async def _plan_search(
-    db, terms: List[str], device_id: Optional[int]
+    db,
+    terms: List[str],
+    device_id: Optional[int],
+    extra_docs: Optional[List[str]] = None,
 ) -> SearchPlan:
     """Compute per-term IDF weights and the rare-term set for a query.
 
@@ -140,6 +208,12 @@ async def _plan_search(
     because verbose LLM queries inflate total weight with words no manual
     ever uses ("laptop", "trusted").
 
+    ``extra_docs`` is the list of lowercased device-entry texts (see
+    _fetch_device_entries) that participate in the search when no device
+    filter is set. They count as documents in the corpus so a term that
+    only ever appears in a user's own device records still gets a real IDF
+    instead of weight 0, which would make such pages unqualifiable.
+
     Returns:
         A SearchPlan. If *every* weight comes out zero (e.g. the whole query
         is filler words), weights fall back to 1.0 so at least one result
@@ -147,10 +221,11 @@ async def _plan_search(
     """
     where = "device_id = ?" if device_id is not None else None
     scope_params: list = [device_id] if device_id is not None else []
+    extra_docs = extra_docs or []
 
     total_sql = "SELECT COUNT(*) FROM pdf_index" + (f" WHERE {where}" if where else "")
     cursor = await db.execute(total_sql, scope_params)
-    n_pages = (await cursor.fetchone())[0] or 1
+    n_pages = ((await cursor.fetchone())[0] or 1) + len(extra_docs)
 
     weights: Dict[str, float] = {}
     dfs: Dict[str, int] = {}
@@ -168,6 +243,8 @@ async def _plan_search(
             params.extend(scope_params)
         cursor = await db.execute(sql, params)
         df = (await cursor.fetchone())[0]
+        # Device entries count as documents containing the term too.
+        df += sum(1 for doc in extra_docs if term in doc)
         dfs[term] = df
         # Terms absent from the index get weight 0: no page can ever match
         # them, so they must not inflate the total query weight that partial
@@ -279,51 +356,80 @@ def _score_row(
     terms: List[str],
     plan: SearchPlan,
     bm25: float,
+    phrases: Optional[List[List[str]]] = None,
+    loose_terms: Optional[List[str]] = None,
 ) -> Optional[tuple]:
     """Rank key for a candidate row; lower sorts first. ``None`` = drop it.
 
-    Partial matching: the row does *not* need every term — it qualifies
-    when either (a) at least one matched term is rare (see SearchPlan.rare,
-    e.g. "tpm"), or (b) the IDF weight of the terms with at least one
-    qualified occurrence reaches MIN_WEIGHT_COVERAGE of the total query
-    weight. A page containing only filler-weight terms ("type", "the")
-    satisfies neither and is dropped.
+    Explicit quoted phrases (``phrases``) dominate: a row containing one
+    qualifies outright and lands in the top tier — like mainstream search
+    engines, the phrase group is OR-ed with the loose terms, so a page with
+    only the loose words can still surface (lower-ranked). Without an
+    explicit-phrase hit the row must qualify through the loose terms:
+    either (a) at least one matched term is rare (see SearchPlan.rare,
+    e.g. "tpm"), or (b) the IDF weight of the qualified loose-term matches
+    reaches MIN_WEIGHT_COVERAGE of the total *loose* query weight. A page
+    containing only filler-weight terms ("type", "the") satisfies neither
+    and is dropped.
 
-    Tiers (see module docstring): 0 = exact phrase, 1 = all terms as whole
-    words within a proximity window, 2 = weighted partial coverage. Within
-    each tier, higher weight coverage sorts first, then hit density and
-    bm25 break ties.
+    Tiers (see module docstring): 0 = explicit phrase hit, or — when the
+    query has none — all terms adjacent as an exact phrase; 1 = all terms
+    as whole words within a proximity window; 2 = weighted partial
+    coverage. Within each tier, higher weight coverage sorts first, then
+    hit density and bm25 break ties.
+
+    ``loose_terms`` is the unquoted part of the query that coverage is
+    measured against (defaults to all *terms* for un-quoted queries).
     """
+    phrases = phrases or []
+    loose_terms = terms if loose_terms is None else loose_terms
+
     by_term: dict = {}
     for occ in occurrences:
         if occ["qualified"]:
             by_term.setdefault(occ["term"], []).append(occ)
 
-    unique_terms = set(terms)
-    total_weight = sum(plan.weights.get(t, 0.0) for t in unique_terms)
-    matched_weight = sum(plan.weights.get(t, 0.0) for t in by_term)
-    if not by_term:
-        return None
-    rare_hit = any(t in plan.rare for t in by_term)
+    # An explicit phrase hit qualifies on its own; coverage otherwise only
+    # considers the loose terms so phrase words don't inflate the bar.
+    phrase_hit = any(_phrase_present(lowered, ph) for ph in phrases)
+
+    # When the query is *only* quoted phrases there are no loose terms to
+    # measure against; fall back to all terms so pages with a partial
+    # phrase-word match can still surface when nothing holds the exact
+    # phrase (graceful degradation, like "showing results for ...").
+    weight_terms = set(loose_terms) if phrases and loose_terms else set(terms)
+    total_weight = sum(plan.weights.get(t, 0.0) for t in weight_terms)
+    matched_weight = sum(plan.weights.get(t, 0.0) for t in by_term if t in weight_terms)
     coverage = matched_weight / total_weight if total_weight > 0 else 1.0
-    if not rare_hit and coverage < MIN_WEIGHT_COVERAGE:
-        return None
+    if not phrase_hit:
+        if not by_term:
+            return None
+        rare_hit = any(t in plan.rare for t in by_term if t in weight_terms)
+        # OR semantics (explicit-phrase group | rest of words): a page
+        # holding only loose words still qualifies, but at least one
+        # matched term must carry real IDF weight — pages matching *only*
+        # filler or absent words are noise, not results.
+        if not rare_hit and (matched_weight <= 0 or coverage < MIN_WEIGHT_COVERAGE):
+            return None
 
     qualified = [o for lst in by_term.values() for o in lst]
     density = sum(o["end"] - o["start"] for o in qualified) / max(len(lowered), 1)
 
-    if _phrase_present(lowered, terms):
+    # Coverage used as the within-tier sort key; phrase hits get full marks.
+    coverage_key = 1.0 if phrase_hit else coverage
+
+    if phrase_hit or (not phrases and _phrase_present(lowered, terms)):
         tier = 0
     else:
+        prox_terms = weight_terms if phrases else set(terms)
+        # Tier 1 needs a whole-word occurrence of every proximity term.
         whole_lists = [
-            [o["start"] for o in lst if o["whole"]] for lst in by_term.values()
-        ]
-        span = (
-            _min_span(whole_lists)
-            if all(whole_lists) and len(by_term) == len(unique_terms)
-            else None
-        )
-        tier = 1 if span is not None and span <= _PROXIMITY_WINDOW + sum(len(t) for t in terms) else 2
+            [o["start"] for o in by_term[t] if o["whole"]]
+            for t in prox_terms
+            if t in by_term
+        ] if len(prox_terms & set(by_term)) == len(prox_terms) else []
+        span = _min_span(whole_lists) if whole_lists else None
+        tier = 1 if span is not None and span <= _PROXIMITY_WINDOW + sum(len(t) for t in prox_terms) else 2
 
     # Demote table-of-contents pages: they match nearly every query (every
     # topic is listed there) but only point at other pages, so citing them
@@ -332,7 +438,7 @@ def _score_row(
     if _toc_like(lowered, qualified):
         tier += 1
 
-    return (tier, -coverage, density, bm25)
+    return (tier, -coverage_key, density, bm25)
 
 
 def _toc_like(text_lower: str, qualified: List[dict]) -> bool:
@@ -422,8 +528,9 @@ async def _fetch_candidates(
     trigram_terms: List[str],
     short_terms: List[str],
     device_id: Optional[int],
+    phrases: Optional[List[List[str]]] = None,
 ) -> Dict[int, dict]:
-    """Pull candidate pages matching ANY query term (OR retrieval).
+    """Pull candidate pages matching ANY query term or phrase (OR retrieval).
 
     Trigram-indexed terms go through one FTS5 MATCH query; terms shorter
     than a trigram can't use the index and are matched with LIKE instead.
@@ -445,7 +552,7 @@ async def _fetch_candidates(
             FROM pdf_index
             WHERE pdf_index MATCH ?
         """
-        params: list = [_build_match_query(trigram_terms)]
+        params: list = [_build_match_query(trigram_terms, phrases or [])]
         if device_id is not None:
             sql += " AND device_id = ?"
             params.append(device_id)
@@ -457,13 +564,14 @@ async def _fetch_candidates(
     # Terms too short for the trigram index are matched with LIKE. bm25()
     # cannot be used without a MATCH clause, so rank is left at 0 and only
     # the Python-side score matters for these rows.
-    for t in short_terms:
+    _, like_phrases = _phrase_strings(phrases or [])
+    for needle in short_terms + like_phrases:
         sql = f"""
             SELECT {base_cols}, 0 AS rank
             FROM pdf_index
             WHERE lower(content) LIKE ?
         """
-        params = [f"%{t}%"]
+        params = [f"%{needle}%"]
         if device_id is not None:
             sql += " AND device_id = ?"
             params.append(device_id)
@@ -473,6 +581,83 @@ async def _fetch_candidates(
             candidates.setdefault(row["rowid"], dict(row))
 
     return candidates
+
+
+async def _fetch_device_entries(db, device_id: Optional[int] = None) -> List[dict]:
+    """Build one searchable document per device from its own record.
+
+    A device's name, brand, model, description, serial/product numbers and
+    custom attributes are joined into a single text — the same fields the
+    chat UI already exposes as the "device entry". Users type real specs
+    into these fields (e.g. an attribute "RAM: 64GB max"), so when no
+    device filter is set they must be searchable alongside the manuals:
+    "How much RAM does my laptop support" should surface the device whose
+    entry answers it even when no manual page matches.
+    """
+    dev_sql = (
+        "SELECT id, name, brand, model, description, serial_number, "
+        "product_number FROM devices"
+    )
+    dev_params: list = []
+    if device_id is not None:
+        dev_sql += " WHERE id = ?"
+        dev_params.append(device_id)
+    cursor = await db.execute(dev_sql + " ORDER BY id", dev_params)
+    devices = [dict(r) for r in await cursor.fetchall()]
+
+    attr_sql = (
+        "SELECT device_id, attribute_name, attribute_value "
+        "FROM device_attributes"
+    )
+    attr_params: list = []
+    if device_id is not None:
+        attr_sql += " WHERE device_id = ?"
+        attr_params.append(device_id)
+    attr_cursor = await db.execute(attr_sql + " ORDER BY id", attr_params)
+    attrs_by_device: Dict[int, List[str]] = {}
+    for a in await attr_cursor.fetchall():
+        attrs_by_device.setdefault(a["device_id"], []).append(
+            f"{a['attribute_name']}: {a['attribute_value']}"
+        )
+
+    entries: List[dict] = []
+    for dev in devices:
+        parts = [dev.get("name") or "", dev.get("brand") or "", dev.get("model") or ""]
+        if dev.get("description"):
+            parts.append(dev["description"])
+        if dev.get("serial_number"):
+            parts.append(f"Serial number: {dev['serial_number']}")
+        if dev.get("product_number"):
+            parts.append(f"Product number: {dev['product_number']}")
+        parts += attrs_by_device.get(dev["id"], [])
+        text = " ".join(" ".join(p.split()) for p in parts if p)
+        if text.strip():
+            entries.append({"device": dev, "text": text})
+    return entries
+
+
+def _entry_result(entry: dict, rank_key: tuple) -> SearchResult:
+    """Turn a qualifying device entry into a SearchResult.
+
+    ``manual_id=0`` / ``page_number=0`` mark it as a device (not manual page)
+    hit; the frontend renders those as a device card instead of a PDF link.
+    The score uses the same formula as manual rows, offset by -50 so an
+    equally-good device entry reports slightly below a manual page — manuals
+    are the authoritative source, but an exact spec in the user's own entry
+    still beats a weak partial match (tier dominates the offset).
+    """
+    tier, neg_coverage, density, _bm25 = rank_key
+    score = float(-tier * 1000 + neg_coverage * 100 - density * 100) - 50.0
+    dev = entry["device"]
+    label = " \u2014 ".join(p for p in (dev.get("brand"), dev.get("model")) if p)
+    return SearchResult(
+        manual_id=0,
+        device_id=dev["id"],
+        filename=f"{dev['name']} ({label})" if label else dev["name"],
+        page_number=0,
+        snippet=" \u2026 ".join(_snippets_for_row(entry["text"], entry["qualified"])),
+        score=score,
+    )
 
 
 async def search_manuals(
@@ -496,6 +681,13 @@ async def search_manuals(
       terms appear as whole words close together, then weighted partial
       matches (rare-term hits outrank common-word-only hits).
 
+    Explicit "quoted phrases" in the query must appear verbatim and rank
+    first; the rest of the words are OR-ed with them (see module docstring).
+    When no device filter is set, every device's own record (details +
+    custom attributes) is searched alongside the manuals so cross-device
+    questions like "How much RAM does my laptop support" surface the right
+    device even when no manual page matches.
+
     Args:
         query: Search query.
         device_id: Optional filter by device ID
@@ -504,8 +696,10 @@ async def search_manuals(
     Returns:
         List of SearchResult objects, best matches first; a page with hits
         in multiple sections yields multiple results (one per section).
+        Device-entry hits use manual_id=0 and page_number=0.
     """
-    terms = _extract_terms(query)
+    parsed = _parse_query(query)
+    terms = parsed.terms
     if not terms:
         return []
 
@@ -516,36 +710,69 @@ async def search_manuals(
 
     try:
         async with get_db_context() as db:
-            plan = await _plan_search(db, terms, device_id)
+            # Device entries always join; when a filter is set they are
+            # scoped to it, so custom attributes stay searchable per device.
+            entries = await _fetch_device_entries(db, device_id)
+            plan = await _plan_search(
+                db, terms, device_id,
+                extra_docs=[e["text"].lower() for e in entries],
+            )
             candidates = await _fetch_candidates(
-                db, trigram_terms, short_terms, device_id
+                db, trigram_terms, short_terms, device_id, parsed.phrases
             )
 
-        # Verify + score every candidate row.
-        scored_rows = []
+        # Verify + score every candidate manual row.
+        scored_rows: List[tuple] = []  # (rank_key, "row", row, text, qualified)
         for row in candidates.values():
             # Collapse newlines/whitespace runs: PDFs use single \n for soft
             # wraps, and HTML renders the snippet as flowing text anyway.
             text = " ".join((row["content"] or "").split())
             occurrences = _find_term_occurrences(text, terms)
             rank_key = _score_row(
-                text.lower(), occurrences, terms, plan, row["rank"]
+                text.lower(), occurrences, terms, plan, row["rank"],
+                phrases=parsed.phrases, loose_terms=parsed.loose,
             )
             if rank_key is None:
                 continue  # weight coverage too low (e.g. only filler words)
 
             qualified = [o for o in occurrences if o["qualified"]]
-            scored_rows.append((rank_key, row, text, qualified))
+            scored_rows.append((rank_key, "row", row, text, qualified))
+
+        # Score the device entries with the same qualification + tiering. A
+        # device's record is short, so a hit there is dense by definition;
+        # zero the density term to keep entries comparable with page rows.
+        for entry in entries:
+            text = entry["text"]
+            occurrences = _find_term_occurrences(text, terms)
+            rank_key = _score_row(
+                text.lower(), occurrences, terms, plan, 0.0,
+                phrases=parsed.phrases, loose_terms=parsed.loose,
+            )
+            if rank_key is None:
+                continue
+            tier, neg_cov, _density, bm25 = rank_key
+            entry["qualified"] = [o for o in occurrences if o["qualified"]]
+            scored_rows.append(((tier, neg_cov, 0.0, bm25), "entry", entry))
 
         scored_rows.sort(key=lambda item: item[0])
 
         results: List[SearchResult] = []
-        for rank_key, row, text, qualified in scored_rows:
+        for rank_key, kind, *rest in scored_rows:
+            tier, neg_coverage, density, bm25_rank = rank_key
+            if kind == "entry":
+                result = _entry_result(rest[0], rank_key)
+                if not result.snippet:
+                    continue
+                results.append(result)
+                if len(results) >= limit:
+                    break
+                continue
+
+            row, text, qualified = rest
             snippets = _snippets_for_row(text, qualified)
             if not snippets:
                 continue
 
-            tier, neg_coverage, density, bm25_rank = rank_key
             score = float(
                 -tier * 1000 + neg_coverage * 100 - density * 100 - bm25_rank
             )
@@ -585,11 +812,13 @@ async def count_indexed_documents() -> int:
 async def search_count(query: str, device_id: Optional[int] = None) -> int:
     """Get total count of matching pages for a query.
 
-    Uses the same OR retrieval and weighted partial-match qualification as
-    search_manuals so the count reflects what users actually see (including
-    partial matches), without noise like "ram" inside "program".
+    Uses the same OR retrieval, explicit-phrase handling and weighted
+    partial-match qualification as search_manuals so the count reflects what
+    users actually see (including partial matches), without noise like "ram"
+    inside "program". Device entries are not counted (they are not pages).
     """
-    terms = _extract_terms(query)
+    parsed = _parse_query(query)
+    terms = parsed.terms
     if not terms:
         return 0
     trigram_terms = [t for t in terms if len(t) >= MIN_TRIGRAM_LEN]
@@ -601,7 +830,7 @@ async def search_count(query: str, device_id: Optional[int] = None) -> int:
         async with get_db_context() as db:
             plan = await _plan_search(db, terms, device_id)
             candidates = await _fetch_candidates(
-                db, trigram_terms, short_terms, device_id
+                db, trigram_terms, short_terms, device_id, parsed.phrases
             )
 
         count = 0
@@ -609,7 +838,8 @@ async def search_count(query: str, device_id: Optional[int] = None) -> int:
             text = " ".join((row["content"] or "").split())
             occurrences = _find_term_occurrences(text, terms)
             if _score_row(
-                text.lower(), occurrences, terms, plan, row["rank"]
+                text.lower(), occurrences, terms, plan, row["rank"],
+                phrases=parsed.phrases, loose_terms=parsed.loose,
             ) is not None:
                 count += 1
         return count

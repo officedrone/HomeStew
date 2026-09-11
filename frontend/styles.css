@@ -380,6 +380,13 @@ a.result-page-link:hover {
     border-radius: 2px;
 }
 
+/* Hit in a device's own record (details / custom attributes) rather than
+   a manual page — visually distinct from PDF results. */
+.result-device-entry {
+    background: #eef6ff;
+    border-color: #bfdbfe;
+}
+
 .empty-state {
     text-align: center;
     padding: 60px 20px;

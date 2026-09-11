@@ -657,15 +657,24 @@ function renderSearchResults(data) {
         <div style="margin-bottom: 15px; color: var(--text-secondary);">
             Found ${data.total_results} result${data.total_results !== 1 ? 's' : ''} for "${escapeHtml(data.query)}"
         </div>
-        ${data.results.map(result => `
-            <div class="result-item">
-                <div class="result-header">
+        ${data.results.map(result => {
+            // manual_id 0 = a hit in the device's own record (details /
+            // custom attributes), not a PDF page — no file link to open.
+            const header = result.manual_id === 0
+                ? `
+                    <span class="result-title">${escapeHtml(result.filename)}</span>
+                    <a class="result-meta result-page-link" href="#" onclick="editDevice(${result.device_id}); return false;">Device entry &nearr;</a>
+                `
+                : `
                     <a class="result-title" href="/api/downloads/manuals/${result.manual_id}/file#page=${result.page_number}" target="_blank" rel="noopener">${escapeHtml(result.filename)}</a>
                     <a class="result-meta result-page-link" href="/api/downloads/manuals/${result.manual_id}/file#page=${result.page_number}" target="_blank" rel="noopener">Page ${result.page_number} &nearr;</a>
-                </div>
+                `;
+            return `
+            <div class="result-item${result.manual_id === 0 ? ' result-device-entry' : ''}">
+                <div class="result-header">${header}</div>
                 <div class="result-snippet">${result.snippet}</div>
-            </div>
-        `).join('')}
+            </div>`;
+        }).join('')}
     `;
 }
 

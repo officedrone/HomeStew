@@ -366,6 +366,14 @@ async def _execute_search_tool(
             formatted_results = []
             for i, result in enumerate(results[:8], 1):
                 snippet_clean = ''.join(c for c in result.snippet if c not in '<>')
+                if result.manual_id == 0:
+                    # Hit inside a device's own record (details / custom
+                    # attributes), not a PDF page — no file link exists.
+                    formatted_results.append(
+                        f"Result {i} — Device entry: {result.filename}\n"
+                        f'   Entry text: "{snippet_clean[:600]}"'
+                    )
+                    continue
                 # Markdown link opening the exact PDF page in the browser —
                 # the same URL scheme the Search tab uses for its results.
                 file_url = f"/api/downloads/manuals/{result.manual_id}/file#page={result.page_number}"
@@ -382,9 +390,13 @@ async def _execute_search_tool(
                 "only verified evidence for its page: cite a page only for "
                 "facts that are actually visible in that page's snippet, and "
                 "reuse that page's Reference link verbatim (keep the URL, "
-                "manual id and page number exactly as given). Facts not "
-                "visible in any snippet are NOT covered by the manuals — say "
-                "so instead of inventing them or citing a page for them."
+                "manual id and page number exactly as given). A \"Device "
+                "entry\" result is the user's own record of that device "
+                "(its details and custom attributes): it is a valid source, "
+                "but cite it as the device entry, not as a manual page. "
+                "Facts not visible in any snippet or entry are NOT covered "
+                "by the manuals — say so instead of inventing them or citing "
+                "a page for them."
             )
 
         tool_message = {
