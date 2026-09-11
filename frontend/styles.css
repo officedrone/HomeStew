@@ -464,6 +464,60 @@ a.result-page-link:hover {
     border-bottom-left-radius: 2px;
 }
 
+/* Markdown-rendered answers (github-markdown-css inside the chat bubble).
+   The vendored stylesheet wants a full-width padded page; squeeze it back
+   into the bubble and keep long content scrollable instead of overflowing. */
+.message-content.markdown-body {
+    padding: 12px 16px;
+    font-size: 0.95rem;
+}
+
+.message-content.markdown-body > :first-child {
+    margin-top: 0 !important;
+}
+
+.message-content.markdown-body > :last-child {
+    margin-bottom: 0 !important;
+}
+
+.message-content.markdown-body pre {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.message-content.markdown-body table {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* Manual / page citation links stand out a bit inside answers. */
+.message.assistant .message-content.markdown-body a {
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* Citation links inside the blue user bubble would be invisible in the
+   default link colour — force white there (markdown-body also sets its own
+   foreground, which would otherwise override .message.user .message-content). */
+.message.user .message-content.markdown-body,
+.message.user .message-content.markdown-body * {
+    color: white;
+}
+
+.message.user .message-content.markdown-body a {
+    color: white;
+    text-decoration: underline;
+}
+
+/* Failure note appended to a partial streamed answer. */
+.stream-error-note {
+    color: var(--error);
+    font-style: italic;
+}
+
 /* Streaming assistant bubble: the message body stacks the collapsible
    thinking / tool-call trace above the answer bubble. The answer keeps the
    normal 70% bubble width; the trace spans the full column. */

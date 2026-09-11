@@ -4,6 +4,33 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
 });
 
+// ---------------------------------------------------------------------------
+// Markdown rendering for chat answers.
+// marked.js parses, DOMPurify sanitises (LLM output is untrusted), and both
+// libraries are vendored under /static/vendor so everything works offline.
+// ---------------------------------------------------------------------------
+if (window.marked) {
+    marked.setOptions({ gfm: true, breaks: true });
+}
+if (window.DOMPurify) {
+    // Open manual/citation links in a new tab so the chat is never lost,
+    // and strip referrer info from outbound links.
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+        if (node.tagName === 'A') {
+            node.target = '_blank';
+            node.rel = 'noopener noreferrer';
+        }
+    });
+}
+
+function renderMarkdown(text) {
+    const source = text || '';
+    // Graceful fallback when the vendor scripts failed to load: plain text.
+    if (!window.marked) return escapeHtml(source).replace(/\n/g, '<br>');
+    const html = marked.parse(source);
+    return window.DOMPurify ? DOMPurify.sanitize(html) : html;
+}
+
 let devices = [];
 let currentDeviceFilter = null;
 // Selected device filter for the AI Chat tab (null = all devices). Mirrors
@@ -756,7 +783,7 @@ function createStreamRenderer() {
     trace.style.display = 'none';
 
     const contentEl = document.createElement('div');
-    contentEl.className = 'message-content';
+    contentEl.className = 'message-content markdown-body';
 
     const wrapper = document.createElement('div');
     wrapper.className = 'message-body';
@@ -789,6 +816,20 @@ function createStreamRenderer() {
 
     function removePlaceholder() {
         if (placeholder.parentNode) placeholder.remove();
+    }
+
+    // Re-render the accumulated answer as markdown at most once per frame;
+    // _raw keeps the original markdown text for conversation history.
+    let renderQueued = false;
+    function renderNow() {
+        renderQueued = false;
+        contentEl.innerHTML = renderMarkdown(contentText);
+        contentEl._raw = contentText;
+    }
+    function scheduleRender() {
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(renderNow);
     }
 
     return {
@@ -894,9 +935,9 @@ function createStreamRenderer() {
         appendContent(delta) {
             removePlaceholder();
             contentText += delta;
-            // Render as plain text while streaming (final markdown/formatting
-            // is applied when the authoritative message event arrives).
-            contentEl.textContent = contentText;
+            // Live markdown preview, throttled to one re-render per animation
+            // frame so fast token streams don't thrash the DOM.
+            scheduleRender();
             scroll();
         },
 
@@ -906,7 +947,7 @@ function createStreamRenderer() {
             removePlaceholder();
             this.closeThinking();
             contentText = finalContent;
-            contentEl.textContent = finalContent;
+            renderNow();
             messageDiv.classList.remove('streaming');
             scroll();
         },
@@ -917,9 +958,16 @@ function createStreamRenderer() {
             this.closeThinking();
             removePlaceholder();
             // Keep whatever partial answer streamed in, then note the failure.
-            contentEl.textContent = contentText
-                ? `${contentText}\n\n${message}`
-                : message;
+            contentEl.innerHTML = renderMarkdown(contentText);
+            if (contentText) {
+                const errNote = document.createElement('p');
+                errNote.className = 'stream-error-note';
+                errNote.textContent = message;
+                contentEl.appendChild(errNote);
+            } else {
+                contentEl.textContent = message;
+            }
+            contentEl._raw = contentText ? `${contentText}\n\n${message}` : message;
             messageDiv.classList.remove('streaming');
             scroll();
         }
@@ -966,7 +1014,10 @@ function getChatMessages() {
         if (msgEl.classList.contains('streaming')) return;
         
         const role = msgEl.classList.contains('user') ? 'user' : 'assistant';
-        const content = msgEl.querySelector('.message-content').textContent;
+        const contentEl = msgEl.querySelector('.message-content');
+        // Assistant bubbles hold rendered markdown HTML; _raw keeps the
+        // original markdown so history sent back to the LLM stays faithful.
+        const content = contentEl._raw != null ? contentEl._raw : contentEl.textContent;
         
         // Skip welcome message
         if (content.includes('Hello! I\'m HomeBrain')) return;
@@ -982,10 +1033,13 @@ function addMessageToChat(role, content) {
     
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
+    // Assistant answers are markdown; user messages stay plain escaped text.
+    const contentHtml = role === 'assistant' ? renderMarkdown(content) : escapeHtml(content);
     messageDiv.innerHTML = `
-        <div class="message-content">${escapeHtml(content)}</div>
+        <div class="message-content${role === 'assistant' ? ' markdown-body' : ''}">${contentHtml}</div>
     `;
-    
+    messageDiv.querySelector('.message-content')._raw = content;
+
     container.appendChild(messageDiv);
     container.scrollTop = container.scrollHeight;
 }

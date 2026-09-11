@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HomeBrain - Device Manual Manager</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <!-- Markdown rendering for chat answers (all assets vendored locally so
+         the app works fully offline). marked: MIT, DOMPurify: Apache-2.0,
+         github-markdown-css: MIT. -->
+    <link rel="stylesheet" href="/static/vendor/github-markdown-light.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
 <body>
@@ -242,6 +246,8 @@
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
 
+    <script src="/static/vendor/marked.min.js"></script>
+    <script src="/static/vendor/purify.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

@@ -362,15 +362,22 @@ async def _execute_search_tool(
             formatted_results = []
             for i, result in enumerate(results[:5], 1):
                 snippet_clean = ''.join(c for c in result.snippet if c not in '<>')
+                # Markdown link opening the exact PDF page in the browser —
+                # the same URL scheme the Search tab uses for its results.
+                file_url = f"/api/downloads/manuals/{result.manual_id}/file#page={result.page_number}"
                 formatted_results.append(
-                    f"{i}. [{result.filename}, Page {result.page_number}]\n"
+                    f"{i}. {result.filename}, Page {result.page_number}\n"
+                    f"   Reference link: [Page {result.page_number}]({file_url})\n"
                     f"   {snippet_clean[:150]}..."
                 )
 
             content = (
                 f"Found {len(results)} relevant sections:\n\n" + 
                 "\n\n".join(formatted_results) +
-                "\n\nUse this information to answer the user's question."
+                "\n\nUse this information to answer the user's question. "
+                "Cite every fact you use by adding Markdown links that reuse "
+                "the Reference links above verbatim (keep the URLs and page "
+                "numbers exactly as given)."
             )
 
         tool_message = {
