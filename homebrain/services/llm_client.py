@@ -357,27 +357,34 @@ async def _execute_search_tool(
 
         # Format results for LLM
         if not results:
-            content = f"No manuals found matching '{query}'. Try different keywords."
+            content = (
+                f"No manuals found matching '{query}'. Try different keywords. "
+                "If retries also fail, tell the user the manuals do not cover "
+                "this instead of answering from your own knowledge."
+            )
         else:
             formatted_results = []
-            for i, result in enumerate(results[:5], 1):
+            for i, result in enumerate(results[:8], 1):
                 snippet_clean = ''.join(c for c in result.snippet if c not in '<>')
                 # Markdown link opening the exact PDF page in the browser —
                 # the same URL scheme the Search tab uses for its results.
                 file_url = f"/api/downloads/manuals/{result.manual_id}/file#page={result.page_number}"
                 formatted_results.append(
-                    f"{i}. {result.filename}, Page {result.page_number}\n"
+                    f"Result {i} — {result.filename}, Page {result.page_number}\n"
                     f"   Reference link: [Page {result.page_number}]({file_url})\n"
-                    f"   {snippet_clean[:150]}..."
+                    f'   Snippet from this page: "{snippet_clean[:600]}"'
                 )
 
             content = (
-                f"Found {len(results)} relevant sections:\n\n" + 
+                f"Found {len(results)} relevant sections:\n\n" +
                 "\n\n".join(formatted_results) +
-                "\n\nUse this information to answer the user's question. "
-                "Cite every fact you use by adding Markdown links that reuse "
-                "the Reference links above verbatim (keep the URLs and page "
-                "numbers exactly as given)."
+                "\n\nUse ONLY these snippets to answer. Each snippet is the "
+                "only verified evidence for its page: cite a page only for "
+                "facts that are actually visible in that page's snippet, and "
+                "reuse that page's Reference link verbatim (keep the URL, "
+                "manual id and page number exactly as given). Facts not "
+                "visible in any snippet are NOT covered by the manuals — say "
+                "so instead of inventing them or citing a page for them."
             )
 
         tool_message = {

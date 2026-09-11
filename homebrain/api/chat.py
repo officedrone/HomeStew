@@ -53,26 +53,57 @@ async def resolve_device_filter(device_id: Optional[int]) -> Optional[Dict[str, 
 
     async with get_db_context() as db:
         cursor = await db.execute(
-            "SELECT id, name, brand, model FROM devices WHERE id = ?",
+            "SELECT id, name, brand, model, description, serial_number, "
+            "product_number FROM devices WHERE id = ?",
             (device_id,),
         )
         row = await cursor.fetchone()
 
-    if not row:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Device {device_id} not found",
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device {device_id} not found",
+            )
+        device = dict(row)
+
+        # Custom user-defined fields are part of the device entry too, so the
+        # model can answer from them without inventing anything.
+        attr_cursor = await db.execute(
+            "SELECT attribute_name, attribute_value FROM device_attributes "
+            "WHERE device_id = ?",
+            (device_id,),
         )
-    return dict(row)
+        device["attributes"] = [dict(a) for a in await attr_cursor.fetchall()]
+    return device
 
 
 def device_filter_note(device: Dict[str, Any]) -> str:
-    """System-prompt addition telling the LLM which device is in scope."""
+    """System-prompt addition with the full device entry currently in scope.
+
+    Everything the user typed into the device form is included so the model
+    can legitimately answer from it; anything not listed here still has to
+    come from a manual search result.
+    """
+    lines = [
+        f"- Name: {device['name']}",
+        f"- Brand: {device['brand']}",
+        f"- Model: {device['model']}",
+    ]
+    if device.get("description"):
+        lines.append(f"- Description: {device['description']}")
+    if device.get("serial_number"):
+        lines.append(f"- Serial number: {device['serial_number']}")
+    if device.get("product_number"):
+        lines.append(f"- Product number: {device['product_number']}")
+    for attr in device.get("attributes", []):
+        lines.append(f"- {attr['attribute_name']}: {attr['attribute_value']}")
+
     return (
-        f"\n\nThe user has filtered this conversation to one specific device: "
-        f"{device['name']} ({device['brand']} {device['model']}), "
+        "\n\nThe user has filtered this conversation to one specific device, "
         f"device_id={device['id']}. Treat every question as being about this "
-        f"device and search only its manuals."
+        "device and search only its manuals.\n"
+        "Device entry (facts here may be used directly; anything not listed "
+        "here still requires a manual search result):\n" + "\n".join(lines)
     )
 
 

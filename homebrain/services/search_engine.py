@@ -71,6 +71,14 @@ RARE_DF_RATIO = 0.10
 # Character classes used for word-boundary checks on lowercase text.
 _WORD_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789")
 
+# Table-of-contents pages list every topic in the manual with dot leaders
+# ("Features and specifications . . . . . 9"), so they contain almost any
+# query's terms while holding no actual answers. When this fraction of a
+# row's qualified hits is followed by a dot-leader run, the row is demoted
+# one ranking tier.
+TOC_LEADER_FRACTION = 0.5
+_TOC_LEADER_RE = re.compile(r"\.\s*(?:\.\s*){2,}")
+
 
 # Common English function/question words. They carry no topical signal in
 # manuals ("what type of TPM does my laptop have") and, when absent from the
@@ -317,7 +325,33 @@ def _score_row(
         )
         tier = 1 if span is not None and span <= _PROXIMITY_WINDOW + sum(len(t) for t in terms) else 2
 
+    # Demote table-of-contents pages: they match nearly every query (every
+    # topic is listed there) but only point at other pages, so citing them
+    # sends the user to an unrelated page. One tier down keeps them as a
+    # last resort instead of crowding out the real answer pages.
+    if _toc_like(lowered, qualified):
+        tier += 1
+
     return (tier, -coverage, density, bm25)
+
+
+def _toc_like(text_lower: str, qualified: List[dict]) -> bool:
+    """True when most hits sit on TOC-style dot-leader lines.
+
+    A hit is considered TOC-like when a run of spaced dots (the leader that
+    connects an entry to its page number) follows it within ~60 characters,
+    e.g. "Power input through a USB-C port . . . . 17". Content pages use
+    dot runs this way only rarely, so requiring a majority of hits keeps
+    legitimate spec text unaffected.
+    """
+    if not qualified:
+        return False
+    leaders = sum(
+        1
+        for o in qualified
+        if _TOC_LEADER_RE.search(text_lower[o["end"]:o["end"] + 60])
+    )
+    return leaders / len(qualified) >= TOC_LEADER_FRACTION
 
 
 def _highlight(text: str, positions: List[tuple]) -> str:
