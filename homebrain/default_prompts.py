@@ -18,5 +18,9 @@ DEFAULT_CHAT_SYSTEM_PROMPT = (
 DEFAULT_SEARCH_TOOL_DESCRIPTION = (
     "Search device manuals for information. Use this when the user asks about "
     "device setup, troubleshooting, specifications, or any question that might "
-    "be answered in a manual."
+    "be answered in a manual. The search matches pages containing ANY of the "
+    "query words (rare words count most), so prefer 2-5 specific keywords over "
+    "long sentences; not every word must appear on a page. If a search returns "
+    "nothing, retry with fewer or different keywords (e.g. drop generic words "
+    "like 'specifications' or 'features' and keep the distinctive ones)."
 )
