@@ -27,20 +27,11 @@
             </div>
             
             <nav class="nav-sections content-only">
-                <!-- Add Device Form -->
+                <!-- New Device: opens the Add Device modal (like Settings) -->
                 <div class="section">
-                    <h3>Add New Device</h3>
-                    <form id="add-device-form" class="device-form">
-                        <input type="text" id="device-name" placeholder="Device name (e.g., Living Room TV)" required>
-                        <input type="text" id="device-brand" placeholder="Brand (e.g., Samsung)" required>
-                        <input type="text" id="device-model" placeholder="Model (e.g., QN90A)" required>
-                        <textarea id="device-description" placeholder="Description (optional)" rows="2"></textarea>
-                        <input type="text" id="device-serial-number" placeholder="Serial Number (optional)">
-                        <input type="text" id="device-product-number" placeholder="Product Number (optional)">
-                        <button type="submit" class="btn btn-primary">Add Device</button>
-                    </form>
+                    <button type="button" id="add-device-btn" class="btn btn-primary add-device-btn">+ New Device</button>
                 </div>
-                
+
                 <!-- Device List -->
                 <div class="section">
                     <h3>My Devices</h3>
@@ -115,13 +106,42 @@
         </main>
     </div>
 
+    <!-- Add Device Modal -->
+    <div id="add-device-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeAddDeviceModal()">&times;</span>
+            <h2>Add New Device</h2>
+
+            <form id="add-device-form" class="device-form modal-form">
+                <input type="text" id="device-name" placeholder="Device name (e.g., Living Room TV)" required>
+                <input type="text" id="device-brand" placeholder="Brand (e.g., Samsung)" required>
+                <input type="text" id="device-model" placeholder="Model (e.g., QN90A)" required>
+                <textarea id="device-description" placeholder="Description (optional)" rows="2"></textarea>
+                <input type="text" id="device-serial-number" placeholder="Serial Number (optional)">
+                <input type="text" id="device-product-number" placeholder="Product Number (optional)">
+
+                <!-- Optional manuals: uploaded right after the device is created -->
+                <div class="upload-row">
+                    <label for="add-device-manuals" class="btn btn-secondary btn-small">Upload Manual</label>
+                    <input type="file" id="add-device-manuals" accept="application/pdf,.pdf" multiple style="display: none;">
+                    <span id="add-device-manual-names" class="manual-file-names"></span>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeAddDeviceModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Device</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Edit Device Modal -->
     <div id="edit-device-modal" class="modal">
         <div class="modal-content">
             <span class="modal-close" onclick="closeEditModal()">&times;</span>
             <h2>Edit Device</h2>
             
-            <form id="edit-device-form" class="device-form">
+            <form id="edit-device-form" class="device-form modal-form">
                 <input type="hidden" id="edit-device-id">
                 <input type="text" id="edit-device-name" placeholder="Device name" required>
                 <input type="text" id="edit-device-brand" placeholder="Brand" required>

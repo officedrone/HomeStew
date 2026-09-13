@@ -173,6 +173,43 @@ body.sidebar-collapsed .content-only {
     min-height: 60px;
 }
 
+/* Forms inside modals live on a white background, so they need light inputs:
+   the dark .device-form colors above are meant for the sidebar. Higher
+   specificity (.device-form.modal-form) safely overrides them. */
+.device-form.modal-form input,
+.device-form.modal-form textarea {
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--text-primary);
+}
+
+.device-form.modal-form input::placeholder,
+.device-form.modal-form textarea::placeholder {
+    color: #9ca3af;
+}
+
+/* "+ New Device" button at the top of the expanded sidebar */
+.add-device-btn {
+    width: 100%;
+}
+
+/* Optional manual picker inside the Add Device modal: the label is styled as
+   a button and opens the adjacent hidden file input. */
+.upload-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.manual-file-names {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Buttons */
 .btn {
     padding: 10px 20px;
@@ -910,6 +947,16 @@ a.result-page-link:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Manual names in the edit modal open the PDF in a new tab. */
+.manual-link {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.manual-link:hover {
+    text-decoration: underline;
 }
 
 .manual-actions {

@@ -58,7 +58,8 @@ function setupEventListeners() {
         btn.addEventListener('click', (e) => switchTab(e.target.dataset.tab));
     });
     
-    // Add device form
+    // Add device: the sidebar button opens a modal with the form.
+    document.getElementById('add-device-btn').addEventListener('click', openAddDeviceModal);
     document.getElementById('add-device-form').addEventListener('submit', handleAddDevice);
     
     // Edit device form
@@ -95,6 +96,10 @@ function setupEventListeners() {
     // Manual" button; the target device id is stashed before opening it.
     document.getElementById('manual-upload-input').addEventListener('change', handleManualFileSelected);
 
+    // The Add Device modal has its own (optional) manual picker: files are
+    // uploaded right after the new device row exists.
+    document.getElementById('add-device-manuals').addEventListener('change', updateAddDeviceManualNames);
+
     // Sidebar (docked, expanded / collapsed modes)
     applySidebarState();
     document.getElementById('sidebar-toggle-btn').addEventListener('click', toggleSidebar);
@@ -115,12 +120,15 @@ function setupEventListeners() {
         btn.addEventListener('click', () => restorePromptDefault(btn.dataset.restoreDefault));
     });
 
-    // Escape closes the settings modal
+    // Escape closes any open modal.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        const settingsModal = document.getElementById('settings-modal');
-        if (settingsModal.style.display === 'flex') {
-            closeSettingsModal();
+        for (const id of ['settings-modal', 'add-device-modal', 'edit-device-modal']) {
+            const modal = document.getElementById(id);
+            if (modal.style.display === 'flex') {
+                modal.style.display = 'none';
+                break;
+            }
         }
     });
 }
@@ -187,6 +195,30 @@ function updateDeviceFilter() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Add Device modal
+// ---------------------------------------------------------------------------
+
+function openAddDeviceModal() {
+    document.getElementById('add-device-form').reset();
+    updateAddDeviceManualNames();
+    document.getElementById('add-device-modal').style.display = 'flex';
+    setTimeout(() => document.getElementById('device-name').focus(), 50);
+}
+
+function closeAddDeviceModal() {
+    document.getElementById('add-device-modal').style.display = 'none';
+}
+
+// Show which PDFs were picked in the Add Device modal ("Upload Manual"
+// label opens the hidden multi-file input next to it).
+function updateAddDeviceManualNames() {
+    const input = document.getElementById('add-device-manuals');
+    const names = [...input.files].map(f => f.name);
+    document.getElementById('add-device-manual-names').textContent =
+        names.length === 0 ? '' : `${names.length} file${names.length !== 1 ? 's' : ''}: ${names.join(', ')}`;
+}
+
 async function handleAddDevice(e) {
     e.preventDefault();
     
@@ -207,9 +239,36 @@ async function handleAddDevice(e) {
         });
         
         if (!response.ok) throw new Error('Failed to add device');
-        
-        showToast('Device added successfully!', 'success');
-        e.target.reset();
+
+        // Upload any manuals picked in the form, now that we have a device id.
+        const { id: newDeviceId } = await response.json();
+        const manualInput = document.getElementById('add-device-manuals');
+        const files = [...manualInput.files];
+        for (const file of files) {
+            if (!file.name.toLowerCase().endsWith('.pdf')) {
+                showToast(`Skipped "${file.name}" — only PDF files are supported`, 'error');
+                continue;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+            const uploadResp = await fetch(`/api/devices/${newDeviceId}/manuals/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            if (!uploadResp.ok) {
+                let detail = `Failed to upload "${file.name}"`;
+                try {
+                    const err = await uploadResp.json();
+                    if (err.detail) detail = err.detail;
+                } catch (e) { /* non-JSON error body */ }
+                showToast(detail, 'error');
+            }
+        }
+
+        showToast(files.length
+            ? `Device added with ${files.length} manual${files.length !== 1 ? 's' : ''}!`
+            : 'Device added successfully!', 'success');
+        closeAddDeviceModal();
         await loadDevices();
     } catch (error) {
         console.error('Failed to add device:', error);
@@ -562,7 +621,10 @@ async function loadManuals(deviceId) {
 
         container.innerHTML = manuals.map(m => `
             <div class="manual-item">
-                <span class="manual-filename" title="${escapeHtml(m.filepath)}">${escapeHtml(m.filename)}</span>
+                <a class="manual-filename manual-link" href="/api/downloads/manuals/${m.id}/file"
+                   target="_blank" rel="noopener" title="Open ${escapeHtml(m.filename)} (stored at ${escapeHtml(m.filepath)})">
+                    📄 ${escapeHtml(m.filename)}
+                </a>
                 <button class="btn btn-danger btn-small" onclick="deleteManual(${deviceId}, ${m.id})">
                     ×
                 </button>
@@ -1290,15 +1352,9 @@ function updateSidebarToggle() {
 }
 
 function openAddDeviceSection() {
-    // The rail's "+" lives in collapsed mode: expand first, then focus.
-    if (document.body.classList.contains('sidebar-collapsed')) {
-        toggleSidebar();
-    }
-    setTimeout(() => {
-        const form = document.getElementById('add-device-form');
-        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        document.getElementById('device-name').focus();
-    }, 260);
+    // The rail's "+" lives in collapsed mode: the Add Device modal opens
+    // directly, no need to expand the sidebar first.
+    openAddDeviceModal();
 }
 
 // ---------------------------------------------------------------------------
