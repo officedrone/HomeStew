@@ -43,6 +43,10 @@ let uploadTargetDeviceId = null;
 // null = unknown/not yet checked; true/false = whether chatting is allowed.
 let chatModelAvailable = null;
 
+// While an answer streams in, this controller lets the Stop button abort the
+// fetch (which also tears down the SSE stream server-side). Null when idle.
+let chatAbortController = null;
+
 async function initializeApp() {
     await loadDevices();
     setupEventListeners();
@@ -82,6 +86,10 @@ function setupEventListeners() {
             sendChatMessage();
         }
     });
+
+    // Stop aborts the in-flight stream; New Session clears the conversation.
+    document.getElementById('stop-btn').addEventListener('click', stopChatStream);
+    document.getElementById('new-session-btn').addEventListener('click', startNewSession);
 
     // Manual upload: the hidden input is shared by every device's "Upload
     // Manual" button; the target device id is stashed before opening it.
@@ -703,6 +711,11 @@ async function sendChatMessage() {
     // the live answer text (see createStreamRenderer).
     const renderer = createStreamRenderer();
 
+    // Abort controller behind the Stop button; kept in a module-level so
+    // stopChatStream() can reach it from its click handler.
+    chatAbortController = new AbortController();
+    setStreamingUi(true);
+
     try {
         // EventSource can't POST, so consume the SSE stream with fetch + reader.
         const chatPayload = {
@@ -719,7 +732,8 @@ async function sendChatMessage() {
         const response = await fetch('/api/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(chatPayload)
+            body: JSON.stringify(chatPayload),
+            signal: chatAbortController.signal
         });
         
         if (!response.ok || !response.body) {
@@ -767,9 +781,48 @@ async function sendChatMessage() {
             renderer.fail('Sorry, the response was interrupted. Please try again.');
         }
     } catch (error) {
-        console.error('Chat failed:', error);
-        renderer.fail('Sorry, I encountered an error. Please try again.');
+        if (error && error.name === 'AbortError') {
+            // User pressed Stop: keep the partial answer, mark it stopped.
+            renderer.stop('⏹ Stopped');
+        } else {
+            console.error('Chat failed:', error);
+            renderer.fail('Sorry, I encountered an error. Please try again.');
+        }
+    } finally {
+        chatAbortController = null;
+        setStreamingUi(false);
     }
+}
+
+// Toggle the Send / Stop buttons while an answer streams in. The textarea
+// stays editable so the next question can be typed during generation.
+function setStreamingUi(streaming) {
+    document.getElementById('send-btn').style.display = streaming ? 'none' : '';
+    document.getElementById('stop-btn').style.display = streaming ? '' : 'none';
+}
+
+// Abort the in-flight stream (Stop button). The fetch rejects with an
+// AbortError, which sendChatMessage turns into a "Stopped" note; aborting
+// also closes the SSE connection so the server stops generating.
+function stopChatStream() {
+    if (chatAbortController) chatAbortController.abort();
+}
+
+// Clear the conversation back to the welcome message. Any in-flight answer is
+// stopped first so its partial output can't be appended to a fresh session.
+function startNewSession() {
+    stopChatStream();
+
+    const container = document.getElementById('chat-messages');
+    container.innerHTML = `
+        <div class="message assistant">
+            <div class="message-content">
+                👋 Hello! I'm HomeBrain. Ask me anything about your devices, and I'll search through your manuals to find answers.
+            </div>
+        </div>
+    `;
+    const input = document.getElementById('chat-input');
+    if (input) input.value = '';
 }
 
 // Build the streaming assistant bubble and its event handlers.
@@ -977,6 +1030,28 @@ function createStreamRenderer() {
                 contentEl.textContent = message;
             }
             contentEl._raw = contentText ? `${contentText}\n\n${message}` : message;
+            messageDiv.classList.remove('streaming');
+            scroll();
+        },
+
+        // User pressed Stop: keep the partial answer (if any) and mark it as
+        // stopped. With no partial output the bubble is removed entirely so a
+        // cancelled request leaves no empty assistant message behind.
+        stop(note) {
+            if (settled) return;
+            settled = true;
+            this.closeThinking();
+            removePlaceholder();
+            if (!contentText) {
+                messageDiv.remove();
+                return;
+            }
+            contentEl.innerHTML = renderMarkdown(contentText);
+            const stopNote = document.createElement('p');
+            stopNote.className = 'stream-stop-note';
+            stopNote.textContent = note;
+            contentEl.appendChild(stopNote);
+            contentEl._raw = `${contentText}\n\n${note}`;
             messageDiv.classList.remove('streaming');
             scroll();
         }

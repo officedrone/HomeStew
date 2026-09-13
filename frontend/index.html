@@ -87,6 +87,9 @@
             <!-- Chat Tab -->
             <div id="chat-tab" class="tab-content">
                 <div class="chat-container">
+                    <div class="chat-toolbar">
+                        <button type="button" id="new-session-btn" class="btn btn-secondary btn-small" title="Clear this conversation and start a new session">＋ New Session</button>
+                    </div>
                     <div id="chat-model-warning" class="chat-model-warning" style="display: none;">
                         <span id="chat-model-warning-text" class="chat-model-warning-text"></span>
                         <button type="button" class="btn btn-primary btn-small" id="chat-open-settings-btn">Open Settings</button>
@@ -104,6 +107,7 @@
                             <option value="">All Devices</option>
                         </select>
                         <textarea id="chat-input" placeholder="Ask a question about your devices..." rows="2"></textarea>
+                        <button id="stop-btn" class="btn btn-danger" style="display: none;" title="Stop generating">■ Stop</button>
                         <button id="send-btn" class="btn btn-primary">Send</button>
                     </div>
                 </div>

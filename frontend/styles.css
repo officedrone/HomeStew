@@ -206,6 +206,16 @@ body.sidebar-collapsed .content-only {
     font-size: 0.8rem;
 }
 
+/* Destructive / interrupt action (Stop generating). */
+.btn-danger {
+    background: var(--error);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+}
+
 /* Device List */
 .device-list {
     max-height: 400px;
@@ -525,6 +535,12 @@ a.result-page-link:hover {
     font-style: italic;
 }
 
+/* Note appended when the user stops generation mid-answer. */
+.stream-stop-note {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
 /* Streaming assistant bubble: the message body stacks the collapsible
    thinking / tool-call trace above the answer bubble. The answer keeps the
    normal 70% bubble width; the trace spans the full column. */
@@ -647,6 +663,13 @@ a.result-page-link:hover {
 
 .trace-tool-result.failed {
     color: var(--error);
+}
+
+/* Row above the conversation holding session controls (New Session). */
+.chat-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
 }
 
 .chat-input-container {

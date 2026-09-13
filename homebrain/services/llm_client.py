@@ -149,6 +149,11 @@ class LLMClient:
         ``reasoning_content`` delta fields that Ollama, llama.cpp and vLLM
         expose for thinking models; servers without them simply never emit
         reasoning events.
+
+        Returns a ``(events, close)`` tuple: ``events`` is the lazy generator
+        of normalised dicts and ``close`` tears down the underlying HTTP
+        response (safe to call from another thread — it unblocks a pending
+        read so generation can be interrupted).
         """
         if self._use_openai:
             kwargs = {
@@ -159,6 +164,13 @@ class LLMClient:
             if tools:
                 kwargs["tools"] = tools
             raw_chunks = self.client.chat.completions.create(**kwargs)
+
+            def _close():
+                # The SDK Stream exposes close(); guard for backends that don't.
+                try:
+                    raw_chunks.close()
+                except Exception:  # noqa: BLE001 - teardown is best-effort
+                    pass
         else:
             import requests
 
@@ -178,7 +190,13 @@ class LLMClient:
             response.raise_for_status()
             raw_chunks = self._iter_sse_json_lines(response.iter_lines())
 
-        return _normalize_stream(raw_chunks)
+            def _close():
+                try:
+                    response.close()
+                except Exception:  # noqa: BLE001 - teardown is best-effort
+                    pass
+
+        return _normalize_stream(raw_chunks), _close
 
     @staticmethod
     def _iter_sse_json_lines(lines):
@@ -289,16 +307,31 @@ async def _aiter_stream(client: LLMClient, messages, tools):
 
     Each ``next()`` on the underlying HTTP stream blocks; running them in
     worker threads keeps the event loop free so SSE events flush promptly.
+
+    When the consumer goes away — e.g. the browser aborts the request and
+    Starlette cancels this generator — ``close()`` is invoked to tear down
+    the upstream HTTP response, which unblocks the pending read in the
+    worker thread so generation actually stops instead of running on until
+    the LLM finishes.
     """
-    stream_iter = await asyncio.to_thread(
+    stream_iter, close = await asyncio.to_thread(
         client.stream_chat_completion, messages=messages, tools=tools
     )
     sentinel = object()
-    while True:
-        item = await asyncio.to_thread(next, stream_iter, sentinel)
-        if item is sentinel:
-            break
-        yield item
+    try:
+        while True:
+            item = await asyncio.to_thread(next, stream_iter, sentinel)
+            if item is sentinel:
+                break
+            yield item
+    finally:
+        # Don't await here: during cancellation a plain await could be
+        # swallowed; firing close() on the executor guarantees the socket
+        # gets closed even while this generator unwinds.
+        try:
+            asyncio.get_running_loop().run_in_executor(None, close)
+        except RuntimeError:  # no running loop (sync test contexts)
+            close()
 
 
 def create_search_tool() -> Dict[str, Any]:
