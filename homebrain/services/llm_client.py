@@ -1,6 +1,7 @@
 """LLM client supporting OpenAI-compatible APIs with tool calling."""
 import asyncio
 import logging
+import re
 from typing import Optional, List, Dict, Any, AsyncGenerator
 import json
 
@@ -489,11 +490,15 @@ async def chat_with_tool_events(
     tools = [create_search_tool()]
     current_messages = list(messages)
     tool_call_count = 0
+    # Thinking models occasionally end a turn with only reasoning tokens and
+    # no answer text; nudge once for an explicit answer before giving up.
+    nudged = False
 
     while True:
         thinking_open = False
         content_parts: List[str] = []
         pending_tool_calls: List[Dict[str, Any]] = []
+        turn_finish: Optional[str] = None
 
         # The underlying SDK stream is blocking; _aiter_stream runs each read
         # in a worker thread so events flush to the client as they arrive.
@@ -508,6 +513,8 @@ async def chat_with_tool_events(
                 yield {"type": "content_delta", "delta": ev["delta"]}
             elif ev["type"] == "tool_call":
                 pending_tool_calls.append(ev["call"])
+            elif ev["type"] == "finish":
+                turn_finish = ev["reason"]
 
         if thinking_open:
             yield {"type": "thinking_end"}
@@ -573,7 +580,24 @@ async def chat_with_tool_events(
 
         final_content = "".join(content_parts)
         if not final_content.strip():
-            logger.warning("Unexpected LLM response format")
+            logger.warning(
+                f"LLM turn produced no answer text "
+                f"(finish={turn_finish}, tool_calls={tool_call_count})"
+            )
+            if not nudged:
+                # No content_delta events were emitted (content was empty),
+                # so asking again cannot duplicate streamed text in the UI.
+                nudged = True
+                current_messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous reply contained no visible answer. "
+                        "Answer the user's question now, following the "
+                        "system rules (search the manuals first if you have "
+                        "not already)."
+                    ),
+                })
+                continue
             final_content = "I'm sorry, I couldn't process that request."
 
         # Final response (authoritative content; UI replaces streamed text).
