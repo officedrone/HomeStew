@@ -133,12 +133,17 @@ function setupEventListeners() {
     });
 }
 
+// Ids of devices whose sidebar accordion row is currently expanded. Kept in a
+// Set so the open/closed state survives re-renders (e.g. after loadDevices()).
+const expandedDeviceIds = new Set();
+
 async function loadDevices() {
     try {
         const response = await fetch('/api/devices');
         devices = await response.json();
         
         renderDeviceList();
+        renderDevicesGrid();
         updateDeviceFilter();
     } catch (error) {
         console.error('Failed to load devices:', error);
@@ -146,6 +151,21 @@ async function loadDevices() {
     }
 }
 
+// One "Label: value" meta line per configured detail of a device (serial,
+// product number, custom attributes) — used in the expanded accordion panel.
+function deviceDetailLines(device) {
+    const lines = [];
+    if (device.serial_number) lines.push(`Serial: ${escapeHtml(device.serial_number)}`);
+    if (device.product_number) lines.push(`Product: ${escapeHtml(device.product_number)}`);
+    for (const attr of device.attributes || []) {
+        lines.push(`${escapeHtml(attr.attribute_name)}: ${escapeHtml(attr.attribute_value)}`);
+    }
+    return lines.map(line => `<div class="device-meta">${line}</div>`).join('');
+}
+
+// Sidebar: each device is a single collapsed line; clicking it expands an
+// animated panel with the model, configured details (serial / product /
+// custom attributes), manual count and Edit / Delete buttons.
 function renderDeviceList() {
     const container = document.getElementById('device-list');
     
@@ -154,18 +174,64 @@ function renderDeviceList() {
         return;
     }
     
+    container.innerHTML = devices.map(device => {
+        const open = expandedDeviceIds.has(device.id);
+        return `
+        <div class="device-accordion${open ? ' open' : ''}" data-id="${device.id}">
+            <button type="button" class="device-row" onclick="toggleDeviceExpansion(${device.id})">
+                <span class="device-caret">›</span>
+                <span class="device-name">${escapeHtml(device.name)}</span>
+            </button>
+            <div class="device-details">
+                <div class="device-details-inner">
+                    <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
+                    ${deviceDetailLines(device)}
+                    <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
+                    <div class="device-actions">
+                        <button class="btn btn-secondary btn-small" onclick="editDevice(${device.id})">
+                            Edit
+                        </button>
+                        <button class="btn btn-danger btn-small" onclick="deleteDevice(${device.id})">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// Expand / collapse one sidebar device row (CSS grid-rows transition animates it).
+function toggleDeviceExpansion(deviceId) {
+    const accordion = document.querySelector(`.device-accordion[data-id="${deviceId}"]`);
+    if (!accordion) return;
+    const open = accordion.classList.toggle('open');
+    if (open) expandedDeviceIds.add(deviceId);
+    else expandedDeviceIds.delete(deviceId);
+}
+
+// Devices tab: card grid with the full device details and actions.
+function renderDevicesGrid() {
+    const container = document.getElementById('devices-grid');
+    if (!container) return;
+
+    if (devices.length === 0) {
+        container.innerHTML = '<div class="empty-state">No devices yet. Add your first device!</div>';
+        return;
+    }
+
     container.innerHTML = devices.map(device => `
-        <div class="device-item" data-id="${device.id}" onclick="editDevice(${device.id})">
+        <div class="device-card" data-id="${device.id}">
             <div class="device-name">${escapeHtml(device.name)}</div>
             <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
             ${device.serial_number ? `<div class="device-meta">Serial: ${escapeHtml(device.serial_number)}</div>` : ''}
             ${device.product_number ? `<div class="device-meta">Product: ${escapeHtml(device.product_number)}</div>` : ''}
             <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
             <div class="device-actions">
-                <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); editDevice(${device.id})">
+                <button class="btn btn-secondary btn-small" onclick="editDevice(${device.id})">
                     Edit
                 </button>
-                <button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteDevice(${device.id})">
+                <button class="btn btn-danger btn-small" onclick="deleteDevice(${device.id})">
                     Delete
                 </button>
             </div>
@@ -387,6 +453,7 @@ async function addDeviceAttribute(deviceId) {
         nameInput.value = '';
         valueInput.value = '';
         await loadDeviceAttributes(deviceId);
+        await loadDevices(); // refresh the sidebar accordion details
     } catch (error) {
         console.error('Failed to add attribute:', error);
         showToast('Failed to add attribute', 'error');
@@ -403,6 +470,7 @@ async function removeAttribute(deviceId, attributeId) {
         
         showToast('Attribute removed', 'success');
         await loadDeviceAttributes(deviceId);
+        await loadDevices(); // refresh the sidebar accordion details
     } catch (error) {
         console.error('Failed to remove attribute:', error);
         showToast('Failed to remove attribute', 'error');
@@ -668,6 +736,7 @@ async function deleteDevice(deviceId) {
         
         if (!response.ok) throw new Error('Failed to delete device');
         
+        expandedDeviceIds.delete(deviceId);
         showToast('Device deleted', 'success');
         await loadDevices();
     } catch (error) {

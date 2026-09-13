@@ -73,6 +73,23 @@ async def list_devices():
         
         rows = await cursor.fetchall()
         
+        # Fetch every custom attribute in one query and bucket them by device,
+        # so the sidebar accordion can show them without per-device requests.
+        attr_cursor = await db.execute(
+            "SELECT id, device_id, attribute_name, attribute_value, created_at FROM device_attributes"
+        )
+        attrs_by_device = {}
+        for attr in await attr_cursor.fetchall():
+            attrs_by_device.setdefault(attr['device_id'], []).append(
+                DeviceAttribute(
+                    id=attr['id'],
+                    device_id=attr['device_id'],
+                    attribute_name=attr['attribute_name'],
+                    attribute_value=attr['attribute_value'],
+                    created_at=attr['created_at']
+                )
+            )
+        
         return [
             DeviceResponse(
                 id=row['id'],
@@ -83,7 +100,8 @@ async def list_devices():
                 serial_number=row['serial_number'],
                 product_number=row['product_number'],
                 created_at=row['created_at'],
-                manual_count=row['manual_count'] or 0
+                manual_count=row['manual_count'] or 0,
+                attributes=attrs_by_device.get(row['id'], [])
             )
             for row in rows
         ]

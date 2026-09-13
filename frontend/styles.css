@@ -253,32 +253,89 @@ body.sidebar-collapsed .content-only {
     background: #dc2626;
 }
 
-/* Device List */
+/* Device List (sidebar accordion) */
 .device-list {
     max-height: 400px;
     overflow-y: auto;
 }
 
-.device-item {
+.device-accordion {
     background: #374151;
-    padding: 12px;
     border-radius: 8px;
-    margin-bottom: 10px;
-    cursor: pointer;
-    transition: all 0.2s;
+    margin-bottom: 6px;
+    overflow: hidden;
+    transition: background 0.2s;
 }
 
-.device-item:hover {
+.device-accordion:hover {
     background: #4b5563;
 }
 
-.device-item.active {
-    border-left: 3px solid var(--primary-color);
+/* Collapsed header row: caret + name + brand/model on one line */
+.device-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.device-caret {
+    flex-shrink: 0;
+    font-size: 1rem;
+    line-height: 1;
+    color: #9ca3af;
+    transition: transform 0.25s ease;
+}
+
+.device-accordion.open .device-caret {
+    transform: rotate(90deg);
 }
 
 .device-name {
     font-weight: 600;
-    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Expandable panel: animated with the grid-template-rows 0fr -> 1fr trick */
+.device-details {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease;
+}
+
+.device-accordion.open .device-details {
+    grid-template-rows: 1fr;
+}
+
+.device-details-inner {
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* Keep content clickable only when actually open (0fr still renders at height 0) */
+.device-accordion:not(.open) .device-details-inner {
+    visibility: hidden;
+}
+
+.device-details-inner > * {
+    padding: 0 12px;
+}
+
+.device-details-inner > :first-child {
+    padding-top: 2px;
+}
+
+.device-details-inner > :last-child {
+    padding-bottom: 12px;
 }
 
 .device-meta {
@@ -290,6 +347,31 @@ body.sidebar-collapsed .content-only {
     display: flex;
     gap: 8px;
     margin-top: 10px;
+}
+
+/* Devices tab: card grid */
+.devices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    max-width: 1100px;
+}
+
+.device-card {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.device-card .device-name {
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.device-card .device-meta {
+    color: var(--text-secondary);
 }
 
 /* Main Content */
