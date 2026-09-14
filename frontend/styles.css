@@ -367,7 +367,14 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     margin-top: 10px;
 }
 
-/* Devices tab: card grid */
+/* Devices tab: toolbar + card grid */
+.devices-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
 .devices-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

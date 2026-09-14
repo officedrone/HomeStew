@@ -99,8 +99,9 @@ function setupEventListeners() {
         btn.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab));
     });
     
-    // Add device: the sidebar button opens a modal with the form.
+    // Add device: both sidebar and in-tab buttons open the same modal.
     document.getElementById('add-device-btn').addEventListener('click', openAddDeviceModal);
+    document.getElementById('add-device-btn-devices').addEventListener('click', openAddDeviceModal);
     document.getElementById('add-device-form').addEventListener('submit', handleAddDevice);
     
     // Edit device form
