@@ -47,6 +47,46 @@ let chatModelAvailable = null;
 // fetch (which also tears down the SSE stream server-side). Null when idle.
 let chatAbortController = null;
 
+// Chat scroll state — pinned-to-bottom with heuristic so user can read mid-stream.
+let chatPinned = true;
+const CHAT_SCROLL_THRESHOLD = 80; // px from bottom to consider "pinned"
+let _chatScrollQueued = false;
+
+function isNearBottom(el, threshold) {
+    return (el.scrollHeight - el.scrollTop - el.clientHeight) <= threshold;
+}
+
+function scheduleChatScroll() {
+    if (_chatScrollQueued) return;
+    _chatScrollQueued = true;
+    requestAnimationFrame(() => {
+        _chatScrollQueued = false;
+        const container = document.getElementById('chat-messages');
+        if (!container) return;
+        if (chatPinned) scrollToBottom();
+        updateScrollDownButton();
+    });
+}
+
+// Always pins; safe as a click handler (the event arg is ignored).
+function scrollToBottom() {
+    chatPinned = true;
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+    updateScrollDownButton();
+}
+
+function updateScrollDownButton() {
+    const btn = document.getElementById('scroll-down-btn');
+    if (!btn) return;
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+    const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    // Show button when more than ~120px of content is below the current view.
+    btn.classList.toggle('hidden', distFromBottom <= 120);
+}
+
 async function initializeApp() {
     await loadDevices();
     setupEventListeners();
@@ -91,6 +131,44 @@ function setupEventListeners() {
     // Stop aborts the in-flight stream; New Session clears the conversation.
     document.getElementById('stop-btn').addEventListener('click', stopChatStream);
     document.getElementById('new-session-btn').addEventListener('click', startNewSession);
+
+    // Scroll-to-bottom button for chat messages.
+    document.getElementById('scroll-down-btn').addEventListener('click', scrollToBottom);
+
+    // Chat scroll container: track pinned state and wire observers.
+    (function initChatScroll() {
+        const container = document.getElementById('chat-messages');
+        if (!container) return;
+        chatPinned = true;
+        container.addEventListener('scroll', () => {
+            chatPinned = isNearBottom(container, CHAT_SCROLL_THRESHOLD);
+            updateScrollDownButton();
+        });
+        // Re-pins when user expands/collapses a <details> while pinned.
+        container.addEventListener('toggle', (e) => {
+            if (!chatPinned) return;
+            requestAnimationFrame(() => scrollToBottom());
+        }, true);
+        // Observe new message nodes so their height changes update button visibility and re-pin.
+        const ro = new ResizeObserver(() => {
+            updateScrollDownButton();
+            if (chatPinned) scrollToBottom();
+        });
+        // The container itself resizes when the model-warning banner shows/hides;
+        // without observing it, pinning/button state would go stale until the next scroll.
+        ro.observe(container);
+        const mo = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                for (const node of m.addedNodes) {
+                    if (node.nodeType === 1) ro.observe(node);
+                }
+                for (const node of m.removedNodes) {
+                    if (node.nodeType === 1) ro.unobserve(node);
+                }
+            }
+        });
+        mo.observe(container, { childList: true });
+    })();
 
     // Manual upload: the hidden input is shared by every device's "Upload
     // Manual" button; the target device id is stashed before opening it.
@@ -954,6 +1032,8 @@ function startNewSession() {
     `;
     const input = document.getElementById('chat-input');
     if (input) input.value = '';
+    chatPinned = true;
+    updateScrollDownButton();
 }
 
 // Build the streaming assistant bubble and its event handlers.
@@ -984,7 +1064,7 @@ function createStreamRenderer() {
     wrapper.appendChild(contentEl);
     messageDiv.appendChild(wrapper);
     container.appendChild(messageDiv);
-    container.scrollTop = container.scrollHeight;
+    scheduleChatScroll();
 
     let thinkingDetails = null;
     let thinkingPre = null;
@@ -992,10 +1072,6 @@ function createStreamRenderer() {
     const toolCallEls = new Map();
     let contentText = '';
     let settled = false;
-
-    function scroll() {
-        container.scrollTop = container.scrollHeight;
-    }
 
     function showTrace() {
         trace.style.display = 'block';
@@ -1038,7 +1114,7 @@ function createStreamRenderer() {
             thinkingDetails.appendChild(summary);
             thinkingDetails.appendChild(thinkingPre);
             trace.appendChild(thinkingDetails);
-            scroll();
+            scheduleChatScroll();
         },
 
         appendThinking(delta) {
@@ -1046,7 +1122,7 @@ function createStreamRenderer() {
             thinkingPre.textContent += delta;
             // Keep the newest reasoning line in view inside the block.
             thinkingPre.scrollTop = thinkingPre.scrollHeight;
-            scroll();
+            scheduleChatScroll();
         },
 
         closeThinking() {
@@ -1106,7 +1182,7 @@ function createStreamRenderer() {
             trace.appendChild(details);
 
             if (event.id) toolCallEls.set(event.id, { details, resultLine });
-            scroll();
+            scheduleChatScroll();
         },
 
         finishToolCall(event) {
@@ -1122,7 +1198,7 @@ function createStreamRenderer() {
                 entry.resultLine.textContent = 'Search failed';
                 entry.resultLine.classList.add('failed');
             }
-            scroll();
+            scheduleChatScroll();
         },
 
         appendContent(delta) {
@@ -1131,7 +1207,7 @@ function createStreamRenderer() {
             // Live markdown preview, throttled to one re-render per animation
             // frame so fast token streams don't thrash the DOM.
             scheduleRender();
-            scroll();
+            scheduleChatScroll();
         },
 
         finalize(finalContent) {
@@ -1142,7 +1218,7 @@ function createStreamRenderer() {
             contentText = finalContent;
             renderNow();
             messageDiv.classList.remove('streaming');
-            scroll();
+            scheduleChatScroll();
         },
 
         fail(message) {
@@ -1162,7 +1238,7 @@ function createStreamRenderer() {
             }
             contentEl._raw = contentText ? `${contentText}\n\n${message}` : message;
             messageDiv.classList.remove('streaming');
-            scroll();
+            scheduleChatScroll();
         },
 
         // User pressed Stop: keep the partial answer (if any) and mark it as
@@ -1184,7 +1260,7 @@ function createStreamRenderer() {
             contentEl.appendChild(stopNote);
             contentEl._raw = `${contentText}\n\n${note}`;
             messageDiv.classList.remove('streaming');
-            scroll();
+            scheduleChatScroll();
         }
     };
 }
@@ -1256,7 +1332,8 @@ function addMessageToChat(role, content) {
     messageDiv.querySelector('.message-content')._raw = content;
 
     container.appendChild(messageDiv);
-    container.scrollTop = container.scrollHeight;
+    chatPinned = true;
+    scrollToBottom();
 }
 
 function switchTab(tabName) {
