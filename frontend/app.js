@@ -180,9 +180,21 @@ function setupEventListeners() {
     // uploaded right after the new device row exists.
     document.getElementById('add-device-manuals').addEventListener('change', updateAddDeviceManualNames);
 
-    // Sidebar (docked, expanded / collapsed modes)
+    // Sidebar: docked rail on desktop (expand/collapse), overlay drawer on
+    // mobile (hamburger + backdrop). Which mode applies is pure CSS; the JS
+    // just manages the two independent body classes.
     applySidebarState();
     document.getElementById('sidebar-toggle-btn').addEventListener('click', toggleSidebar);
+    document.getElementById('menu-btn').addEventListener('click', openDrawer);
+    document.getElementById('sidebar-backdrop').addEventListener('click', closeDrawer);
+    // Crossing back to desktop widths must not leave the drawer state stuck.
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768) closeDrawer();
+    });
+
+    // Theme switcher (Auto -> Light -> Dark), persisted in localStorage.
+    applyTheme();
+    document.getElementById('theme-btn').addEventListener('click', cycleTheme);
 
     // Settings modal
     document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
@@ -199,16 +211,17 @@ function setupEventListeners() {
         btn.addEventListener('click', () => restorePromptDefault(btn.dataset.restoreDefault));
     });
 
-    // Escape closes any open modal.
+    // Escape closes any open modal, or the mobile drawer when none is open.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
         for (const id of ['settings-modal', 'add-device-modal', 'edit-device-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 modal.style.display = 'none';
-                break;
+                return;
             }
         }
+        closeDrawer();
     });
 }
 
@@ -1410,6 +1423,10 @@ function addMessageToChat(role, content) {
 }
 
 function switchTab(tabName) {
+    // On phones the tab was picked from the drawer — dismiss it so the
+    // content is visible right away.
+    closeDrawer();
+
     // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabName);
@@ -1543,11 +1560,22 @@ function escapeHtml(text) {
 }
 
 // ---------------------------------------------------------------------------
-// Sidebar (docked, pushes content; expanded / collapsed modes)
+// Sidebar: docked rail (desktop) / overlay drawer (mobile)
 // ---------------------------------------------------------------------------
 
-// The sidebar is always docked inline and behaves the same at every screen
-// size. It defaults to expanded; the collapsed/expanded choice persists.
+// Two independent body classes drive both modes:
+//   .sidebar-collapsed — desktop icon-rail width (persisted, CSS-only effect)
+//   .sidebar-open      — mobile drawer visibility (CSS media query decides)
+function openDrawer() {
+    document.body.classList.add('sidebar-open');
+}
+
+function closeDrawer() {
+    document.body.classList.remove('sidebar-open');
+}
+
+// The docked sidebar defaults to expanded; the collapsed/expanded choice
+// persists across visits.
 function applySidebarState() {
     const collapsed = localStorage.getItem('sidebarCollapsed') === '1';
     document.body.classList.toggle('sidebar-collapsed', collapsed);
@@ -1568,6 +1596,46 @@ function updateSidebarToggle() {
     const points = collapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6';
     btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="${points}"></polyline></svg>`;
     btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+}
+
+// ---------------------------------------------------------------------------
+// Theme switcher (Auto / Light / Dark)
+// ---------------------------------------------------------------------------
+
+// Preference stored under 'theme': 'auto' follows prefers-color-scheme;
+// 'light'/'dark' pin it via <html data-theme>. The inline snippet in
+// index.html applies the same value before first paint.
+const THEME_ORDER = ['auto', 'light', 'dark'];
+const THEME_ICONS = {
+    // Feather-style icons; label mirrors what the button currently means.
+    auto: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>',
+    light: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>',
+    dark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>',
+};
+
+function currentThemePref() {
+    const pref = localStorage.getItem('theme');
+    return THEME_ORDER.includes(pref) ? pref : 'auto';
+}
+
+function applyTheme() {
+    const pref = currentThemePref();
+    if (pref === 'auto') {
+        document.documentElement.removeAttribute('data-theme');
+    } else {
+        document.documentElement.setAttribute('data-theme', pref);
+    }
+    const btn = document.getElementById('theme-btn');
+    if (!btn) return;
+    const label = `Theme: ${pref.charAt(0).toUpperCase() + pref.slice(1)}`;
+    btn.title = label;
+    btn.innerHTML = `${THEME_ICONS[pref]}<span class="content-only">${label}</span>`;
+}
+
+function cycleTheme() {
+    const next = THEME_ORDER[(THEME_ORDER.indexOf(currentThemePref()) + 1) % THEME_ORDER.length];
+    localStorage.setItem('theme', next);
+    applyTheme();
 }
 
 // ---------------------------------------------------------------------------

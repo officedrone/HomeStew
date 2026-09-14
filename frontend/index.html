@@ -10,10 +10,30 @@
          github-markdown-css: MIT. -->
     <link rel="stylesheet" href="/static/vendor/github-markdown-light.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- Apply the saved theme (light/dark/auto) before first paint so the
+         page never flashes the wrong colour scheme. See applyTheme() in
+         app.js for the full logic; this snippet only mirrors it early. -->
+    <script>
+        (function () {
+            var pref = localStorage.getItem('theme') || 'auto';
+            if (pref !== 'auto') document.documentElement.setAttribute('data-theme', pref);
+        })();
+    </script>
 </head>
 <body>
+    <!-- Mobile top bar: hamburger opens the sidebar drawer; hidden on desktop -->
+    <header class="topbar">
+        <button type="button" class="icon-btn" id="menu-btn" title="Open menu" aria-label="Open menu">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <span class="topbar-title">HomeBrain</span>
+    </header>
+
+    <!-- Click-outside target for the sidebar drawer (mobile only) -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
     <div class="app-container">
-        <!-- Sidebar (docked, expanded / collapsed modes) -->
+        <!-- Sidebar (docked rail on desktop, overlay drawer on mobile) -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-top">
                 <button type="button" class="icon-btn" id="sidebar-toggle-btn" title="Collapse sidebar">
@@ -61,6 +81,12 @@
             <!-- Settings: pinned to the very bottom of the sidebar.
                  Expanded shows gear + label, collapsed shows only the gear. -->
             <div class="sidebar-bottom">
+                <!-- Theme: cycles Auto -> Light -> Dark (label + icon update
+                     in app.js; the choice persists in localStorage). -->
+                <button type="button" class="icon-btn theme-toggle-btn" id="theme-btn" title="Theme: Auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                    <span class="content-only">Theme: Auto</span>
+                </button>
                 <button type="button" class="icon-btn" id="settings-btn" title="Settings">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     <span class="content-only">Settings</span>
