@@ -591,12 +591,12 @@ function addProgressStep(container, message, type = 'searching') {
     const step = document.createElement('div');
     step.className = `progress-step ${type}`;
     
-    let icon = '🔄';
-    if (type === 'searching') icon = '🔍';
-    else if (type === 'found') icon = '✅';
-    else if (type === 'downloading') icon = '📥';
-    else if (type === 'success') icon = '✨';
-    else if (type === 'error') icon = '❌';
+    let icon = '⟳';
+    if (type === 'searching') icon = '⌕';
+    else if (type === 'found') icon = '✓';
+    else if (type === 'downloading') icon = '↓';
+    else if (type === 'success') icon = '★';
+    else if (type === 'error') icon = '✗';
     
     step.innerHTML = `
         <div class="step-icon">${icon}</div>
@@ -691,7 +691,7 @@ async function loadManuals(deviceId) {
             <div class="manual-item">
                 <a class="manual-filename manual-link" href="/api/downloads/manuals/${m.id}/file"
                    target="_blank" rel="noopener" title="Open ${escapeHtml(m.filename)} (stored at ${escapeHtml(m.filepath)})">
-                    📄 ${escapeHtml(m.filename)}
+                    ${escapeHtml(m.filename)}
                 </a>
                 <button class="btn btn-danger btn-small" onclick="deleteManual(${deviceId}, ${m.id})">
                     ×
@@ -948,7 +948,7 @@ function startNewSession() {
     container.innerHTML = `
         <div class="message assistant">
             <div class="message-content">
-                👋 Hello! I'm HomeBrain. Ask me anything about your devices, and I'll search through your manuals to find answers.
+                Hello! I'm HomeBrain. Ask me anything about your devices, and I'll search through your manuals to find answers.
             </div>
         </div>
     `;
@@ -1083,7 +1083,7 @@ function createStreamRenderer() {
             } catch (e) {
                 /* no preview */
             }
-            summary.textContent = `🔧 ${event.name || 'tool'}${argPreview}`;
+            summary.textContent = `${event.name || 'tool'}${argPreview}`;
 
             const body = document.createElement('div');
             body.className = 'trace-tool-body';

@@ -22,7 +22,7 @@
                 <button type="button" class="icon-btn rail-only" id="rail-add-device" title="Add new device">+</button>
             </div>
             <div class="logo content-only">
-                <h1>🧠 HomeBrain</h1>
+                <h1>HomeBrain</h1>
                 <p class="tagline">Device Manual Manager</p>
             </div>
             
@@ -47,14 +47,14 @@
             <!-- Top bar -->
             <header class="topbar">
                 <span class="topbar-spacer"></span>
-                <button type="button" class="icon-btn" id="settings-btn" title="Settings">⚙</button>
+                <button type="button" class="btn btn-secondary" id="settings-btn">Settings</button>
             </header>
 
             <!-- Tabs -->
             <div class="tabs">
-                <button class="tab-btn active" data-tab="search">🔍 Search</button>
-                <button class="tab-btn" data-tab="chat">💬 AI Chat</button>
-                <button class="tab-btn" data-tab="devices">🗂️ Devices</button>
+                <button class="tab-btn active" data-tab="search">Search</button>
+                <button class="tab-btn" data-tab="chat">AI Chat</button>
+                <button class="tab-btn" data-tab="devices">Devices</button>
             </div>
 
             <!-- Search Tab -->
@@ -80,7 +80,7 @@
             <div id="chat-tab" class="tab-content">
                 <div class="chat-container">
                     <div class="chat-toolbar">
-                        <button type="button" id="new-session-btn" class="btn btn-secondary btn-small" title="Clear this conversation and start a new session">＋ New Session</button>
+                        <button type="button" id="new-session-btn" class="btn btn-secondary btn-small" title="Clear this conversation and start a new session">New Session</button>
                     </div>
                     <div id="chat-model-warning" class="chat-model-warning" style="display: none;">
                         <span id="chat-model-warning-text" class="chat-model-warning-text"></span>
@@ -89,7 +89,7 @@
                     <div id="chat-messages" class="chat-messages">
                         <div class="message assistant">
                             <div class="message-content">
-                                👋 Hello! I'm HomeBrain. Ask me anything about your devices, and I'll search through your manuals to find answers.
+                                Hello! I'm HomeBrain. Ask me anything about your devices, and I'll search through your manuals to find answers.
                             </div>
                         </div>
                     </div>
@@ -199,7 +199,7 @@
     <!-- Download Progress Modal -->
     <div id="download-progress-modal" class="modal">
         <div class="modal-content modal-medium">
-            <h2>📥 Downloading Manuals</h2>
+            <h2>Downloading Manuals</h2>
             <div id="download-progress-steps" class="progress-steps">
                 <!-- Progress steps will be added here dynamically -->
             </div>
@@ -215,7 +215,7 @@
     <div id="settings-modal" class="modal">
         <div class="modal-content">
             <span class="modal-close" onclick="closeSettingsModal()">&times;</span>
-            <h2>⚙ Settings</h2>
+            <h2>Settings</h2>
 
             <form id="settings-form" class="device-form">
                 <div class="settings-field">
@@ -233,7 +233,7 @@
                         <!-- Plain select (no free text): the option list is
                              refreshed from the server whenever it is opened. -->
                         <select id="settings-llm-model" required></select>
-                        <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">&#8635; Models</button>
+                        <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">Models</button>
                     </div>
                     <p class="settings-hint" id="model-list-hint"></p>
                 </div>
