@@ -344,15 +344,24 @@ function updateDeviceFilter() {
 // Add Device modal
 // ---------------------------------------------------------------------------
 
+/**
+ * Temporary store for custom attributes entered in the Add Device form.
+ * Each entry is { name: string, value: string }.
+ */
+let _addDeviceAttributes = [];
+
 function openAddDeviceModal() {
     document.getElementById('add-device-form').reset();
     updateAddDeviceManualNames();
+    _addDeviceAttributes = [];
+    renderAddDeviceAttributes();
     document.getElementById('add-device-modal').style.display = 'flex';
     setTimeout(() => document.getElementById('device-name').focus(), 50);
 }
 
 function closeAddDeviceModal() {
     document.getElementById('add-device-modal').style.display = 'none';
+    _addDeviceAttributes = [];
 }
 
 // Show which PDFs were picked in the Add Device modal ("Upload Manual"
@@ -362,6 +371,50 @@ function updateAddDeviceManualNames() {
     const names = [...input.files].map(f => f.name);
     document.getElementById('add-device-manual-names').textContent =
         names.length === 0 ? '' : `${names.length} file${names.length !== 1 ? 's' : ''}: ${names.join(', ')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Add Device custom attributes (local, pre-creation)
+// ---------------------------------------------------------------------------
+
+function renderAddDeviceAttributes() {
+    const container = document.getElementById('add-device-attributes-list');
+    if (_addDeviceAttributes.length === 0) {
+        container.innerHTML = '<div class="empty-state">No custom attributes</div>';
+        return;
+    }
+    container.innerHTML = _addDeviceAttributes.map((attr, i) => `
+        <div class="attribute-item">
+            <span class="attribute-name">${escapeHtml(attr.name)}:</span>
+            <span class="attribute-value">${escapeHtml(attr.value)}</span>
+            <button type="button" class="btn btn-danger btn-small" onclick="removeAddDeviceAttribute(${i})">
+                ×
+            </button>
+        </div>
+    `).join('');
+}
+
+function addAddDeviceAttribute() {
+    const nameInput = document.getElementById('add-device-attribute-name');
+    const valueInput = document.getElementById('add-device-attribute-value');
+    
+    const name = nameInput.value.trim();
+    const value = valueInput.value.trim();
+    
+    if (!name || !value) {
+        showToast('Please enter both attribute name and value', 'error');
+        return;
+    }
+    
+    _addDeviceAttributes.push({ name, value });
+    nameInput.value = '';
+    valueInput.value = '';
+    renderAddDeviceAttributes();
+}
+
+function removeAddDeviceAttribute(index) {
+    _addDeviceAttributes.splice(index, 1);
+    renderAddDeviceAttributes();
 }
 
 async function handleAddDevice(e) {
@@ -387,6 +440,21 @@ async function handleAddDevice(e) {
 
         // Upload any manuals picked in the form, now that we have a device id.
         const { id: newDeviceId } = await response.json();
+
+        // Create custom attributes entered in the Add Device form.
+        for (const attr of _addDeviceAttributes) {
+            const resp = await fetch(
+                `/api/devices/${newDeviceId}/attributes?attribute_name=${encodeURIComponent(attr.name)}&attribute_value=${encodeURIComponent(attr.value)}`,
+                { method: 'POST' }
+            );
+            if (!resp.ok) {
+                let detail = `Failed to add attribute "${attr.name}"`;
+                try { const err = await resp.json(); if (err.detail) detail = err.detail; } catch (_) {}
+                showToast(detail, 'error');
+            }
+        }
+
+        // Upload any manuals picked in the form.
         const manualInput = document.getElementById('add-device-manuals');
         const files = [...manualInput.files];
         for (const file of files) {
@@ -410,8 +478,12 @@ async function handleAddDevice(e) {
             }
         }
 
-        showToast(files.length
-            ? `Device added with ${files.length} manual${files.length !== 1 ? 's' : ''}!`
+        const attrCount = _addDeviceAttributes.length;
+        const msg = [];
+        if (attrCount > 0) msg.push(`${attrCount} attribute${attrCount !== 1 ? 's' : ''}`);
+        if (files.length > 0) msg.push(`${files.length} manual${files.length !== 1 ? 's' : ''}`);
+        showToast(msg.length > 0
+            ? `Device added with ${msg.join(' and ')}!`
             : 'Device added successfully!', 'success');
         closeAddDeviceModal();
         await loadDevices();

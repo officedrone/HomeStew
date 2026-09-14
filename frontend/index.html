@@ -170,6 +170,22 @@
                     <span id="add-device-manual-names" class="manual-file-names"></span>
                 </div>
 
+                <!-- Custom Attributes Section -->
+                <div class="attributes-section">
+                    <h4>Custom Attributes</h4>
+                    <div id="add-device-attributes-list" class="attributes-list">
+                        <div class="empty-state">No custom attributes</div>
+                    </div>
+
+                    <div class="add-attribute-form">
+                        <input type="text" id="add-device-attribute-name" placeholder="Attribute name (e.g., Warranty Expiry)">
+                        <input type="text" id="add-device-attribute-value" placeholder="Value (e.g., 2025-12-31)">
+                        <button type="button" class="btn btn-secondary btn-small" onclick="addAddDeviceAttribute()">
+                            Add Attribute
+                        </button>
+                    </div>
+                </div>
+
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeAddDeviceModal()">Cancel</button>
                     <button type="submit" class="btn btn-primary">Add Device</button>
