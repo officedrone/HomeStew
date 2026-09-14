@@ -93,9 +93,10 @@ async function initializeApp() {
 }
 
 function setupEventListeners() {
-    // Tab switching
+    // Tab switching. The buttons now contain an icon/label, so read the tab
+    // name from currentTarget — e.target can be the inner <svg>/<span>.
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => switchTab(e.target.dataset.tab));
+        btn.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab));
     });
     
     // Add device: the sidebar button opens a modal with the form.
@@ -181,7 +182,6 @@ function setupEventListeners() {
     // Sidebar (docked, expanded / collapsed modes)
     applySidebarState();
     document.getElementById('sidebar-toggle-btn').addEventListener('click', toggleSidebar);
-    document.getElementById('rail-add-device').addEventListener('click', openAddDeviceSection);
 
     // Settings modal
     document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
@@ -1495,12 +1495,6 @@ function updateSidebarToggle() {
     const points = collapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6';
     btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="${points}"></polyline></svg>`;
     btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
-}
-
-function openAddDeviceSection() {
-    // The rail's "+" lives in collapsed mode: the Add Device modal opens
-    // directly, no need to expand the sidebar first.
-    openAddDeviceModal();
 }
 
 // ---------------------------------------------------------------------------

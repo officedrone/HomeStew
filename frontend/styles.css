@@ -41,6 +41,14 @@ body {
     overflow-x: hidden;
     flex-shrink: 0;
     transition: width 0.25s ease, padding 0.25s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The nav (New Device + device list) takes all the remaining height so the
+   settings row is pushed to the very bottom of the sidebar. */
+.nav-sections {
+    flex: 1;
 }
 
 /* Collapsed mode: a narrow icon rail at the left edge of the screen */
@@ -63,8 +71,11 @@ body.sidebar-collapsed .sidebar-top {
     margin-bottom: 8px;
 }
 
-/* Rail-only icons are hidden while expanded; content hides when collapsed */
-.rail-only {
+/* Rail-only icons are hidden while expanded; content hides when collapsed.
+   The :not() qualifier keeps this rule more specific than .icon-btn's
+   display: inline-flex below, otherwise the rail buttons leak into the
+   expanded sidebar. */
+body:not(.sidebar-collapsed) .rail-only {
     display: none;
 }
 
@@ -76,17 +87,20 @@ body.sidebar-collapsed .content-only {
     display: none;
 }
 
-/* Top bar above the tabs */
-.topbar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
+/* Settings row pinned to the bottom of the sidebar */
+.sidebar-bottom {
+    margin-top: auto;
+    padding-top: 12px;
     flex-shrink: 0;
 }
 
-.topbar-spacer {
-    flex: 1;
+/* Expanded: gear + "Settings" label, stretched across the sidebar.
+   Collapsed: .content-only hides the label and the button falls back to
+   the plain square icon-btn. */
+body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
+    width: 100%;
+    gap: 10px;
+    font-size: 0.95rem;
 }
 
 /* Icon buttons (gear, sidebar toggle, rail actions) */
@@ -189,9 +203,12 @@ body.sidebar-collapsed .content-only {
     color: #9ca3af;
 }
 
-/* "+ New Device" button at the top of the expanded sidebar */
-.add-device-btn {
+/* "New Device" row in the sidebar nav: stretches like the tab buttons when
+   expanded, falls back to a plain square icon-btn when collapsed. */
+body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     width: 100%;
+    gap: 10px;
+    font-size: 0.95rem;
 }
 
 /* Optional manual picker inside the Add Device modal: the label is styled as
@@ -386,36 +403,34 @@ body.sidebar-collapsed .content-only {
     background: white;
 }
 
-/* Tabs */
-.tabs {
+/* Tab navigation inside the sidebar. Each tab is an .icon-btn (see the
+   Settings row): icon + label when expanded, plain square icon when
+   collapsed. */
+.side-tabs {
     display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
-    border-bottom: 2px solid var(--border-color);
-    padding-bottom: 10px;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 24px;
     flex-shrink: 0;
 }
 
-.tab-btn {
-    padding: 10px 20px;
-    background: none;
-    border: none;
-    font-size: 1rem;
-    cursor: pointer;
-    color: var(--text-secondary);
-    border-bottom: 2px solid transparent;
-    margin-bottom: -12px;
-    transition: all 0.2s;
-}
-
-.tab-btn:hover {
-    color: var(--primary-color);
+/* Expanded: stretch across the sidebar with the label, like Settings. */
+body:not(.sidebar-collapsed) .side-tabs .tab-btn {
+    width: 100%;
+    gap: 10px;
+    font-size: 0.95rem;
 }
 
 .tab-btn.active {
-    color: var(--primary-color);
-    border-bottom-color: var(--primary-color);
-    font-weight: 600;
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+.tab-btn.active:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+    color: white;
 }
 
 /* Tab Content */
@@ -816,12 +831,21 @@ a.result-page-link:hover {
     color: var(--error);
 }
 
-/* Row above the conversation holding session controls (New Session). */
+/* Row above the conversation: New Session on the left, then the device
+   context dropdown ("Context: <select>"). */
 .chat-toolbar {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
     margin-bottom: 8px;
     flex-shrink: 0;
+}
+
+.chat-context-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 .chat-input-container {
@@ -830,13 +854,12 @@ a.result-page-link:hover {
     flex-shrink: 0;
 }
 
-/* The chat device filter sits at the left of the input row, aligned with its
-   top edge so it lines up with the first line of the textarea. */
+/* The chat device filter lives in the toolbar above the conversation,
+   next to the New Session button. */
 #chat-device-filter {
     min-width: 150px;
     max-width: 200px;
     flex-shrink: 0;
-    align-self: flex-start;
 }
 
 .chat-input-container textarea {
