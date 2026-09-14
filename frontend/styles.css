@@ -367,14 +367,33 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     margin-top: 10px;
 }
 
-/* Devices tab: toolbar + card grid */
-.devices-toolbar {
+/* Unified tab header: shown at the top of every tab (Search, AI Chat,
+   Devices) so all tabs share the same look. */
+.tab-header {
+    margin-bottom: 16px;
+    flex-shrink: 0;
+}
+
+.tab-header h2 {
+    margin: 0;
+    font-size: 1.4rem;
+    color: var(--text-primary);
+}
+
+/* Devices tab: action row (New Device) on its own line under the header,
+   above the card grid. */
+.devices-actions {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
     margin-bottom: 16px;
 }
 
+.devices-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Devices tab: card grid */
 .devices-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

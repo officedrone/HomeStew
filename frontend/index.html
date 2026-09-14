@@ -73,6 +73,9 @@
             <!-- Search Tab -->
             <div id="search-tab" class="tab-content active">
                 <div class="search-container">
+                    <div class="tab-header">
+                        <h2>Search</h2>
+                    </div>
                     <div class="search-box">
                         <input type="text" id="search-input" placeholder='Search manuals & devices — use "quotes" for exact phrases' title='Wrap words in double quotes to require the exact phrase, e.g. "memory speed" upgrade' />
                         <select id="device-filter" class="device-filter">
@@ -92,6 +95,9 @@
             <!-- Chat Tab -->
             <div id="chat-tab" class="tab-content">
                 <div class="chat-container">
+                    <div class="tab-header">
+                        <h2>AI Chat</h2>
+                    </div>
                     <div class="chat-toolbar">
                         <button type="button" id="new-session-btn" class="btn btn-secondary btn-small" title="Clear this conversation and start a new session">New Session</button>
                         <label class="chat-context-label" for="chat-device-filter">Context:</label>
@@ -129,11 +135,13 @@
 
             <!-- Devices Tab -->
             <div id="devices-tab" class="tab-content">
-                <div class="devices-toolbar">
-                    <h2 style="margin:0;">Devices</h2>
+                <div class="tab-header">
+                    <h2>Devices</h2>
+                </div>
+                <div class="devices-actions">
                     <button type="button" id="add-device-btn-devices" class="btn btn-primary btn-small" title="Add a new device to HomeBrain">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                        New Device
+                        <span>New Device</span>
                     </button>
                 </div>
                 <div id="devices-grid" class="devices-grid"></div>
