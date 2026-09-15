@@ -4,11 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HomeBrain - Device Manual Manager</title>
-    <link rel="stylesheet" href="/static/styles.css">
     <!-- Markdown rendering for chat answers (all assets vendored locally so
          the app works fully offline). marked: MIT, DOMPurify: Apache-2.0,
-         github-markdown-css: MIT. -->
+         github-markdown-css: MIT. The vendor sheet loads BEFORE styles.css on
+         purpose: it hardcodes light-theme colors (.markdown-body { color /
+         background-color }) at the same specificity as our token overrides in
+         styles.css, so ours must come last to win the cascade — otherwise dark
+         mode renders dark answer text on a dark bubble. -->
     <link rel="stylesheet" href="/static/vendor/github-markdown-light.css">
+    <link rel="stylesheet" href="/static/styles.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <!-- Apply the saved theme (light/dark/auto) before first paint so the
          page never flashes the wrong colour scheme. See applyTheme() in
@@ -42,7 +46,7 @@
             </div>
             <div class="logo content-only">
                 <h1>HomeBrain</h1>
-                <p class="tagline">Device Manual Manager</p>
+                <p class="tagline">Your devices information in one place</p>
             </div>
 
             <!-- Tab navigation: same icon-btn pattern as the Settings row —

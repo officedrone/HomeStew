@@ -13,33 +13,57 @@
 
 /* --------------------------------------------------------------------------
    Design tokens — LIGHT (default)
+
+   The whole palette is derived from a single brand seed (--brand-h / --brand-s).
+   Primary, accent and every background / text / border tint are computed from
+   that hue, so swapping the two seed values re-themes the app coherently
+   (e.g. set --brand-h: 221 for a blue product). Semantic colors (success,
+   error, warning) stay fixed by convention.
    -------------------------------------------------------------------------- */
 :root {
     color-scheme: light;
 
-    --primary-color: #6d5ef7;
-    --primary-hover: #5a49ec;
-    /* Shared accent gradient for primary actions / active tabs / user bubbles */
-    --gradient-accent: linear-gradient(135deg, #7b6cff 0%, #4f8dff 55%, #22d3ee 100%);
+    /* Brand seed — teal */
+    --brand-h: 174;
+    --brand-s: 68%;
 
-    --bg-dark: #1f2937;
-    /* Sidebar / topbar keep a deep "midnight" identity in both themes */
-    --bg-darker: #12172b;
-    --bg-app: #f5f6fb;          /* page background behind cards */
-    --surface: #ffffff;         /* cards, modals, inputs */
-    --bg-light: #eef1f8;        /* recessed panels (chat area, chips, wells) */
-    --text-primary: #171a21;
-    --text-secondary: #5b6272;
-    --border-color: #e6e8f0;
-    --success: #10b981;
-    --error: #ef4444;
+    /* Primary / interactive — CTAs, links, active states (AA on white) */
+    --primary-color: hsl(var(--brand-h) var(--brand-s) 30%);
+    --primary-hover: hsl(var(--brand-h) var(--brand-s) 24%);
+    --on-primary: #ffffff;                        /* text sitting on primary fills */
+    --primary-on-dark: hsl(var(--brand-h) 55% 62%); /* brand wordmark on the ink sidebar */
+
+    /* Accent — same hue family, muted. Secondary interactive / tags */
+    --accent-color: hsl(calc(var(--brand-h) + 10) 34% 38%);
+
+    /* Backgrounds — neutrals tinted toward the brand hue */
+    --bg-app: hsl(var(--brand-h) 28% 97%);      /* main canvas behind cards */
+    --surface: #ffffff;                          /* cards, modals, inputs */
+    --bg-light: hsl(var(--brand-h) 22% 94%);     /* recessed panels (chat area, chips, wells) */
+
+    /* Sidebar / topbar keep a deep "ink" identity in both themes */
+    --bg-darker: hsl(var(--brand-h) 30% 8%);
+    --sidebar-surface: hsl(var(--brand-h) 15% 17%);        /* raised rows, inputs */
+    --sidebar-surface-hover: hsl(var(--brand-h) 14% 24%);
+    --sidebar-border: hsl(var(--brand-h) 13% 26%);
+    --sidebar-text: hsl(var(--brand-h) 10% 87%);
+    --sidebar-text-dim: hsl(var(--brand-h) 9% 62%);
+
+    /* Text — near-black / slate tinted toward the brand hue */
+    --text-primary: hsl(var(--brand-h) 22% 9%);   /* ~17:1 on white */
+    --text-secondary: hsl(var(--brand-h) 11% 35%); /* AA on white */
+    --border-color: hsl(var(--brand-h) 18% 87%);
+
+    /* Semantic — fixed regardless of brand hue */
+    --success: #15803d;
+    --error: #dc2626;
 
     --warn-bg: #fef4e2;
     --warn-border: #f0b429;
     --warn-text: #8a5a06;
     --mark-bg: #fde9b8;
 
-    --ring: 0 0 0 3px rgba(109, 94, 247, 0.28);
+    --ring: 0 0 0 3px color-mix(in srgb, var(--primary-color) 25%, transparent);
     --shadow-sm: 0 1px 3px rgba(23, 26, 33, 0.07);
     --shadow-md: 0 6px 20px rgba(23, 26, 33, 0.1);
     --shadow-lg: 0 18px 50px rgba(23, 26, 33, 0.22);
@@ -51,29 +75,36 @@
     --topbar-h: 54px;
 }
 
-/* Auto dark mode (unless the user pinned light manually) */
+/* Auto dark mode (unless the user pinned light manually).
+   Near-black neutral canvas tinted toward the brand hue; bright teal accent
+   with near-black text on top of it for readability. Sidebar tokens inherit
+   unchanged from :root — the ink sidebar already sits below these surfaces. */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
         color-scheme: dark;
 
-        --primary-color: #8b7dff;
-        --primary-hover: #9d91ff;
-        --gradient-accent: linear-gradient(135deg, #8b7dff 0%, #5f8dff 55%, #2fd6ef 100%);
+        --primary-color: hsl(var(--brand-h) 60% 48%);
+        --primary-hover: hsl(var(--brand-h) 62% 57%);
+        --on-primary: hsl(var(--brand-h) 35% 7%); /* near-black on bright teal */
 
-        --bg-darker: #0d1226;
-        --bg-app: #0a0e1a;
-        --surface: #141a2c;
-        --bg-light: #1a2138;
-        --text-primary: #e8ebf5;
-        --text-secondary: #9aa3b8;
-        --border-color: rgba(255, 255, 255, 0.09);
+        --accent-color: hsl(calc(var(--brand-h) + 10) 42% 68%);
+
+        --bg-app: hsl(var(--brand-h) 12% 4%);     /* main canvas */
+        --surface: hsl(var(--brand-h) 10% 9%);    /* cards, containers */
+        --bg-light: hsl(var(--brand-h) 9% 13%);   /* hover, selected */
+
+        --bg-darker: hsl(var(--brand-h) 16% 6%);
+
+        --text-primary: hsl(var(--brand-h) 8% 96%);  /* ~19:1 on the canvas */
+        --text-secondary: hsl(var(--brand-h) 5% 66%);
+        --border-color: hsl(var(--brand-h) 7% 24%);
 
         --warn-bg: rgba(240, 180, 41, 0.12);
         --warn-border: #b97e1f;
         --warn-text: #fcd38a;
         --mark-bg: rgba(250, 204, 21, 0.35);
 
-        --ring: 0 0 0 3px rgba(139, 125, 255, 0.35);
+        --ring: 0 0 0 3px color-mix(in srgb, var(--primary-color) 35%, transparent);
         --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
         --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
         --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.6);
@@ -84,24 +115,28 @@
 [data-theme="dark"] {
     color-scheme: dark;
 
-    --primary-color: #8b7dff;
-    --primary-hover: #9d91ff;
-    --gradient-accent: linear-gradient(135deg, #8b7dff 0%, #5f8dff 55%, #2fd6ef 100%);
+    --primary-color: hsl(var(--brand-h) 60% 48%);
+    --primary-hover: hsl(var(--brand-h) 62% 57%);
+    --on-primary: hsl(var(--brand-h) 35% 7%); /* near-black on bright teal */
 
-    --bg-darker: #0d1226;
-    --bg-app: #0a0e1a;
-    --surface: #141a2c;
-    --bg-light: #1a2138;
-    --text-primary: #e8ebf5;
-    --text-secondary: #9aa3b8;
-    --border-color: rgba(255, 255, 255, 0.09);
+    --accent-color: hsl(calc(var(--brand-h) + 10) 42% 68%);
+
+    --bg-app: hsl(var(--brand-h) 12% 4%);     /* main canvas */
+    --surface: hsl(var(--brand-h) 10% 9%);    /* cards, containers */
+    --bg-light: hsl(var(--brand-h) 9% 13%);   /* hover, selected */
+
+    --bg-darker: hsl(var(--brand-h) 16% 6%);
+
+    --text-primary: hsl(var(--brand-h) 8% 96%);  /* ~19:1 on the canvas */
+    --text-secondary: hsl(var(--brand-h) 5% 66%);
+    --border-color: hsl(var(--brand-h) 7% 24%);
 
     --warn-bg: rgba(240, 180, 41, 0.12);
     --warn-border: #b97e1f;
     --warn-text: #fcd38a;
     --mark-bg: rgba(250, 204, 21, 0.35);
 
-    --ring: 0 0 0 3px rgba(139, 125, 255, 0.35);
+    --ring: 0 0 0 3px color-mix(in srgb, var(--primary-color) 35%, transparent);
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
     --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.6);
@@ -154,16 +189,13 @@ summary:focus-visible {
     background: color-mix(in srgb, var(--bg-darker) 88%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid color-mix(in srgb, white 10%, transparent);
 }
 
 .topbar-title {
     font-weight: 700;
     letter-spacing: 0.02em;
-    background: var(--gradient-accent);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--primary-on-dark);
 }
 
 /* Hamburger sits on the dark topbar in both themes */
@@ -291,27 +323,24 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
 /* Icon buttons inside the dark sidebar */
 .sidebar .icon-btn {
     background: transparent;
-    border-color: #374151;
-    color: #d1d5db;
+    border-color: var(--sidebar-border);
+    color: var(--sidebar-text);
 }
 
 .sidebar .icon-btn:hover {
-    background: #374151;
+    background: var(--sidebar-surface);
     color: white;
 }
 
 .logo h1 {
     font-size: clamp(1.4rem, 1.2rem + 0.9vw, 1.8rem);
     margin-bottom: 5px;
-    /* Gradient wordmark pops against the dark sidebar in both themes */
-    background: var(--gradient-accent);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    /* Brand wordmark pops against the dark sidebar in both themes */
+    color: var(--primary-on-dark);
 }
 
 .tagline {
-    color: #9ca3af;
+    color: var(--sidebar-text-dim);
     font-size: 0.875rem;
     margin-bottom: 20px;
 }
@@ -323,7 +352,7 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
 .section h3 {
     font-size: 1rem;
     margin-bottom: 15px;
-    color: #d1d5db;
+    color: var(--sidebar-text);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -336,14 +365,14 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
     margin-bottom: 10px;
     border: none;
     border-radius: 6px;
-    background: #374151;
+    background: var(--sidebar-surface);
     color: white;
     font-size: 0.9rem;
 }
 
 .device-form input::placeholder,
 .device-form textarea::placeholder {
-    color: #9ca3af;
+    color: var(--sidebar-text-dim);
 }
 
 .device-form textarea {
@@ -363,7 +392,7 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
 
 .device-form.modal-form input::placeholder,
 .device-form.modal-form textarea::placeholder {
-    color: #9ca3af;
+    color: var(--text-secondary);
 }
 
 /* "New Device" row in the sidebar nav: stretches like the tab buttons when
@@ -407,13 +436,13 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 }
 
 .btn-primary {
-    background: var(--gradient-accent);
-    color: white;
+    background: var(--primary-color);
+    color: var(--on-primary);
     box-shadow: 0 4px 14px color-mix(in srgb, var(--primary-color) 35%, transparent);
 }
 
 .btn-primary:hover {
-    filter: brightness(1.08);
+    background: var(--primary-hover);
 }
 
 .btn-secondary {
@@ -429,14 +458,14 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 
 /* Secondary buttons sitting on the dark sidebar (device accordion actions) */
 .sidebar .btn-secondary {
-    background: #374151;
-    border-color: rgba(255, 255, 255, 0.12);
-    color: #e5e7eb;
+    background: var(--sidebar-surface);
+    border-color: color-mix(in srgb, white 12%, transparent);
+    color: var(--sidebar-text);
 }
 
 .sidebar .btn-secondary:hover {
-    background: #4b5563;
-    border-color: var(--primary-color);
+    background: var(--sidebar-surface-hover);
+    border-color: var(--primary-on-dark);
 }
 
 .btn-small {
@@ -451,7 +480,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 }
 
 .btn-danger:hover {
-    background: #dc2626;
+    background: color-mix(in srgb, var(--error) 85%, black);
 }
 
 /* Device List (sidebar accordion) */
@@ -461,7 +490,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 }
 
 .device-accordion {
-    background: #374151;
+    background: var(--sidebar-surface);
     border-radius: 8px;
     margin-bottom: 6px;
     overflow: hidden;
@@ -469,7 +498,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 }
 
 .device-accordion:hover {
-    background: #4b5563;
+    background: var(--sidebar-surface-hover);
 }
 
 /* Collapsed header row: caret + name + brand/model on one line */
@@ -491,7 +520,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     flex-shrink: 0;
     font-size: 1rem;
     line-height: 1;
-    color: #9ca3af;
+    color: var(--sidebar-text-dim);
     transition: transform 0.25s ease;
 }
 
@@ -541,7 +570,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 
 .device-meta {
     font-size: 0.8rem;
-    color: #9ca3af;
+    color: var(--sidebar-text-dim);
 }
 
 .device-actions {
@@ -642,17 +671,16 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
 }
 
 .tab-btn.active {
-    background: var(--gradient-accent);
+    background: var(--primary-color);
     border-color: transparent;
-    color: white;
+    color: var(--on-primary);
     box-shadow: 0 4px 16px color-mix(in srgb, var(--primary-color) 40%, transparent);
 }
 
 .tab-btn.active:hover {
-    filter: brightness(1.08);
-    background: var(--gradient-accent);
+    background: var(--primary-hover);
     border-color: transparent;
-    color: white;
+    color: var(--on-primary);
 }
 
 /* Tab Content */
@@ -880,8 +908,8 @@ a.result-page-link:hover {
 }
 
 .message.user .message-content {
-    background: var(--gradient-accent);
-    color: white;
+    background: var(--primary-color);
+    color: var(--on-primary);
     border-bottom-right-radius: 4px;
 }
 
@@ -927,16 +955,17 @@ a.result-page-link:hover {
     text-underline-offset: 2px;
 }
 
-/* Citation links inside the blue user bubble would be invisible in the
-   default link colour — force white there (markdown-body also sets its own
-   foreground, which would otherwise override .message.user .message-content). */
+/* Citation links inside the brand-coloured user bubble would be invisible in
+   the default link colour — force the on-primary colour there (markdown-body
+   also sets its own foreground, which would otherwise override
+   .message.user .message-content). */
 .message.user .message-content.markdown-body,
 .message.user .message-content.markdown-body * {
-    color: white;
+    color: var(--on-primary);
 }
 
 .message.user .message-content.markdown-body a {
-    color: white;
+    color: var(--on-primary);
     text-decoration: underline;
 }
 
@@ -1150,9 +1179,9 @@ a.result-page-link:hover {
 }
 
 .scroll-down-btn:hover {
-    background: var(--gradient-accent);
+    background: var(--primary-color);
     border-color: transparent;
-    color: white;
+    color: var(--on-primary);
 }
 
 .scroll-down-btn.hidden {
@@ -1425,7 +1454,7 @@ a.result-page-link:hover {
 }
 
 .btn-danger:hover {
-    background: #dc2626;
+    background: color-mix(in srgb, var(--error) 85%, black);
 }
 
 /* (Responsive rules live at the end of this file, in the drawer-mode block.) */
@@ -1451,8 +1480,8 @@ a.result-page-link:hover {
     border-radius: var(--radius-md);
     font-size: 0.95rem;
     background: var(--surface);
-    /* The settings form also carries .device-form, whose dark-theme rule sets
-       color: white on a #374151 background. That rule matches with the same
+    /* The settings form also carries .device-form, whose sidebar rule sets
+       light text on a dark surface. That rule matches with the same
        specificity as this one and would leave white text on this white field,
        so pin both colors here explicitly. */
     color: var(--text-primary);
@@ -1610,7 +1639,7 @@ a.result-page-link:hover {
 }
 
 .progress-step.downloading {
-    border-left-color: #3b82f6;
+    border-left-color: var(--accent-color);
 }
 
 .progress-step.success {
