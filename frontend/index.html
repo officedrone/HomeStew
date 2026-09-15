@@ -222,6 +222,29 @@
                 <input type="text" id="device-serial-number" placeholder="Serial Number (optional)">
                 <input type="text" id="device-product-number" placeholder="Product Number (optional)">
 
+                <!-- Warranty: end date auto-computes from purchase date + length -->
+                <div class="warranty-row">
+                    <div class="settings-field">
+                        <label for="device-purchase-date">Purchase Date</label>
+                        <input type="date" id="device-purchase-date">
+                    </div>
+                    <div class="settings-field">
+                        <label for="device-warranty-length">Warranty Length</label>
+                        <div class="warranty-length-row">
+                            <input type="number" id="device-warranty-length" min="0" step="1" placeholder="e.g. 2">
+                            <select id="device-warranty-unit">
+                                <option value="years" selected>Years</option>
+                                <option value="months">Months</option>
+                                <option value="days">Days</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <label for="device-warranty-end">Warranty End</label>
+                        <input type="date" id="device-warranty-end">
+                    </div>
+                </div>
+
                 <!-- Optional manuals: uploaded right after the device is created -->
                 <div class="upload-row">
                     <label for="add-device-manuals" class="btn btn-secondary btn-small">Upload Manual</label>
@@ -267,6 +290,29 @@
                 <textarea id="edit-device-description" placeholder="Description (optional)" rows="2"></textarea>
                 <input type="text" id="edit-device-serial-number" placeholder="Serial Number">
                 <input type="text" id="edit-device-product-number" placeholder="Product Number">
+
+                <!-- Warranty: end date auto-computes from purchase date + length -->
+                <div class="warranty-row">
+                    <div class="settings-field">
+                        <label for="edit-device-purchase-date">Purchase Date</label>
+                        <input type="date" id="edit-device-purchase-date">
+                    </div>
+                    <div class="settings-field">
+                        <label for="edit-device-warranty-length">Warranty Length</label>
+                        <div class="warranty-length-row">
+                            <input type="number" id="edit-device-warranty-length" min="0" step="1" placeholder="e.g. 2">
+                            <select id="edit-device-warranty-unit">
+                                <option value="years" selected>Years</option>
+                                <option value="months">Months</option>
+                                <option value="days">Days</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-field">
+                        <label for="edit-device-warranty-end">Warranty End</label>
+                        <input type="date" id="edit-device-warranty-end">
+                    </div>
+                </div>
                 
                 <!-- Manuals Section -->
                 <div class="attributes-section">

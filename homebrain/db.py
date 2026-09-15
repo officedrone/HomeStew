@@ -45,6 +45,10 @@ async def init_db():
                 description TEXT,
                 serial_number TEXT,
                 product_number TEXT,
+                purchase_date DATE,
+                warranty_length INTEGER,
+                warranty_unit TEXT,
+                warranty_end DATE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -59,6 +63,18 @@ async def init_db():
             await db.execute("ALTER TABLE devices ADD COLUMN product_number TEXT")
         except sqlite3.OperationalError:
             pass  # Column already exists
+        
+        # Warranty fields: purchase date + length (value & unit) + computed end date
+        for col in (
+            "purchase_date DATE",
+            "warranty_length INTEGER",
+            "warranty_unit TEXT",
+            "warranty_end DATE",
+        ):
+            try:
+                await db.execute(f"ALTER TABLE devices ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
         
         # Create manuals table
         await db.execute("""

@@ -148,6 +148,10 @@ function setupEventListeners() {
     
     // Edit device form
     document.getElementById('edit-device-form').addEventListener('submit', handleEditDevice);
+
+    // Warranty end auto-fills from purchase date + length in both device forms.
+    initWarrantyAutoCalc('device');
+    initWarrantyAutoCalc('edit-device');
     
     // Search functionality
     document.getElementById('search-btn').addEventListener('click', performSearch);
@@ -305,10 +309,32 @@ function deviceDetailLines(device) {
     const lines = [];
     if (device.serial_number) lines.push(`Serial: ${escapeHtml(device.serial_number)}`);
     if (device.product_number) lines.push(`Product: ${escapeHtml(device.product_number)}`);
+    for (const line of warrantyDetailLines(device)) lines.push(escapeHtml(line));
     for (const attr of device.attributes || []) {
         lines.push(`${escapeHtml(attr.attribute_name)}: ${escapeHtml(attr.attribute_value)}`);
     }
     return lines.map(line => `<div class="device-meta">${line}</div>`).join('');
+}
+
+// Plain-text warranty lines ("Purchased: ...", "Warranty ends: ...") for the
+// accordion and card views. Dates are YYYY-MM-DD strings from the API; they
+// are parsed with a noon time so toLocaleDateString can't shift a day.
+function warrantyDetailLines(device) {
+    const fmt = iso => {
+        if (!iso) return null;
+        return new Date(`${iso}T12:00:00`).toLocaleDateString();
+    };
+    const lines = [];
+    const purchased = fmt(device.purchase_date);
+    if (purchased) lines.push(`Purchased: ${purchased}`);
+    const ends = fmt(device.warranty_end);
+    if (ends) {
+        const length = device.warranty_length != null && device.warranty_unit
+            ? ` (${device.warranty_length} ${device.warranty_unit})`
+            : '';
+        lines.push(`Warranty ends: ${ends}${length}`);
+    }
+    return lines;
 }
 
 // Sidebar: each device is a single collapsed line; clicking it expands an
@@ -374,6 +400,7 @@ function renderDevicesGrid() {
             <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
             ${device.serial_number ? `<div class="device-meta">Serial: ${escapeHtml(device.serial_number)}</div>` : ''}
             ${device.product_number ? `<div class="device-meta">Product: ${escapeHtml(device.product_number)}</div>` : ''}
+            ${warrantyDetailLines(device).map(line => `<div class="device-meta">${escapeHtml(line)}</div>`).join('')}
             <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
             <div class="device-actions">
                 <button class="btn btn-secondary btn-small" data-dedupe onclick="editDevice(${device.id})">
@@ -668,8 +695,111 @@ async function handleSaveEvent(e) {
  */
 let _addDeviceAttributes = [];
 
+// ---------------------------------------------------------------------------
+// Warranty fields (both device modals)
+// ---------------------------------------------------------------------------
+
+/** Add `months` to a YYYY-MM-DD string, clamping the day (Jan 31 -> Feb 28). */
+function addMonthsToDateStr(dateStr, months) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const total = (y * 12 + (m - 1)) + months;
+    const year = Math.floor(total / 12);
+    const month = (total % 12) + 1;
+    // Day count of the target month (Date's day 0 == last day of prev month).
+    const lastDay = new Date(year, month, 0).getDate();
+    const dt = new Date(Date.UTC(year, month - 1, Math.min(d, lastDay)));
+    return dt.toISOString().slice(0, 10);
+}
+
+/** Add `days` to a YYYY-MM-DD string. */
+function addDaysToDateStr(dateStr, days) {
+    const dt = new Date(`${dateStr}T00:00:00Z`);
+    dt.setUTCDate(dt.getUTCDate() + days);
+    return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Warranty end date for a purchase date + length/unit, or '' when incomplete.
+ * Mirrors the server-side computation in api/devices.py `_warranty_fields`.
+ */
+function computeWarrantyEnd(purchaseDate, length, unit) {
+    if (!purchaseDate || length === null || length === undefined || length === '') return '';
+    const n = parseInt(length, 10);
+    if (!Number.isFinite(n) || n < 0) return '';
+    if (unit === 'days') return addDaysToDateStr(purchaseDate, n);
+    if (unit === 'months') return addMonthsToDateStr(purchaseDate, n);
+    if (unit === 'years') return addMonthsToDateStr(purchaseDate, n * 12);
+    return '';
+}
+
+/**
+ * Keep a form's "Warranty End" in sync with its purchase date / length fields.
+ * Only overwrites the end field while it is empty or still auto-filled (the
+ * last computed value is remembered on the element), so a manually picked
+ * date is never clobbered. `prefix` is 'device' | 'edit-device'.
+ */
+function initWarrantyAutoCalc(prefix) {
+    const purchase = document.getElementById(`${prefix}-purchase-date`);
+    const length = document.getElementById(`${prefix}-warranty-length`);
+    const unit = document.getElementById(`${prefix}-warranty-unit`);
+    const end = document.getElementById(`${prefix}-warranty-end`);
+    if (!purchase || !length || !unit || !end) return;
+
+    const recalc = () => {
+        // Manual override: the field holds something we didn't compute.
+        if (end.value && end.value !== end.dataset.autoValue) return;
+        const computed = computeWarrantyEnd(purchase.value, length.value, unit.value);
+        end.dataset.autoValue = computed;
+        end.value = computed;
+    };
+
+    purchase.addEventListener('change', recalc);
+    length.addEventListener('input', recalc);
+    unit.addEventListener('change', recalc);
+}
+
+/**
+ * Re-baseline the auto-fill tracker after a form is reset or populated. The
+ * baseline is the date the inputs would currently compute, so a saved (or
+ * hand-picked) Warranty End that matches it keeps updating on later edits,
+ * while a genuinely manual date stays protected.
+ */
+function resetWarrantyAutoCalc(prefix) {
+    const end = document.getElementById(`${prefix}-warranty-end`);
+    if (!end) return;
+    const computed = computeWarrantyEnd(
+        document.getElementById(`${prefix}-purchase-date`)?.value || '',
+        document.getElementById(`${prefix}-warranty-length`)?.value || '',
+        document.getElementById(`${prefix}-warranty-unit`)?.value || 'years'
+    );
+    end.dataset.autoValue = computed;
+}
+
+/** Collect the warranty fields of a device form into a payload fragment. */
+function readWarrantyFields(prefix) {
+    const value = id => document.getElementById(id)?.value || null;
+    const lengthRaw = value(`${prefix}-warranty-length`);
+    return {
+        purchase_date: value(`${prefix}-purchase-date`),
+        warranty_length: lengthRaw ? parseInt(lengthRaw, 10) : null,
+        // The unit dropdown always has a value; only meaningful with a length.
+        warranty_unit: lengthRaw ? value(`${prefix}-warranty-unit`) : null,
+        warranty_end: value(`${prefix}-warranty-end`)
+    };
+}
+
+/** Populate the warranty fields of a device form from a device object. */
+function fillWarrantyFields(prefix, device) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    set(`${prefix}-purchase-date`, device.purchase_date);
+    set(`${prefix}-warranty-length`, device.warranty_length ?? '');
+    set(`${prefix}-warranty-unit`, device.warranty_unit || 'years');
+    set(`${prefix}-warranty-end`, device.warranty_end);
+}
+
 function openAddDeviceModal() {
     document.getElementById('add-device-form').reset();
+    resetWarrantyAutoCalc('device');
     updateAddDeviceManualNames();
     _addDeviceAttributes = [];
     renderAddDeviceAttributes();
@@ -744,7 +874,8 @@ async function handleAddDevice(e) {
         model: document.getElementById('device-model').value,
         description: document.getElementById('device-description').value,
         serial_number: document.getElementById('device-serial-number').value || null,
-        product_number: document.getElementById('device-product-number').value || null
+        product_number: document.getElementById('device-product-number').value || null,
+        ...readWarrantyFields('device')
     };
     
     try {
@@ -825,6 +956,8 @@ async function editDevice(deviceId) {
     document.getElementById('edit-device-description').value = device.description || '';
     document.getElementById('edit-device-serial-number').value = device.serial_number || '';
     document.getElementById('edit-device-product-number').value = device.product_number || '';
+    fillWarrantyFields('edit-device', device);
+    resetWarrantyAutoCalc('edit-device');
     
     // Load and render attributes
     await loadDeviceAttributes(deviceId);
@@ -846,7 +979,8 @@ async function handleEditDevice(e) {
         model: document.getElementById('edit-device-model').value,
         description: document.getElementById('edit-device-description').value,
         serial_number: document.getElementById('edit-device-serial-number').value || null,
-        product_number: document.getElementById('edit-device-product-number').value || null
+        product_number: document.getElementById('edit-device-product-number').value || null,
+        ...readWarrantyFields('edit-device')
     };
     
     try {

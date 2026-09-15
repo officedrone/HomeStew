@@ -12,6 +12,13 @@ class DeviceBase(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     serial_number: Optional[str] = Field(None, max_length=100)
     product_number: Optional[str] = Field(None, max_length=100)
+    purchase_date: Optional[date] = Field(None, description="Date the device was purchased")
+    warranty_length: Optional[int] = Field(None, ge=0, description="Warranty length value (with unit)")
+    warranty_unit: Optional[str] = Field(None, pattern="^(days|months|years)$", description="Warranty length unit")
+    warranty_end: Optional[date] = Field(
+        None,
+        description="Warranty expiry; auto-computed from purchase_date + length when omitted",
+    )
 
 
 class DeviceCreate(DeviceBase):
@@ -49,6 +56,10 @@ class DeviceResponse(BaseModel):
     description: Optional[str]
     serial_number: Optional[str]
     product_number: Optional[str]
+    purchase_date: Optional[date] = None
+    warranty_length: Optional[int] = None
+    warranty_unit: Optional[str] = None
+    warranty_end: Optional[date] = None
     created_at: datetime
     manual_count: int = 0
     attributes: list[DeviceAttribute] = []

@@ -1809,6 +1809,37 @@ a.result-page-link:hover {
     gap: 10px;
 }
 
+/* Device modals: purchase date / warranty length / warranty end on one row. */
+.warranty-row {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+/* Warranty length = integer input + unit dropdown side by side. */
+.warranty-length-row {
+    display: flex;
+    gap: 6px;
+}
+
+.warranty-length-row input[type="number"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.warranty-length-row select {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 90px;
+}
+
+@media (max-width: 560px) {
+    .warranty-row {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (max-width: 560px) {
     .event-card {
         flex-direction: column;

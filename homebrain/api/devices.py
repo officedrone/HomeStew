@@ -1,6 +1,7 @@
 """Device management API endpoints."""
 import logging
 import re
+from datetime import timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
@@ -9,6 +10,7 @@ from typing import List
 from homebrain.config import settings
 from homebrain.db import get_db_context
 from homebrain.models.schemas import Device, DeviceCreate, DeviceResponse, DeviceAttribute, Manual
+from homebrain.services.calendar_engine import add_months
 from homebrain.services.indexer import index_manual
 
 logger = logging.getLogger(__name__)
@@ -18,16 +20,74 @@ router = APIRouter(prefix="/devices", tags=["devices"])
 # Maximum accepted size for an uploaded manual (100 MB).
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024
 
+# Columns shared by every device SELECT so responses stay consistent.
+# RETURNING clauses don't allow table prefixes, hence the plain variant.
+DEVICE_COLUMNS = (
+    "d.id, d.name, d.brand, d.model, d.description, d.serial_number, "
+    "d.product_number, d.purchase_date, d.warranty_length, d.warranty_unit, "
+    "d.warranty_end, d.created_at"
+)
+DEVICE_COLUMNS_PLAIN = DEVICE_COLUMNS.replace("d.", "")
+
+
+def _warranty_fields(device: DeviceCreate) -> tuple:
+    """Return (purchase_date, warranty_length, warranty_unit, warranty_end).
+
+    ``warranty_end`` is taken from the request when provided; otherwise it is
+    computed from purchase date + warranty length/unit (months/years clamp
+    the day-of-month, e.g. Jan 31 + 1 month -> Feb 28).
+    """
+    purchase = device.purchase_date.isoformat() if device.purchase_date else None
+    length = device.warranty_length
+    unit = device.warranty_unit
+    end = device.warranty_end.isoformat() if device.warranty_end else None
+    if (
+        end is None
+        and device.purchase_date is not None
+        and length is not None
+        and unit in ("days", "months", "years")
+    ):
+        if unit == "days":
+            computed = device.purchase_date + timedelta(days=length)
+        elif unit == "months":
+            computed = add_months(device.purchase_date, length)
+        else:  # years
+            computed = add_months(device.purchase_date, 12 * length)
+        end = computed.isoformat()
+    return purchase, length, unit, end
+
+
+def _row_to_response(row, manual_count: int, attributes=None) -> DeviceResponse:
+    """Build a DeviceResponse from a device row (with optional attributes)."""
+    return DeviceResponse(
+        id=row['id'],
+        name=row['name'],
+        brand=row['brand'],
+        model=row['model'],
+        description=row['description'],
+        serial_number=row['serial_number'],
+        product_number=row['product_number'],
+        purchase_date=row['purchase_date'],
+        warranty_length=row['warranty_length'],
+        warranty_unit=row['warranty_unit'],
+        warranty_end=row['warranty_end'],
+        created_at=row['created_at'],
+        manual_count=manual_count or 0,
+        attributes=attributes or [],
+    )
+
 
 @router.post("", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 async def create_device(device: DeviceCreate):
     """Add a new device to HomeBrain."""
+    purchase_date, warranty_length, warranty_unit, warranty_end = _warranty_fields(device)
     async with get_db_context() as db:
         cursor = await db.execute(
-            """
-            INSERT INTO devices (name, brand, model, description, serial_number, product_number)
-            VALUES (?, ?, ?, ?, ?, ?)
-            RETURNING id, name, brand, model, description, serial_number, product_number, created_at
+            f"""
+            INSERT INTO devices (name, brand, model, description, serial_number,
+                product_number, purchase_date, warranty_length, warranty_unit, warranty_end)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING {DEVICE_COLUMNS_PLAIN}
             """,
             (
                 device.name, 
@@ -35,24 +95,18 @@ async def create_device(device: DeviceCreate):
                 device.model, 
                 device.description or "",
                 device.serial_number,
-                device.product_number
+                device.product_number,
+                purchase_date,
+                warranty_length,
+                warranty_unit,
+                warranty_end,
             )
         )
         
         row = await cursor.fetchone()
         await db.commit()
         
-        return DeviceResponse(
-            id=row['id'],
-            name=row['name'],
-            brand=row['brand'],
-            model=row['model'],
-            description=row['description'],
-            serial_number=row['serial_number'],
-            product_number=row['product_number'],
-            created_at=row['created_at'],
-            manual_count=0
-        )
+        return _row_to_response(row, 0)
 
 
 @router.get("", response_model=List[DeviceResponse])
@@ -60,9 +114,9 @@ async def list_devices():
     """List all devices with their manual counts."""
     async with get_db_context() as db:
         cursor = await db.execute(
-            """
+            f"""
             SELECT 
-                d.id, d.name, d.brand, d.model, d.description, d.serial_number, d.product_number, d.created_at,
+                {DEVICE_COLUMNS},
                 COUNT(m.id) as manual_count
             FROM devices d
             LEFT JOIN manuals m ON d.id = m.device_id
@@ -91,18 +145,7 @@ async def list_devices():
             )
         
         return [
-            DeviceResponse(
-                id=row['id'],
-                name=row['name'],
-                brand=row['brand'],
-                model=row['model'],
-                description=row['description'],
-                serial_number=row['serial_number'],
-                product_number=row['product_number'],
-                created_at=row['created_at'],
-                manual_count=row['manual_count'] or 0,
-                attributes=attrs_by_device.get(row['id'], [])
-            )
+            _row_to_response(row, row['manual_count'], attrs_by_device.get(row['id'], []))
             for row in rows
         ]
 
@@ -112,9 +155,9 @@ async def get_device(device_id: int):
     """Get a specific device with details."""
     async with get_db_context() as db:
         cursor = await db.execute(
-            """
+            f"""
             SELECT 
-                d.id, d.name, d.brand, d.model, d.description, d.serial_number, d.product_number, d.created_at,
+                {DEVICE_COLUMNS},
                 COUNT(m.id) as manual_count
             FROM devices d
             LEFT JOIN manuals m ON d.id = m.device_id
@@ -149,18 +192,7 @@ async def get_device(device_id: int):
             for attr in attrs
         ]
         
-        return DeviceResponse(
-            id=row['id'],
-            name=row['name'],
-            brand=row['brand'],
-            model=row['model'],
-            description=row['description'],
-            serial_number=row['serial_number'],
-            product_number=row['product_number'],
-            created_at=row['created_at'],
-            manual_count=row['manual_count'] or 0,
-            attributes=attributes
-        )
+        return _row_to_response(row, row['manual_count'], attributes)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
@@ -175,13 +207,15 @@ async def update_device(device_id: int, device: DeviceCreate):
                 detail=f"Device {device_id} not found"
             )
         
-        # Update device
+        # Update device (warranty_end auto-computed from purchase date + length)
+        purchase_date, warranty_length, warranty_unit, warranty_end = _warranty_fields(device)
         cursor = await db.execute(
-            """
+            f"""
             UPDATE devices 
-            SET name = ?, brand = ?, model = ?, description = ?, serial_number = ?, product_number = ?
+            SET name = ?, brand = ?, model = ?, description = ?, serial_number = ?, product_number = ?,
+                purchase_date = ?, warranty_length = ?, warranty_unit = ?, warranty_end = ?
             WHERE id = ?
-            RETURNING id, name, brand, model, description, serial_number, product_number, created_at
+            RETURNING {DEVICE_COLUMNS_PLAIN}
             """,
             (
                 device.name, 
@@ -190,6 +224,10 @@ async def update_device(device_id: int, device: DeviceCreate):
                 device.description or "",
                 device.serial_number,
                 device.product_number,
+                purchase_date,
+                warranty_length,
+                warranty_unit,
+                warranty_end,
                 device_id
             )
         )
@@ -220,18 +258,7 @@ async def update_device(device_id: int, device: DeviceCreate):
             for attr in attrs
         ]
         
-        return DeviceResponse(
-            id=row['id'],
-            name=row['name'],
-            brand=row['brand'],
-            model=row['model'],
-            description=row['description'],
-            serial_number=row['serial_number'],
-            product_number=row['product_number'],
-            created_at=row['created_at'],
-            manual_count=count_row['count'] or 0,
-            attributes=attributes
-        )
+        return _row_to_response(row, count_row['count'], attributes)
 
 
 @router.post("/{device_id}/attributes", response_model=DeviceAttribute)
