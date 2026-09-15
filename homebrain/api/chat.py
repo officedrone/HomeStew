@@ -1,6 +1,8 @@
 """Chat API endpoints with LLM integration."""
 import json
 import logging
+from datetime import date as _date
+
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
@@ -15,7 +17,7 @@ from homebrain.services.llm_client import (
     chat_with_tool_events,
 )
 from homebrain.services.search_engine import search_manuals
-from homebrain.services import calendar_service
+from homebrain.services import calendar_service, calendar_tool
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +111,23 @@ async def device_roster_note() -> str:
     )
 
 
+def current_date_note() -> str:
+    """System-prompt line with today's date and weekday.
+
+    The manage_calendar tool needs absolute ISO dates, but users speak in
+    relative ones ("tomorrow", "next Friday"). Without the real date in the
+    prompt the model cannot resolve them — it either asks the user or invents
+    a wrong anchor. The weekday is included so "next Friday" resolves without
+    arithmetic.
+    """
+    today = _date.today()
+    return (
+        f"\n\nToday is {today.isoformat()} ({today.strftime('%A')}). Use this "
+        "to resolve relative dates like 'tomorrow' or 'next Friday' into the "
+        "ISO YYYY-MM-DD values calendar tool calls require."
+    )
+
+
 async def calendar_reminders_note(
     device_id: Optional[int], days: int = 7
 ) -> str:
@@ -142,7 +161,7 @@ async def calendar_reminders_note(
             else " (no device)"
         )
         lines.append(
-            f'- "{e["title"]}" — {status_word}, repeats: '
+            f'- id={e["id"]}: "{e["title"]}" — {status_word}, repeats: '
             f"{e['recurrence_label']}{device_part}"
         )
 
@@ -150,10 +169,12 @@ async def calendar_reminders_note(
         "\n\nThe user's maintenance calendar (events due within the next "
         f"{days} days, including overdue ones):\n"
         + "\n".join(lines)
-        + "\nIf a question concerns a device with one of these events — or "
-        "the topic matches one (filters, cleaning, maintenance) — briefly "
-        "remind the user about it after answering. Never invent calendar "
-        "events that are not listed here."
+        + "\nThe id= values are for the manage_calendar tool: use them to "
+        "update, delete or complete these events without listing again. If a "
+        "question concerns a device with one of these events — or the topic "
+        "matches one (filters, cleaning, maintenance) — briefly remind the "
+        "user about it after answering. Never invent calendar events that "
+        "are not listed here."
     )
 
 
@@ -229,6 +250,21 @@ def scoped_search_func(
     return _search
 
 
+def scoped_calendar_func(device_id: Optional[int]):
+    """Calendar-tool callback with the chat's device filter applied.
+
+    The same rule as search: in a device-filtered conversation the model can
+    only see (and touch) that device's events plus unassigned ones — the
+    filter overrides any device_id from the tool call and _load_scoped_event
+    rejects foreign event ids. See calendar_tool for the action semantics.
+    """
+
+    async def _calendar(args: Dict[str, Any]) -> str:
+        return await calendar_tool.execute_calendar_tool(args, device_id)
+
+    return _calendar
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Send a chat message and get LLM response with manual search capability."""
@@ -261,6 +297,8 @@ async def chat(request: ChatRequest):
             # No filter: tell the model which device ids actually exist so it
             # can scope per-device searches instead of inventing ids.
             system_prompt += await device_roster_note()
+        # Today's date for relative-date resolution in calendar calls.
+        system_prompt += current_date_note()
         # Upcoming maintenance nudges (see calendar_reminders_note).
         system_prompt += await calendar_reminders_note(request.device_id)
 
@@ -272,6 +310,7 @@ async def chat(request: ChatRequest):
             client=client,
             messages=messages,
             search_func=scoped_search_func(request.device_id, valid_ids),
+            calendar_func=scoped_calendar_func(request.device_id),
             max_tool_calls=8
         )
         
@@ -324,6 +363,8 @@ async def chat_stream(request: ChatRequest):
             else:
                 # No filter: give the model the real device ids (see above).
                 system_prompt += await device_roster_note()
+            # Today's date for relative-date resolution in calendar calls.
+            system_prompt += current_date_note()
             # Upcoming maintenance nudges (see calendar_reminders_note).
             system_prompt += await calendar_reminders_note(request.device_id)
 
@@ -334,6 +375,7 @@ async def chat_stream(request: ChatRequest):
                 client=client,
                 messages=messages,
                 search_func=scoped_search_func(request.device_id, valid_ids),
+                calendar_func=scoped_calendar_func(request.device_id),
                 max_tool_calls=8
             ):
                 # json.dumps keeps each frame on a single line, as SSE requires.

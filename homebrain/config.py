@@ -7,6 +7,7 @@ from typing import Optional
 from pydantic_settings import BaseSettings
 
 from homebrain.default_prompts import (
+    DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
@@ -20,6 +21,7 @@ EDITABLE_SETTINGS = (
     "LLM_MODEL",
     "CHAT_SYSTEM_PROMPT",
     "SEARCH_TOOL_DESCRIPTION",
+    "CALENDAR_TOOL_DESCRIPTION",
 )
 
 
@@ -46,6 +48,7 @@ class Settings(BaseSettings):
     # the built-in prompt texts from homebrain.default_prompts.
     CHAT_SYSTEM_PROMPT: str = DEFAULT_CHAT_SYSTEM_PROMPT
     SEARCH_TOOL_DESCRIPTION: str = DEFAULT_SEARCH_TOOL_DESCRIPTION
+    CALENDAR_TOOL_DESCRIPTION: str = DEFAULT_CALENDAR_TOOL_DESCRIPTION
     
     # Data directories
     DATA_DIR: Path = Path("/data")
@@ -85,7 +88,9 @@ def load_settings_overrides() -> None:
     if not path.exists():
         return
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig also decodes plain UTF-8; it additionally strips a BOM,
+        # which Windows editors/tools like to add and json.loads rejects.
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("Could not read settings overrides from %s: %s", path, exc)
         return
@@ -105,7 +110,7 @@ def save_settings_overrides(values: dict) -> None:
     existing = {}
     if path.exists():
         try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
+            existing = json.loads(path.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, OSError):
             existing = {}
 

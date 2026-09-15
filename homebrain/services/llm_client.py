@@ -6,7 +6,11 @@ from typing import Optional, List, Dict, Any, AsyncGenerator
 import json
 
 from homebrain.config import settings
-from homebrain.default_prompts import DEFAULT_SEARCH_TOOL_DESCRIPTION
+from homebrain.default_prompts import (
+    DEFAULT_CALENDAR_TOOL_DESCRIPTION,
+    DEFAULT_SEARCH_TOOL_DESCRIPTION,
+)
+from homebrain.services import calendar_tool
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +366,119 @@ def create_search_tool() -> Dict[str, Any]:
     }
 
 
+def create_calendar_tool() -> Dict[str, Any]:
+    """Create the manage_calendar tool definition.
+
+    One tool covers every calendar mutation (create/update/delete/complete)
+    plus a list action used to look up event ids — see calendar_tool.py for
+    why a single action-based schema works better with small local models.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": "manage_calendar",
+            # User-editable via Settings > Advanced Settings; falls back to
+            # the built-in default when blank.
+            "description": settings.CALENDAR_TOOL_DESCRIPTION
+            or DEFAULT_CALENDAR_TOOL_DESCRIPTION,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "update", "delete", "complete", "list"],
+                        "description": (
+                            "What to do: create a new event, update/delete/"
+                            "complete an existing one (needs event_id), or "
+                            "list events (to find ids / check the schedule)."
+                        ),
+                    },
+                    "event_id": {
+                        "type": "integer",
+                        "description": (
+                            "The id of the event to update/delete/complete. "
+                            "Required for those actions; get it from action='list'."
+                        ),
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Event title, e.g. 'Replace HVAC filter'. Required for create.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional longer note for the event.",
+                    },
+                    "device_id": {
+                        "type": "integer",
+                        "description": (
+                            "Optional: link the event to a device. Only use an "
+                            "id from the conversation's device list. For update, "
+                            "pass -1 to unlink the device."
+                        ),
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": (
+                            "First/anchor due date as ISO YYYY-MM-DD (resolve "
+                            "relative dates against today). Required for create."
+                        ),
+                    },
+                    "start_time": {
+                        "type": "string",
+                        "description": "Optional time of day HH:MM (24h), e.g. '08:30'. Empty string clears it on update.",
+                    },
+                    "recurrence_type": {
+                        "type": "string",
+                        "enum": ["none", "daily", "weekly", "monthly", "yearly"],
+                        "description": "Repeat unit; 'none' = one-time reminder. Default 'none'.",
+                    },
+                    "interval": {
+                        "type": "integer",
+                        "description": "Repeat every N units (e.g. monthly + 3 = every 3 months). Default 1.",
+                    },
+                    "within_days": {
+                        "type": "integer",
+                        "description": (
+                            "For action='list' only: restrict to events due "
+                            "within N days (overdue included). Omit for all events."
+                        ),
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    }
+
+
+async def _execute_calendar_tool(
+    tool_call,
+    calendar_func,
+) -> tuple[Dict[str, Any], bool, str]:
+    """Execute a manage_calendar tool call.
+
+    Returns (tool response message, ok, short summary). The summary is a
+    one-line outcome ('Created event id=4') surfaced to the UI's trace and
+    taken from the report itself so model and user always see the same thing.
+    """
+    args = calendar_tool.parse_tool_arguments(tool_call)
+    tc_id = tool_call.id if hasattr(tool_call, 'id') else tool_call.get('id')
+    try:
+        report = await calendar_func(args)
+        ok = not report.startswith("Error")
+        # First line of the report doubles as the UI summary.
+        summary = report.splitlines()[0][:120] if report else "Done"
+        tool_message = {"role": "tool", "content": report, "tool_call_id": tc_id}
+        return tool_message, ok, summary
+    except Exception as e:  # noqa: BLE001 - keep the conversation alive
+        logger.error(f"Calendar tool call failed: {e}")
+        tool_message = {
+            "role": "tool",
+            "content": f"Error executing calendar action: {str(e)}",
+            "tool_call_id": tc_id,
+        }
+        return tool_message, False, "Calendar action failed"
+
+
 async def _execute_search_tool(
     tool_call,
     search_func
@@ -494,7 +611,8 @@ async def chat_with_tool_events(
     client: LLMClient,
     messages: List[Dict[str, str]],
     search_func,
-    max_tool_calls: int = 3
+    max_tool_calls: int = 3,
+    calendar_func=None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Chat with tool calling, streaming the model's work as typed SSE events.
@@ -506,7 +624,8 @@ async def chat_with_tool_events(
       - {"type": "content_delta", "delta": str}   — streamed answer text
       - {"type": "tool_call", "id", "name", "arguments"}     — full call once
         its streamed argument fragments are complete
-      - {"type": "tool_result", "id", "ok", "result_count"}  — execution outcome
+      - {"type": "tool_result", "id", "ok", "result_count",
+         "summary"?}  — execution outcome (summary: calendar calls only)
       - {"type": "message", "content": str, "used_search": bool,
          "search_results_count": int}             — final answer (terminal)
       - {"type": "done"}                          — stream finished
@@ -519,8 +638,12 @@ async def chat_with_tool_events(
         messages: Conversation messages
         search_func: Async function for searching manuals
         max_tool_calls: Maximum number of tool calls in one conversation
+        calendar_func: Optional async callable(args) -> str executing the
+            manage_calendar tool; when None the tool is not offered at all.
     """
     tools = [create_search_tool()]
+    if calendar_func is not None:
+        tools.append(create_calendar_tool())
     current_messages = list(messages)
     tool_call_count = 0
     # Thinking models occasionally end a turn with only reasoning tokens and
@@ -570,17 +693,33 @@ async def chat_with_tool_events(
                 }
 
                 # _execute_search_tool accepts plain dicts shaped like this.
-                tool_response, result_count = await _execute_search_tool(
-                    {"id": tc_id, "function": {"name": tc_name, "arguments": tc_args}},
-                    search_func,
-                )
+                call_obj = {"id": tc_id, "function": {"name": tc_name, "arguments": tc_args}}
+                result_event: Dict[str, Any]
+                if tc_name == "manage_calendar" and calendar_func is not None:
+                    tool_response, ok, summary = await _execute_calendar_tool(
+                        call_obj, calendar_func
+                    )
+                    result_event = {
+                        "type": "tool_result",
+                        "id": tc_id,
+                        "name": tc_name,
+                        "ok": ok,
+                        "result_count": None,
+                        "summary": summary,
+                    }
+                else:
+                    tool_response, result_count = await _execute_search_tool(
+                        call_obj, search_func
+                    )
+                    result_event = {
+                        "type": "tool_result",
+                        "id": tc_id,
+                        "name": tc_name,
+                        "ok": result_count is not None,
+                        "result_count": result_count,
+                    }
 
-                yield {
-                    "type": "tool_result",
-                    "id": tc_id,
-                    "ok": result_count is not None,
-                    "result_count": result_count,
-                }
+                yield result_event
 
                 # Echo metadata (strict OpenAI-compatible servers, e.g.
                 # llama.cpp, match the tool reply against this call and
@@ -648,7 +787,8 @@ async def chat_with_tool_support(
     client: LLMClient,
     messages: List[Dict[str, str]],
     search_func,
-    max_tool_calls: int = 3
+    max_tool_calls: int = 3,
+    calendar_func=None,
 ) -> tuple[str, bool, int]:
     """
     Chat with automatic tool calling support.
@@ -670,7 +810,7 @@ async def chat_with_tool_support(
     result_count = 0
 
     async for event in chat_with_tool_events(
-        client, messages, search_func, max_tool_calls
+        client, messages, search_func, max_tool_calls, calendar_func=calendar_func
     ):
         if event.get("type") == "message":
             content = event["content"]

@@ -160,11 +160,17 @@ class SettingsResponse(BaseModel):
     search_tool_description: str = Field(
         ..., description="Description of the search_manuals tool shown to the LLM"
     )
+    calendar_tool_description: str = Field(
+        ..., description="Description of the manage_calendar tool shown to the LLM"
+    )
     chat_system_prompt_default: str = Field(
         ..., description="Built-in default for chat_system_prompt (Restore Default)"
     )
     search_tool_description_default: str = Field(
         ..., description="Built-in default for search_tool_description (Restore Default)"
+    )
+    calendar_tool_description_default: str = Field(
+        ..., description="Built-in default for calendar_tool_description (Restore Default)"
     )
 
 
@@ -178,6 +184,9 @@ class SettingsUpdate(BaseModel):
     )
     search_tool_description: Optional[str] = Field(
         None, max_length=4000, description="Custom search_manuals tool description"
+    )
+    calendar_tool_description: Optional[str] = Field(
+        None, max_length=4000, description="Custom manage_calendar tool description"
     )
 
 

@@ -1710,6 +1710,9 @@ function createStreamRenderer() {
             try {
                 const parsed = JSON.parse(event.arguments || '{}');
                 if (parsed.query) argPreview = `: ${parsed.query}`;
+                else if (event.name === 'manage_calendar')
+                    // "manage_calendar: create" reads better than raw JSON.
+                    argPreview = `: ${parsed.action || ''}`;
                 else if (Object.keys(parsed).length) argPreview = `: ${event.arguments}`;
             } catch (e) {
                 /* no preview */
@@ -1743,7 +1746,24 @@ function createStreamRenderer() {
         finishToolCall(event) {
             const entry = toolCallEls.get(event.id);
             if (!entry) return;
-            if (event.ok) {
+            if (event.name === 'manage_calendar') {
+                // Calendar calls report a one-line outcome from the backend
+                // instead of a result count.
+                if (event.ok) {
+                    entry.resultLine.textContent = event.summary || 'Done';
+                    entry.resultLine.classList.remove('pending');
+                    // The calendar changed: refresh the sidebar feed and, if
+                    // that tab is open behind the chat, its list too.
+                    loadUpcomingEvents();
+                    const calTab = document.getElementById('calendar-tab');
+                    if (calTab && calTab.classList.contains('active')) {
+                        loadCalendarEvents();
+                    }
+                } else {
+                    entry.resultLine.textContent = event.summary || 'Calendar action failed';
+                    entry.resultLine.classList.add('failed');
+                }
+            } else if (event.ok) {
                 const n = event.result_count ?? 0;
                 entry.resultLine.textContent = n > 0
                     ? `Found ${n} result${n !== 1 ? 's' : ''}`
@@ -2145,10 +2165,15 @@ const API_KEY_PLACEHOLDER = '********';
 // Default" buttons in Advanced Settings. Keyed by setting name.
 let promptDefaults = {};
 
+const PROMPT_FIELD_IDS = {
+    chat_system_prompt: 'settings-chat-system-prompt',
+    search_tool_description: 'settings-search-tool-description',
+    calendar_tool_description: 'settings-calendar-tool-description',
+};
+
 function restorePromptDefault(settingName) {
-    const fieldId = settingName === 'chat_system_prompt'
-        ? 'settings-chat-system-prompt'
-        : 'settings-search-tool-description';
+    const fieldId = PROMPT_FIELD_IDS[settingName];
+    if (!fieldId) return;
     document.getElementById(fieldId).value = promptDefaults[settingName] || '';
 }
 
@@ -2194,11 +2219,14 @@ async function openSettingsModal() {
     promptDefaults = {
         chat_system_prompt: settings.chat_system_prompt_default || '',
         search_tool_description: settings.search_tool_description_default || '',
+        calendar_tool_description: settings.calendar_tool_description_default || '',
     };
     document.getElementById('settings-chat-system-prompt').value =
         settings.chat_system_prompt || '';
     document.getElementById('settings-search-tool-description').value =
         settings.search_tool_description || '';
+    document.getElementById('settings-calendar-tool-description').value =
+        settings.calendar_tool_description || '';
     // Always open the modal with Advanced Settings collapsed.
     document.getElementById('advanced-settings-section').open = false;
 
@@ -2342,6 +2370,7 @@ async function handleSettingsSave(event) {
         // "restore the built-in default".
         chat_system_prompt: document.getElementById('settings-chat-system-prompt').value.trim(),
         search_tool_description: document.getElementById('settings-search-tool-description').value.trim(),
+        calendar_tool_description: document.getElementById('settings-calendar-tool-description').value.trim(),
     };
     // Blank API key field means "keep the existing key" — omit it entirely.
     // (The obscured placeholder is only a visual hint, never a value.)

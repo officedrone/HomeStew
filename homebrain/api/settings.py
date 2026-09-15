@@ -7,6 +7,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from homebrain.config import save_settings_overrides, settings
 from homebrain.default_prompts import (
+    DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
@@ -39,8 +40,10 @@ def _current_settings() -> SettingsResponse:
         llm_api_key_set=bool(settings.LLM_API_KEY),
         chat_system_prompt=settings.CHAT_SYSTEM_PROMPT,
         search_tool_description=settings.SEARCH_TOOL_DESCRIPTION,
+        calendar_tool_description=settings.CALENDAR_TOOL_DESCRIPTION,
         chat_system_prompt_default=DEFAULT_CHAT_SYSTEM_PROMPT,
         search_tool_description_default=DEFAULT_SEARCH_TOOL_DESCRIPTION,
+        calendar_tool_description_default=DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     )
 
 
@@ -83,6 +86,10 @@ async def update_settings(update: SettingsUpdate):
     if update.search_tool_description is not None:
         changes["SEARCH_TOOL_DESCRIPTION"] = (
             update.search_tool_description.strip() or DEFAULT_SEARCH_TOOL_DESCRIPTION
+        )
+    if update.calendar_tool_description is not None:
+        changes["CALENDAR_TOOL_DESCRIPTION"] = (
+            update.calendar_tool_description.strip() or DEFAULT_CALENDAR_TOOL_DESCRIPTION
         )
 
     if not changes:
