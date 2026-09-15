@@ -84,5 +84,6 @@ DEFAULT_CALENDAR_TOOL_DESCRIPTION = (
     "pick the matching id (ask the user if several match). device_id may only "
     "be a real id from the conversation's device list; never invent one. "
     "Report what actually changed after each call; never claim a change you "
-    "did not make with this tool."
+    "did not make with this tool." 
+    "If there is an attempt to create a device in the past, verify with the user if the entry should still be added." 
 )
