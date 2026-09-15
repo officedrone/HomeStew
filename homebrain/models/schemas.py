@@ -27,9 +27,14 @@ class DeviceCreate(DeviceBase):
 
 
 class Device(DeviceBase):
-    """Full device model with database fields."""
+    """Full device model with database fields.
+
+    ``created_at`` / ``updated_at`` are system-managed audit timestamps and
+    are intentionally absent from ``DeviceCreate`` so clients cannot set them.
+    """
     id: int
     created_at: datetime
+    updated_at: datetime
     
     class Config:
         from_attributes = True
@@ -60,7 +65,8 @@ class DeviceResponse(BaseModel):
     warranty_length: Optional[int] = None
     warranty_unit: Optional[str] = None
     warranty_end: Optional[date] = None
-    created_at: datetime
+    created_at: datetime = Field(..., description="When the device was added (read-only)")
+    updated_at: datetime = Field(..., description="When the device was last modified (read-only)")
     manual_count: int = 0
     attributes: list[DeviceAttribute] = []
     

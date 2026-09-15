@@ -316,6 +316,27 @@ function deviceDetailLines(device) {
     return lines.map(line => `<div class="device-meta">${line}</div>`).join('');
 }
 
+// Format a SQLite CURRENT_TIMESTAMP string (UTC, "YYYY-MM-DD HH:MM:SS") in
+// the viewer's local time zone. Marked as UTC before converting.
+function formatTimestamp(ts) {
+    if (!ts) return null;
+    const d = new Date(ts.includes('T') ? ts : `${ts.replace(' ', 'T')}Z`);
+    if (isNaN(d)) return null;
+    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+// Render the read-only audit timestamps into the edit-device modal footer.
+function fillDeviceTimestamps(device) {
+    const container = document.getElementById('edit-device-timestamps');
+    if (!container) return;
+    const lines = [];
+    const created = formatTimestamp(device.created_at);
+    if (created) lines.push(`Created: ${escapeHtml(created)}`);
+    const modified = formatTimestamp(device.updated_at);
+    if (modified) lines.push(`Modified on: ${escapeHtml(modified)}`);
+    container.innerHTML = lines.map(line => `<div>${line}</div>`).join('');
+}
+
 // Plain-text warranty lines ("Purchased: ...", "Warranty ends: ...") for the
 // accordion and card views. Dates are YYYY-MM-DD strings from the API; they
 // are parsed with a noon time so toLocaleDateString can't shift a day.
@@ -958,6 +979,7 @@ async function editDevice(deviceId) {
     document.getElementById('edit-device-product-number').value = device.product_number || '';
     fillWarrantyFields('edit-device', device);
     resetWarrantyAutoCalc('edit-device');
+    fillDeviceTimestamps(device);
     
     // Load and render attributes
     await loadDeviceAttributes(deviceId);

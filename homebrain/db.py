@@ -49,7 +49,8 @@ async def init_db():
                 warranty_length INTEGER,
                 warranty_unit TEXT,
                 warranty_end DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
@@ -75,6 +76,21 @@ async def init_db():
                 await db.execute(f"ALTER TABLE devices ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass  # Column already exists
+        
+        # Audit timestamps: SQLite rejects CURRENT_TIMESTAMP as an ALTER
+        # default, so add the column plainly and backfill existing rows from
+        # created_at. New inserts/updates always set it explicitly in SQL.
+        try:
+            await db.execute("ALTER TABLE devices ADD COLUMN updated_at TIMESTAMP")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        await db.execute(
+            """
+            UPDATE devices
+            SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+            WHERE updated_at IS NULL
+            """
+        )
         
         # Create manuals table
         await db.execute("""
