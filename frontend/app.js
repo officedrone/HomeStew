@@ -93,6 +93,45 @@ function updateScrollDownButton() {
 async function initializeApp() {
     await loadDevices();
     setupEventListeners();
+    // Restore the tab from before a page refresh (URL hash first, then the
+    // last tab persisted to localStorage) so F5 no longer dumps the user on
+    // the Search tab.
+    restoreActiveTab();
+}
+
+// ---------------------------------------------------------------------------
+// Click deduplication (two layers, both needed)
+// ---------------------------------------------------------------------------
+
+// Layer 1 — rapid re-clicks: buttons tagged [data-dedupe] ignore further
+// clicks inside a short double-click window. The listener only blocks; it
+// never invokes handlers itself, so normal listeners / inline onclick
+// attributes keep working untouched on the first click.
+const DEDUPE_WINDOW_MS = 500;
+document.addEventListener('click', (e) => {
+    const el = e.target.closest && e.target.closest('[data-dedupe]');
+    if (!el || el.disabled) return;
+    if (Date.now() - (el._lastDedupeClick ?? 0) < DEDUPE_WINDOW_MS) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+    }
+    el._lastDedupeClick = Date.now();
+}, true);
+
+// Layer 2 — in-flight operations: server calls (add device, save event,
+// upload manual, delete, ...) hold a named lock for the whole async body, so
+// even a slow request can't be duplicated by a second click that lands after
+// the window above has expired. beginOp returns false when the same key is
+// already running; every handler must endOp in a finally block.
+const _opsInFlight = new Set();
+function beginOp(key) {
+    if (_opsInFlight.has(key)) return false;
+    _opsInFlight.add(key);
+    return true;
+}
+function endOp(key) {
+    _opsInFlight.delete(key);
 }
 
 function setupEventListeners() {
@@ -297,10 +336,10 @@ function renderDeviceList() {
                     ${deviceDetailLines(device)}
                     <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
                     <div class="device-actions">
-                        <button class="btn btn-secondary btn-small" onclick="editDevice(${device.id})">
+                        <button class="btn btn-secondary btn-small" data-dedupe onclick="editDevice(${device.id})">
                             Edit
                         </button>
-                        <button class="btn btn-danger btn-small" onclick="deleteDevice(${device.id})">
+                        <button class="btn btn-danger btn-small" data-dedupe onclick="deleteDevice(${device.id})">
                             Delete
                         </button>
                     </div>
@@ -337,10 +376,10 @@ function renderDevicesGrid() {
             ${device.product_number ? `<div class="device-meta">Product: ${escapeHtml(device.product_number)}</div>` : ''}
             <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
             <div class="device-actions">
-                <button class="btn btn-secondary btn-small" onclick="editDevice(${device.id})">
+                <button class="btn btn-secondary btn-small" data-dedupe onclick="editDevice(${device.id})">
                     Edit
                 </button>
-                <button class="btn btn-danger btn-small" onclick="deleteDevice(${device.id})">
+                <button class="btn btn-danger btn-small" data-dedupe onclick="deleteDevice(${device.id})">
                     Delete
                 </button>
             </div>
@@ -425,7 +464,7 @@ async function loadUpcomingEvents() {
             return `
             <div class="upcoming-item${overdue ? ' overdue' : ''}${today ? ' today' : ''}"
                  title="${escapeHtml(ev.recurrence_label)}">
-                <button type="button" class="upcoming-check" title="Mark done"
+                <button type="button" class="upcoming-check" title="Mark done" data-dedupe
                         onclick="completeEvent(${ev.id})">&#10003;</button>
                 <div class="upcoming-body" onclick="switchTab('calendar')">
                     <div class="upcoming-title">${escapeHtml(ev.title)}</div>
@@ -488,9 +527,9 @@ function renderCalendarList() {
             <div class="event-card-side">
                 <div class="event-when">${when}</div>
                 <div class="event-actions">
-                    ${ev.status !== 'done' ? `<button class="btn btn-secondary btn-small" onclick="completeEvent(${ev.id})" title="Mark this occurrence as done">Done</button>` : ''}
-                    <button class="btn btn-secondary btn-small" onclick="editCalendarEvent(${ev.id})">Edit</button>
-                    <button class="btn btn-danger btn-small" onclick="deleteCalendarEvent(${ev.id})">Delete</button>
+                    ${ev.status !== 'done' ? `<button class="btn btn-secondary btn-small" data-dedupe onclick="completeEvent(${ev.id})" title="Mark this occurrence as done">Done</button>` : ''}
+                    <button class="btn btn-secondary btn-small" data-dedupe onclick="editCalendarEvent(${ev.id})">Edit</button>
+                    <button class="btn btn-danger btn-small" data-dedupe onclick="deleteCalendarEvent(${ev.id})">Delete</button>
                 </div>
             </div>
         </div>`;
@@ -500,6 +539,7 @@ function renderCalendarList() {
 // Mark the current occurrence done: recurring events roll to their next date,
 // one-time events become 'done'. Refreshes both the tab and the sidebar feed.
 async function completeEvent(eventId) {
+    if (!beginOp(`complete-event-${eventId}`)) return;
     try {
         const response = await fetch(`/api/calendar/${eventId}/complete`, { method: 'POST' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -508,11 +548,14 @@ async function completeEvent(eventId) {
         loadUpcomingEvents();
     } catch (error) {
         showToast(`Failed to update event: ${error.message}`, 'error');
+    } finally {
+        endOp(`complete-event-${eventId}`);
     }
 }
 
 async function deleteCalendarEvent(eventId) {
     if (!confirm('Delete this calendar event?')) return;
+    if (!beginOp(`delete-event-${eventId}`)) return;
     try {
         const response = await fetch(`/api/calendar/${eventId}`, { method: 'DELETE' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -521,6 +564,8 @@ async function deleteCalendarEvent(eventId) {
         loadUpcomingEvents();
     } catch (error) {
         showToast(`Failed to delete event: ${error.message}`, 'error');
+    } finally {
+        endOp(`delete-event-${eventId}`);
     }
 }
 
@@ -582,6 +627,7 @@ async function handleSaveEvent(e) {
         showToast('Title and date are required', 'error');
         return;
     }
+    if (!beginOp('save-event')) return;
 
     try {
         const response = await fetch(
@@ -607,6 +653,8 @@ async function handleSaveEvent(e) {
         loadUpcomingEvents();
     } catch (error) {
         showToast(`Failed to save event: ${error.message}`, 'error');
+    } finally {
+        endOp('save-event');
     }
 }
 
@@ -689,7 +737,7 @@ function removeAddDeviceAttribute(index) {
 
 async function handleAddDevice(e) {
     e.preventDefault();
-    
+    if (!beginOp('add-device')) return;
     const deviceData = {
         name: document.getElementById('device-name').value,
         brand: document.getElementById('device-brand').value,
@@ -760,6 +808,8 @@ async function handleAddDevice(e) {
     } catch (error) {
         console.error('Failed to add device:', error);
         showToast('Failed to add device', 'error');
+    } finally {
+        endOp('add-device');
     }
 }
 
@@ -788,7 +838,7 @@ async function editDevice(deviceId) {
 
 async function handleEditDevice(e) {
     e.preventDefault();
-    
+    if (!beginOp('edit-device')) return;
     const deviceId = parseInt(document.getElementById('edit-device-id').value);
     const deviceData = {
         name: document.getElementById('edit-device-name').value,
@@ -814,6 +864,8 @@ async function handleEditDevice(e) {
     } catch (error) {
         console.error('Failed to update device:', error);
         showToast('Failed to update device', 'error');
+    } finally {
+        endOp('edit-device');
     }
 }
 
@@ -844,7 +896,7 @@ async function loadDeviceAttributes(deviceId) {
         <div class="attribute-item">
             <span class="attribute-name">${escapeHtml(attr.attribute_name)}:</span>
             <span class="attribute-value">${escapeHtml(attr.attribute_value)}</span>
-            <button class="btn btn-danger btn-small" onclick="removeAttribute(${deviceId}, ${attr.id})">
+            <button class="btn btn-danger btn-small" data-dedupe onclick="removeAttribute(${deviceId}, ${attr.id})">
                 ×
             </button>
         </div>
@@ -862,7 +914,7 @@ async function addDeviceAttribute(deviceId) {
         showToast('Please enter both attribute name and value', 'error');
         return;
     }
-    
+    if (!beginOp(`add-attr-${deviceId}`)) return;
     try {
         const response = await fetch(`/api/devices/${deviceId}/attributes?attribute_name=${encodeURIComponent(attributeName)}&attribute_value=${encodeURIComponent(attributeValue)}`, {
             method: 'POST'
@@ -878,10 +930,13 @@ async function addDeviceAttribute(deviceId) {
     } catch (error) {
         console.error('Failed to add attribute:', error);
         showToast('Failed to add attribute', 'error');
+    } finally {
+        endOp(`add-attr-${deviceId}`);
     }
 }
 
 async function removeAttribute(deviceId, attributeId) {
+    if (!beginOp(`remove-attr-${deviceId}-${attributeId}`)) return;
     try {
         const response = await fetch(`/api/devices/${deviceId}/attributes/${attributeId}`, {
             method: 'DELETE'
@@ -895,6 +950,8 @@ async function removeAttribute(deviceId, attributeId) {
     } catch (error) {
         console.error('Failed to remove attribute:', error);
         showToast('Failed to remove attribute', 'error');
+    } finally {
+        endOp(`remove-attr-${deviceId}-${attributeId}`);
     }
 }
 
@@ -903,6 +960,10 @@ function closeEditModal() {
 }
 
 async function downloadManuals(deviceId) {
+    // One download per device at a time: a double-click must not open two
+    // SSE streams / progress modals for the same device.
+    if (!beginOp(`download-manuals-${deviceId}`)) return;
+
     // Show progress modal
     const modal = document.getElementById('download-progress-modal');
     const stepsContainer = document.getElementById('download-progress-steps');
@@ -924,6 +985,7 @@ async function downloadManuals(deviceId) {
 
     // Stop the spinner and turn the status row into a clear success/error state.
     function finishDownload({ ok, headline, detail }) {
+        endOp(`download-manuals-${deviceId}`);
         if (spinner) spinner.style.display = 'none';
         statusBox.classList.add(ok ? 'done-success' : 'done-error');
         statusText.textContent = headline;
@@ -1053,6 +1115,7 @@ async function handleManualFileSelected(event) {
         showToast('Only PDF files are supported', 'error');
         return;
     }
+    if (!beginOp(`upload-manual-${deviceId}`)) return;
 
     showToast(`Uploading ${file.name}...`, 'success');
     try {
@@ -1084,6 +1147,8 @@ async function handleManualFileSelected(event) {
     } catch (error) {
         console.error('Failed to upload manual:', error);
         showToast(error.message || 'Failed to upload manual', 'error');
+    } finally {
+        endOp(`upload-manual-${deviceId}`);
     }
 }
 
@@ -1114,7 +1179,7 @@ async function loadManuals(deviceId) {
                    target="_blank" rel="noopener" title="Open ${escapeHtml(m.filename)} (stored at ${escapeHtml(m.filepath)})">
                     ${escapeHtml(m.filename)}
                 </a>
-                <button class="btn btn-danger btn-small" onclick="deleteManual(${deviceId}, ${m.id})">
+                <button class="btn btn-danger btn-small" data-dedupe onclick="deleteManual(${deviceId}, ${m.id})">
                     ×
                 </button>
             </div>
@@ -1129,6 +1194,7 @@ async function deleteManual(deviceId, manualId) {
     const manual = currentManuals.find(m => m.id === manualId);
     const label = manual ? manual.filename : `manual ${manualId}`;
     if (!confirm(`Delete "${label}"?`)) return;
+    if (!beginOp(`delete-manual-${deviceId}-${manualId}`)) return;
 
     try {
         const response = await fetch(`/api/devices/${deviceId}/manuals/${manualId}`, {
@@ -1142,6 +1208,8 @@ async function deleteManual(deviceId, manualId) {
     } catch (error) {
         console.error('Failed to delete manual:', error);
         showToast('Failed to delete manual', 'error');
+    } finally {
+        endOp(`delete-manual-${deviceId}-${manualId}`);
     }
 }
 
@@ -1149,6 +1217,7 @@ async function deleteDevice(deviceId) {
     if (!confirm('Are you sure you want to delete this device and all its manuals?')) {
         return;
     }
+    if (!beginOp(`delete-device-${deviceId}`)) return;
     
     try {
         const response = await fetch(`/api/devices/${deviceId}`, {
@@ -1163,6 +1232,8 @@ async function deleteDevice(deviceId) {
     } catch (error) {
         console.error('Failed to delete device:', error);
         showToast('Failed to delete device', 'error');
+    } finally {
+        endOp(`delete-device-${deviceId}`);
     }
 }
 
@@ -1173,6 +1244,7 @@ async function performSearch() {
         showToast('Please enter a search query', 'error');
         return;
     }
+    if (!beginOp('search')) return;
     
     const container = document.getElementById('search-results');
     container.innerHTML = '<div class="loading">Searching...</div>';
@@ -1197,6 +1269,8 @@ async function performSearch() {
     } catch (error) {
         console.error('Search failed:', error);
         container.innerHTML = '<div class="empty-state">Search failed. Please try again.</div>';
+    } finally {
+        endOp('search');
     }
 }
 
@@ -1250,6 +1324,9 @@ async function sendChatMessage() {
         showToast('No model is available — update the connection in Settings', 'error');
         return;
     }
+    // One request at a time: a second click / Enter while streaming must not
+    // start a parallel conversation turn.
+    if (!beginOp('send-chat')) return;
 
     // Add user message to chat
     addMessageToChat('user', message);
@@ -1343,6 +1420,7 @@ async function sendChatMessage() {
     } finally {
         chatAbortController = null;
         setStreamingUi(false);
+        endOp('send-chat');
     }
 }
 
@@ -1684,6 +1762,12 @@ function switchTab(tabName) {
     // content is visible right away.
     closeDrawer();
 
+    // Remember the active tab across page refreshes: the hash survives F5,
+    // localStorage also covers in-app revisits where the URL never changed.
+    if (history.replaceState) history.replaceState(null, '', `#${tabName}`);
+    else location.hash = tabName;
+    try { localStorage.setItem('activeTab', tabName); } catch (e) { /* private mode */ }
+
     // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabName);
@@ -1704,6 +1788,20 @@ function switchTab(tabName) {
     if (tabName === 'calendar') {
         loadCalendarEvents();
     }
+}
+
+// Valid tab names, in markup order — also the fallback used by restoreActiveTab.
+const TAB_NAMES = ['search', 'chat', 'devices', 'calendar'];
+
+// Re-activate the tab from the URL hash (set by switchTab) or, if absent,
+// the last one persisted to localStorage. Called once during startup.
+function restoreActiveTab() {
+    const hash = location.hash.replace('#', '');
+    const stored = (() => { try { return localStorage.getItem('activeTab'); } catch (e) { return null; } })();
+    const tab = TAB_NAMES.includes(hash) ? hash
+              : TAB_NAMES.includes(stored) ? stored
+              : 'search';
+    if (tab !== 'search') switchTab(tab);
 }
 
 // Ask the backend to probe the saved LLM connection (the same model-list call

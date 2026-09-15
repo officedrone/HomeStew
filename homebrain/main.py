@@ -4,7 +4,7 @@ A simple web application that helps you manage and search through device manuals
 """
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,6 +57,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def no_cache_html(request: Request, call_next):
+    """Always revalidate HTML so a browser refresh picks up new frontend code.
+
+    Without this, browsers may serve a stale cached index.html / app.js after
+    an update (the JS/CSS are linked without cache-busting query strings).
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path in ("/", "/index.html") or path.startswith("/static/"):
+        if path.endswith((".html", ".js", ".css")) or path == "/":
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 # Register API routers
 app.include_router(devices_router, prefix="/api")

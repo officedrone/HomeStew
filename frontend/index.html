@@ -46,7 +46,7 @@
             </div>
             <div class="logo content-only">
                 <h1>HomeBrain</h1>
-                <p class="tagline">Your devices information in one place</p>
+                <p class="tagline">Device Information Management</p>
             </div>
 
             <!-- Tab navigation: same icon-btn pattern as the Settings row —
@@ -54,7 +54,7 @@
             <nav class="side-tabs">
                 <!-- New Device: opens the Add Device modal (like Settings).
                      Styled as a plain icon-btn so it matches the tab buttons. -->
-                <button type="button" id="add-device-btn" class="icon-btn add-device-btn" title="Add new device">
+                <button type="button" id="add-device-btn" class="icon-btn add-device-btn" data-dedupe title="Add new device">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     <span class="content-only">New Device</span>
                 </button>
@@ -123,7 +123,7 @@
                         <select id="device-filter" class="device-filter">
                             <option value="">All Devices</option>
                         </select>
-                        <button id="search-btn" class="btn btn-primary">Search</button>
+                        <button id="search-btn" class="btn btn-primary" data-dedupe>Search</button>
                     </div>
                     
                     <div id="search-results" class="results-container">
@@ -170,7 +170,7 @@
                     <div class="chat-input-container">
                         <textarea id="chat-input" placeholder="Ask a question about your devices..." rows="2"></textarea>
                         <button id="stop-btn" class="btn btn-danger" style="display: none;" title="Stop generating">■ Stop</button>
-                        <button id="send-btn" class="btn btn-primary">Send</button>
+                        <button id="send-btn" class="btn btn-primary" data-dedupe>Send</button>
                     </div>
                 </div>
             </div>
@@ -181,7 +181,7 @@
                     <h2>Devices</h2>
                 </div>
                 <div class="devices-actions">
-                    <button type="button" id="add-device-btn-devices" class="btn btn-primary btn-small" title="Add a new device to HomeBrain">
+                    <button type="button" id="add-device-btn-devices" class="btn btn-primary btn-small" data-dedupe title="Add a new device to HomeBrain">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         <span>New Device</span>
                     </button>
@@ -195,7 +195,7 @@
                     <h2>Calendar</h2>
                 </div>
                 <div class="calendar-toolbar">
-                    <button type="button" id="add-event-btn" class="btn btn-primary btn-small" title="Add a maintenance event">
+                    <button type="button" id="add-event-btn" class="btn btn-primary btn-small" data-dedupe title="Add a maintenance event">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         <span>New Event</span>
                     </button>
@@ -239,7 +239,7 @@
                     <div class="add-attribute-form">
                         <input type="text" id="add-device-attribute-name" placeholder="Attribute name (e.g., Warranty Expiry)">
                         <input type="text" id="add-device-attribute-value" placeholder="Value (e.g., 2025-12-31)">
-                        <button type="button" class="btn btn-secondary btn-small" onclick="addAddDeviceAttribute()">
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="addAddDeviceAttribute()">
                             Add Attribute
                         </button>
                     </div>
@@ -247,7 +247,7 @@
 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeAddDeviceModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Add Device</button>
+                    <button type="submit" class="btn btn-primary" data-dedupe>Add Device</button>
                 </div>
             </form>
         </div>
@@ -275,10 +275,10 @@
                         <div class="empty-state">No manuals</div>
                     </div>
                     <div class="manual-actions">
-                        <button type="button" class="btn btn-primary btn-small" onclick="downloadManuals(parseInt(document.getElementById('edit-device-id').value))">
+                        <button type="button" class="btn btn-primary btn-small" data-dedupe onclick="downloadManuals(parseInt(document.getElementById('edit-device-id').value))">
                             Download Manuals
                         </button>
-                        <button type="button" class="btn btn-secondary btn-small" onclick="triggerUploadManual(parseInt(document.getElementById('edit-device-id').value))">
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerUploadManual(parseInt(document.getElementById('edit-device-id').value))">
                             Upload Manual
                         </button>
                     </div>
@@ -294,7 +294,7 @@
                     <div class="add-attribute-form">
                         <input type="text" id="attribute-name-input" placeholder="Attribute name (e.g., Warranty Expiry)">
                         <input type="text" id="attribute-value-input" placeholder="Value (e.g., 2025-12-31)">
-                        <button type="button" class="btn btn-secondary btn-small" onclick="addDeviceAttribute(parseInt(document.getElementById('edit-device-id').value))">
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="addDeviceAttribute(parseInt(document.getElementById('edit-device-id').value))">
                             Add Attribute
                         </button>
                     </div>
@@ -302,7 +302,7 @@
                 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <button type="submit" class="btn btn-primary" data-dedupe>Save Changes</button>
                 </div>
             </form>
         </div>
@@ -430,7 +430,7 @@
 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeEventModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save Event</button>
+                    <button type="submit" class="btn btn-primary" data-dedupe>Save Event</button>
                 </div>
             </form>
         </div>
