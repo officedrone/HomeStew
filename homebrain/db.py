@@ -90,6 +90,34 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_device_attributes_device 
             ON device_attributes(device_id)
         """)
+
+        # Create calendar events table — periodic maintenance reminders tied
+        # (usually) to a device. device_id is nullable so an event can exist
+        # without one; when set it cascades on device delete. The schedule is
+        # stored as an anchor date + recurrence rule and the next due date is
+        # always computed from it (see services/calendar_engine.py), never
+        # mutated, so editing/completing can't drift the series.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS calendar_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER,
+                title TEXT NOT NULL,
+                description TEXT,
+                start_date DATE NOT NULL,
+                start_time TIME,
+                recurrence_type TEXT NOT NULL DEFAULT 'none',
+                interval INTEGER NOT NULL DEFAULT 1,
+                last_completed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Create index for calendar events by device
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_calendar_events_device 
+            ON calendar_events(device_id)
+        """)
         
         # Create FTS5 virtual table for PDF content search.
         #

@@ -1609,6 +1609,223 @@ a.result-page-link:hover {
     max-width: 700px;
 }
 
+/* ==========================================================================
+   Calendar — maintenance reminders (sidebar feed + Calendar tab)
+   ========================================================================== */
+
+/* Sidebar "Upcoming" notification area, under My Devices. Compact rows so a
+   busy week still fits without pushing the device list off screen. */
+#upcoming-section .section h3 {
+    margin-bottom: 10px;
+}
+
+.upcoming-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.upcoming-item {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    background: var(--sidebar-surface);
+    border-left: 3px solid var(--primary-on-dark);
+    border-radius: 8px;
+    padding: 7px 9px;
+}
+
+.upcoming-item:hover {
+    background: var(--sidebar-surface-hover);
+}
+
+.upcoming-item.today {
+    border-left-color: #f0b429;
+}
+
+.upcoming-item.overdue {
+    border-left-color: var(--error);
+}
+
+/* Round check button marks the occurrence done from the sidebar. */
+.upcoming-check {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    align-self: center;
+    border-radius: 50%;
+    border: 1px solid var(--sidebar-border);
+    background: transparent;
+    color: var(--sidebar-text-dim);
+    font-size: 0.7rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.upcoming-check:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: var(--on-primary);
+}
+
+.upcoming-body {
+    min-width: 0;
+    cursor: pointer;
+}
+
+.upcoming-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--sidebar-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.upcoming-meta {
+    font-size: 0.72rem;
+    color: var(--sidebar-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.upcoming-item.overdue .upcoming-when {
+    color: #f87171;
+    font-weight: 600;
+}
+
+.upcoming-item.today .upcoming-when {
+    color: #fcd38a;
+    font-weight: 600;
+}
+
+/* Calendar tab */
+.calendar-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.calendar-toolbar .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.calendar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 900px;
+}
+
+.event-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid var(--primary-color);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-sm);
+}
+
+.event-card.today {
+    border-left-color: #f0b429;
+}
+
+.event-card.overdue {
+    border-left-color: var(--error);
+}
+
+/* Completed one-time events recede visually. */
+.event-card.done {
+    opacity: 0.6;
+    border-left-color: var(--success);
+}
+
+.event-card-main {
+    min-width: 0;
+}
+
+.event-card-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.event-card-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.event-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.event-card-side {
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.event-when {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.event-card.overdue .event-when {
+    color: var(--error);
+}
+
+.event-card.today .event-when {
+    color: #b45309;
+}
+
+.event-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+/* Event modal: date/time and recurrence sit side by side. */
+.event-schedule-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 10px;
+}
+
+@media (max-width: 560px) {
+    .event-card {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .event-card-side,
+    .event-actions {
+        text-align: left;
+        justify-content: flex-start;
+    }
+
+    .event-schedule-row {
+        grid-template-columns: 1fr;
+    }
+}
+
 .progress-steps {
     margin: 20px 0;
     max-height: 300px;

@@ -15,6 +15,7 @@ from homebrain.services.llm_client import (
     chat_with_tool_events,
 )
 from homebrain.services.search_engine import search_manuals
+from homebrain.services import calendar_service
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,54 @@ async def device_roster_note() -> str:
     return (
         "\n\nThe user's registered devices (these are the ONLY valid "
         "device_id values — never invent or guess an id):\n" + "\n".join(lines)
+    )
+
+
+async def calendar_reminders_note(
+    device_id: Optional[int], days: int = 7
+) -> str:
+    """System-prompt section with maintenance events due within the next days.
+
+    When the chat is scoped to a device only that device's (and unassigned)
+    events are listed; otherwise every event in the window is included so the
+    model can proactively nudge about upcoming upkeep. The data is computed
+    server-side and injected directly — small local models reliably mention it
+    without needing an extra tool call.
+    """
+    # Device-scoped chats still see unassigned events (they may concern the
+    # device even though nobody linked them), merged with that device's own.
+    window = await calendar_service.list_events(within_days=days)
+    if device_id is not None:
+        events = [e for e in window if e["device_id"] in (None, device_id)]
+    else:
+        events = window
+    if not events:
+        return ""
+
+    lines = []
+    for e in events:
+        when = e["next_due_date"].isoformat()
+        status_word = {"overdue": "OVERDUE", "today": "due TODAY"}.get(
+            e["status"], f"due {when}"
+        )
+        device_part = (
+            f" (device_id={e['device_id']}: {e['device_name']})"
+            if e.get("device_id")
+            else " (no device)"
+        )
+        lines.append(
+            f'- "{e["title"]}" — {status_word}, repeats: '
+            f"{e['recurrence_label']}{device_part}"
+        )
+
+    return (
+        "\n\nThe user's maintenance calendar (events due within the next "
+        f"{days} days, including overdue ones):\n"
+        + "\n".join(lines)
+        + "\nIf a question concerns a device with one of these events — or "
+        "the topic matches one (filters, cleaning, maintenance) — briefly "
+        "remind the user about it after answering. Never invent calendar "
+        "events that are not listed here."
     )
 
 
@@ -212,6 +261,8 @@ async def chat(request: ChatRequest):
             # No filter: tell the model which device ids actually exist so it
             # can scope per-device searches instead of inventing ids.
             system_prompt += await device_roster_note()
+        # Upcoming maintenance nudges (see calendar_reminders_note).
+        system_prompt += await calendar_reminders_note(request.device_id)
 
         if messages[0]['role'] != 'system':
             messages.insert(0, {"role": "system", "content": system_prompt})
@@ -273,6 +324,8 @@ async def chat_stream(request: ChatRequest):
             else:
                 # No filter: give the model the real device ids (see above).
                 system_prompt += await device_roster_note()
+            # Upcoming maintenance nudges (see calendar_reminders_note).
+            system_prompt += await calendar_reminders_note(request.device_id)
 
             if messages[0]['role'] != 'system':
                 messages.insert(0, {"role": "system", "content": system_prompt})

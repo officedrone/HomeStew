@@ -1,6 +1,6 @@
 """Pydantic models for API requests and responses."""
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import date, datetime, time
 from typing import Optional
 
 
@@ -201,3 +201,70 @@ class ModelStatusResponse(BaseModel):
     llm_model: str
     available_models_count: Optional[int] = None
     error: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Calendar events (device maintenance reminders)
+# ---------------------------------------------------------------------------
+
+class CalendarEventBase(BaseModel):
+    """Base calendar event model."""
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    device_id: Optional[int] = Field(
+        None, description="Device this event is tied to (optional)"
+    )
+    start_date: date = Field(..., description="Anchor / first due date")
+    start_time: Optional[time] = Field(None, description="Optional time of day")
+    recurrence_type: str = Field(
+        "none", pattern="^(none|daily|weekly|monthly|yearly)$",
+        description="Repeat interval unit; 'none' = one-time event",
+    )
+    interval: int = Field(1, ge=1, le=3650, description="Every N units")
+
+
+class CalendarEventCreate(CalendarEventBase):
+    """Model for creating a calendar event."""
+    pass
+
+
+class CalendarEventUpdate(BaseModel):
+    """Partial update — only provided fields change."""
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
+    device_id: Optional[int] = None
+    start_date: Optional[date] = None
+    start_time: Optional[time] = None
+    recurrence_type: Optional[str] = Field(
+        None, pattern="^(none|daily|weekly|monthly|yearly)$"
+    )
+    interval: Optional[int] = Field(None, ge=1, le=3650)
+
+
+class CalendarEventResponse(BaseModel):
+    """Calendar event with computed schedule fields."""
+    id: int
+    device_id: Optional[int]
+    device_name: Optional[str] = None
+    title: str
+    description: Optional[str]
+    start_date: date
+    start_time: Optional[time]
+    recurrence_type: str
+    interval: int
+    recurrence_label: str
+    last_completed_at: Optional[datetime]
+    created_at: datetime
+    next_due_date: Optional[date] = Field(
+        None, description="Computed next occurrence; None when a one-time event is done/past"
+    )
+    status: str = Field(..., pattern="^(overdue|today|upcoming|done)$")
+
+    class Config:
+        from_attributes = True
+
+
+class UpcomingEventsResponse(BaseModel):
+    """Events due within a day-window, for the sidebar notification area."""
+    days: int
+    events: list[CalendarEventResponse]

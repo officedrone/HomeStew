@@ -70,6 +70,10 @@
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
                     <span class="content-only">Devices</span>
                 </button>
+                <button type="button" class="icon-btn tab-btn" data-tab="calendar" title="Maintenance calendar">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                    <span class="content-only">Calendar</span>
+                </button>
             </nav>
 
             <nav class="nav-sections content-only">
@@ -78,6 +82,14 @@
                     <h3>My Devices</h3>
                     <div id="device-list" class="device-list">
                         <div class="loading">Loading devices...</div>
+                    </div>
+                </div>
+
+                <!-- Upcoming maintenance: events due in the next 7 days -->
+                <div class="section" id="upcoming-section">
+                    <h3>Upcoming</h3>
+                    <div id="upcoming-events" class="upcoming-list">
+                        <div class="loading">Loading...</div>
                     </div>
                 </div>
             </nav>
@@ -175,6 +187,23 @@
                     </button>
                 </div>
                 <div id="devices-grid" class="devices-grid"></div>
+            </div>
+
+            <!-- Calendar Tab -->
+            <div id="calendar-tab" class="tab-content">
+                <div class="tab-header">
+                    <h2>Calendar</h2>
+                </div>
+                <div class="calendar-toolbar">
+                    <button type="button" id="add-event-btn" class="btn btn-primary btn-small" title="Add a maintenance event">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        <span>New Event</span>
+                    </button>
+                    <select id="calendar-device-filter" class="device-filter" title="Filter events by device">
+                        <option value="">All Devices</option>
+                    </select>
+                </div>
+                <div id="calendar-list" class="calendar-list"></div>
             </div>
         </main>
     </div>
@@ -348,6 +377,60 @@
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeSettingsModal()">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="settings-save-btn">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Calendar Event Modal -->
+    <div id="event-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeEventModal()">&times;</span>
+            <h2 id="event-modal-title">New Event</h2>
+
+            <form id="event-form" class="device-form modal-form">
+                <input type="hidden" id="event-id">
+                <input type="text" id="event-title" placeholder="Title (e.g., Replace HVAC filter)" required>
+                <textarea id="event-description" placeholder="Description (optional)" rows="2"></textarea>
+
+                <div class="settings-field">
+                    <label for="event-device">Device</label>
+                    <select id="event-device">
+                        <option value="">No device</option>
+                    </select>
+                </div>
+
+                <div class="event-schedule-row">
+                    <div class="settings-field">
+                        <label for="event-date">Date</label>
+                        <input type="date" id="event-date" required>
+                    </div>
+                    <div class="settings-field">
+                        <label for="event-time">Time (optional)</label>
+                        <input type="time" id="event-time">
+                    </div>
+                </div>
+
+                <div class="event-schedule-row">
+                    <div class="settings-field">
+                        <label for="event-recurrence">Repeats</label>
+                        <select id="event-recurrence">
+                            <option value="none">Does not repeat</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="yearly">Yearly</option>
+                        </select>
+                    </div>
+                    <div class="settings-field" id="event-interval-field">
+                        <label for="event-interval">Every</label>
+                        <input type="number" id="event-interval" min="1" max="3650" value="1">
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeEventModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Event</button>
                 </div>
             </form>
         </div>
