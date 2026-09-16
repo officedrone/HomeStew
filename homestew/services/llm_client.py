@@ -5,12 +5,12 @@ import re
 from typing import Optional, List, Dict, Any, AsyncGenerator
 import json
 
-from homebrain.config import settings
-from homebrain.default_prompts import (
+from homestew.config import settings
+from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
-from homebrain.services import calendar_tool
+from homestew.services import calendar_tool
 
 logger = logging.getLogger(__name__)
 

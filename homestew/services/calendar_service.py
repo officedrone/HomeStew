@@ -8,8 +8,8 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from homebrain.db import get_db_context
-from homebrain.services.calendar_engine import (
+from homestew.db import get_db_context
+from homestew.services.calendar_engine import (
     describe_schedule,
     event_status,
     next_due_date,

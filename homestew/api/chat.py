@@ -7,17 +7,17 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from homebrain.config import settings
-from homebrain.db import get_db_context
-from homebrain.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
-from homebrain.models.schemas import ChatRequest, ChatMessage, ChatResponse
-from homebrain.services.llm_client import (
+from homestew.config import settings
+from homestew.db import get_db_context
+from homestew.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
+from homestew.models.schemas import ChatRequest, ChatMessage, ChatResponse
+from homestew.services.llm_client import (
     LLMClient,
     chat_with_tool_support,
     chat_with_tool_events,
 )
-from homebrain.services.search_engine import search_manuals
-from homebrain.services import calendar_service, calendar_tool
+from homestew.services.search_engine import search_manuals
+from homestew.services import calendar_service, calendar_tool
 
 logger = logging.getLogger(__name__)
 

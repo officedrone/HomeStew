@@ -1,5 +1,5 @@
 /* ==========================================================================
-   HomeBrain Styles — token-driven theming with auto light/dark support and a
+   HomeStew Styles — token-driven theming with auto light/dark support and a
    mobile-first responsive shell (docked sidebar on desktop, overlay drawer +
    topbar on small windows). All colors flow from the custom properties below;
    <html data-theme="light|dark"> (set by app.js) overrides the OS preference.

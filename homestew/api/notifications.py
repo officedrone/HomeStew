@@ -5,10 +5,10 @@ import requests
 from fastapi import APIRouter, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
-from homebrain.config import settings
-from homebrain.models.schemas import WebhookTestRequest
-from homebrain.services.notifier import build_test_payload
-from homebrain.services.notify_channels import send_test_webhook
+from homestew.config import settings
+from homestew.models.schemas import WebhookTestRequest
+from homestew.services.notifier import build_test_payload
+from homestew.services.notify_channels import send_test_webhook
 
 logger = logging.getLogger(__name__)
 

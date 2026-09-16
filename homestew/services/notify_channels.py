@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from homebrain.config import settings
+from homestew.config import settings
 
 logger = logging.getLogger(__name__)
 

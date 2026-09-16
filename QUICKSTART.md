@@ -1,4 +1,4 @@
-# HomeBrain Quick Start Guide
+# HomeStew Quick Start Guide
 
 ## 🚀 One-Command Deployment (with Docker)
 
@@ -42,7 +42,7 @@ docker-compose up -d
 **Step 3: Verify it's running**
 
 ```powershell
-docker ps | Select-String homebrain
+docker ps | Select-String homestew
 curl http://localhost:8000/health
 ```
 
@@ -77,7 +77,7 @@ Open your browser to: http://localhost:8000
 
 ```powershell
 # Check logs
-docker-compose logs homebrain
+docker-compose logs homestew
 
 # Rebuild with verbose output
 docker-compose build --no-cache --verbose
@@ -99,10 +99,10 @@ docker-compose build --no-cache --verbose
 
 ```powershell
 # Live logs
-docker-compose logs -f homebrain
+docker-compose logs -f homestew
 
 # Resource usage
-docker stats homebrain
+docker stats homestew
 
 # Stop service
 docker-compose down

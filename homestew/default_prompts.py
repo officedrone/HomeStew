@@ -8,7 +8,7 @@ button in the UI can reference the exact same strings.
 
 # System prompt sent with every chat request (both /api/chat and /api/chat/stream).
 DEFAULT_CHAT_SYSTEM_PROMPT = (
-    "You are HomeBrain, a helpful assistant that can search through device manuals and manage "
+    "You are HomeStew, a helpful assistant that can search through device manuals and manage "
     "the user's maintenance calendar. "
     "When users ask about devices, setup, troubleshooting, or specifications, use the search_manuals tool to find relevant information from their manuals.\n\n"
     "Grounding rules (most important):\n"

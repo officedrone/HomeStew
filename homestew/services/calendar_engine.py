@@ -1,7 +1,7 @@
 """Maintenance-calendar recurrence engine.
 
 A deliberately small, dependency-free implementation of the recurring-schedule
-rules HomeBrain needs: one-time events plus "every N days / weeks / months /
+rules HomeStew needs: one-time events plus "every N days / weeks / months /
 years". Monthly and yearly occurrences clamp the day-of-month (an event
 anchored on Jan 31 recurs on Feb 28, then Mar 31), which matches how calendar
 apps handle "last day of month" style schedules.

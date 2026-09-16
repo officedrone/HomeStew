@@ -7,11 +7,11 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from typing import List
 
-from homebrain.config import settings
-from homebrain.db import get_db_context
-from homebrain.models.schemas import Device, DeviceCreate, DeviceResponse, DeviceAttribute, Manual
-from homebrain.services.calendar_engine import add_months
-from homebrain.services.indexer import index_manual
+from homestew.config import settings
+from homestew.db import get_db_context
+from homestew.models.schemas import Device, DeviceCreate, DeviceResponse, DeviceAttribute, Manual
+from homestew.services.calendar_engine import add_months
+from homestew.services.indexer import index_manual
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def _row_to_response(row, manual_count: int, attributes=None) -> DeviceResponse:
 
 @router.post("", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 async def create_device(device: DeviceCreate):
-    """Add a new device to HomeBrain."""
+    """Add a new device to HomeStew."""
     purchase_date, warranty_length, warranty_unit, warranty_end = _warranty_fields(device)
     async with get_db_context() as db:
         cursor = await db.execute(

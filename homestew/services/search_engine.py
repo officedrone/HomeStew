@@ -45,8 +45,8 @@ import math
 import re
 from typing import NamedTuple, Optional, List, Dict, Tuple
 
-from homebrain.db import get_db_context
-from homebrain.models.schemas import SearchResult
+from homestew.db import get_db_context
+from homestew.models.schemas import SearchResult
 
 logger = logging.getLogger(__name__)
 

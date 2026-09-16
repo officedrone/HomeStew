@@ -1,9 +1,13 @@
 version: '3.8'
 
+# Compose project (stack) name. Without this it defaults to the folder name
+name: homestew
+
 services:
-  homebrain:
+  homestew:
     build: .
-    container_name: homebrain
+    image: homestew
+    container_name: homestew
     ports:
       - "8000:8000"
     volumes:

@@ -1,4 +1,4 @@
-# HomeBrain Dependencies
+# HomeStew Dependencies
 # Lightweight stack for PDF processing and LLM integration
 
 # Web framework

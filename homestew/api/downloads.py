@@ -8,11 +8,11 @@ from fastapi.responses import StreamingResponse, FileResponse
 from typing import List, AsyncGenerator
 import asyncio
 
-from homebrain.config import settings
-from homebrain.db import get_db_context
-from homebrain.models.schemas import DownloadStatus, Manual, DownloadTriggerRequest
-from homebrain.services.manual_downloader import download_manuals_for_device_with_progress
-from homebrain.services.indexer import index_manual
+from homestew.config import settings
+from homestew.db import get_db_context
+from homestew.models.schemas import DownloadStatus, Manual, DownloadTriggerRequest
+from homestew.services.manual_downloader import download_manuals_for_device_with_progress
+from homestew.services.indexer import index_manual
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ async def trigger_manual_download(request: DownloadTriggerRequest):
     device_dir = settings.DEVICES_DIR / str(request.device_id) / "manuals"
     
     # Download manuals (legacy non-streaming version)
-    from homebrain.services.manual_downloader import download_manuals_for_device
+    from homestew.services.manual_downloader import download_manuals_for_device
     downloaded_count, filenames, error_msg = download_manuals_for_device(
         brand=device['brand'],
         model=device['model'],
@@ -187,7 +187,7 @@ async def stream_download_progress(device_id: int):
         # Start download in a background thread
         def run_download():
             try:
-                from homebrain.services.manual_downloader import download_manuals_for_device
+                from homestew.services.manual_downloader import download_manuals_for_device
 
                 downloaded_count, filenames, error_msg = download_manuals_for_device(
                     brand=device['brand'],

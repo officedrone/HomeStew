@@ -25,7 +25,7 @@ COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 
 # Copy application code
-COPY homebrain/ ./homebrain/
+COPY homestew/ ./homestew/
 COPY frontend/ ./static/
 
 # Create data directory with persistent volume mount point
@@ -43,4 +43,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
 # Run the application
-CMD ["uvicorn", "homebrain.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "homestew.main:app", "--host", "0.0.0.0", "--port", "8000"]

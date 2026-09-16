@@ -5,13 +5,13 @@ import requests
 from fastapi import APIRouter, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
-from homebrain.config import save_settings_overrides, settings
-from homebrain.default_prompts import (
+from homestew.config import save_settings_overrides, settings
+from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
-from homebrain.models.schemas import (
+from homestew.models.schemas import (
     ModelListRequest,
     ModelListResponse,
     ModelStatusResponse,
@@ -161,7 +161,7 @@ async def update_settings(update: SettingsUpdate):
         )
 
     # Rebuild the cached LLM client so new connection settings are used.
-    from homebrain.api.chat import reset_llm_client
+    from homestew.api.chat import reset_llm_client
     reset_llm_client()
 
     logger.info("Settings updated: %s", sorted(changes.keys()))

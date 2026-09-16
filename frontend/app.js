@@ -1,4 +1,4 @@
-// HomeBrain Frontend Application
+// HomeStew Frontend Application
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -1636,7 +1636,7 @@ function startNewSession() {
     container.innerHTML = `
         <div class="message assistant">
             <div class="message-content">
-                Hello! I'm HomeBrain. Ask me anything about your devices, and I'll search through your manuals to find answers.
+                Hello! I'm HomeStew. Ask me anything about your devices, and I'll search through your manuals to find answers.
             </div>
         </div>
     `;
@@ -1941,7 +1941,7 @@ function getChatMessages() {
         const content = contentEl._raw != null ? contentEl._raw : contentEl.textContent;
         
         // Skip welcome message
-        if (content.includes('Hello! I\'m HomeBrain')) return;
+        if (content.includes('Hello! I\'m HomeStew')) return;
         
         messages.push({ role, content });
     });
@@ -2430,12 +2430,12 @@ function updateWebhookTypeHints() {
     if (type === 'synology') {
         urlHint.textContent =
             'Paste the full Incoming Webhook URL from DSM > Chat > Integration, '
-            + 'including its token= parameter. HomeBrain sends Chat\u2019s '
+            + 'including its token= parameter. HomeStew sends Chat\u2019s '
             + 'payload={"text": ...} format.';
         tokenField.style.display = 'none';
     } else {
         urlHint.textContent =
-            'HomeBrain POSTs a JSON body (event title, due date, device\u2026) to '
+            'HomeStew POSTs a JSON body (event title, due date, device\u2026) to '
             + 'this URL. Works with custom receivers, Node-RED, Home Assistant '
             + 'webhooks and similar.';
         tokenField.style.display = '';

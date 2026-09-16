@@ -2,9 +2,9 @@
 from fastapi import APIRouter, HTTPException, status
 from typing import List
 
-from homebrain.models.schemas import SearchRequest, SearchResponse, SearchResult
-from homebrain.services.search_engine import search_manuals, count_indexed_documents
-from homebrain.services.indexer import reindex_all_manuals
+from homestew.models.schemas import SearchRequest, SearchResponse, SearchResult
+from homestew.services.search_engine import search_manuals, count_indexed_documents
+from homestew.services.indexer import reindex_all_manuals
 
 router = APIRouter(prefix="/search", tags=["search"])
 

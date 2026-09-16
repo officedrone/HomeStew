@@ -21,8 +21,8 @@ import logging
 from datetime import date, datetime, time as dtime
 from typing import Any, Dict, Optional, Tuple
 
-from homebrain.db import get_db_context
-from homebrain.services import calendar_service
+from homestew.db import get_db_context
+from homestew.services import calendar_service
 
 logger = logging.getLogger(__name__)
 

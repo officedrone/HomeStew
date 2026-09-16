@@ -1,4 +1,4 @@
-# HomeBrain 🧠
+# HomeStew
 
 A **super lightweight** home device manual manager with AI-powered search. Store, index, and search through your device manuals using natural language queries.
 
@@ -16,7 +16,7 @@ A **super lightweight** home device manual manager with AI-powered search. Store
 
 ```
 ┌─────────────────────────────────────┐
-│         HomeBrain Container          │
+│          HomeStew Container          │
 │  ┌──────────┐  ┌──────────┐        │
 │  │ FastAPI  │  │ SQLite   │        │
 │  │ Backend  │◄─┤ FTS5     │        │
@@ -70,7 +70,7 @@ Click "Add New Device" in the sidebar:
 
 Click "Download Manuals" on any device:
 
-- HomeBrain searches DuckDuckGo for PDF manuals
+- HomeStew searches DuckDuckGo for PDF manuals
 - Downloads up to 5 relevant PDFs
 - Automatically indexes all text content
 
@@ -112,7 +112,7 @@ docker run -d -v ollama_data:/root/.ollama -p 11434:11434 ollama/ollama
 # Pull a model
 docker exec -it <ollama_container> ollama pull llama3.2
 
-# Then start HomeBrain (uses Ollama by default)
+# Then start HomeStew (uses Ollama by default)
 docker-compose up -d
 ```
 
@@ -130,8 +130,8 @@ environment:
 ## Project Structure
 
 ```
-HomeBrain - Simple/
-├── homebrain/                 # Python backend
+HomeStew/
+├── homestew/                  # Python backend
 │   ├── api/                   # FastAPI routes
 │   │   ├── devices.py         # Device CRUD endpoints
 │   │   ├── downloads.py       # Manual download triggers
@@ -152,7 +152,7 @@ HomeBrain - Simple/
 │   ├── styles.css             # Minimal CSS
 │   └── app.js                 # HTMX + vanilla JS
 ├── data/                      # Persistent storage (mounted volume)
-│   ├── homebrain.db           # SQLite database
+│   ├── homestew.db            # SQLite database
 │   └── devices/               # PDF manuals by device ID
 ├── Dockerfile                 # Multi-stage build (~60MB)
 ├── docker-compose.yml         # Container orchestration
@@ -224,7 +224,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Run development server
-uvicorn homebrain.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn homestew.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Testing
@@ -239,7 +239,7 @@ pytest tests/
 ### Manuals not downloading?
 
 - Check internet connectivity from container
-- Verify DuckDuckGo search works: `docker exec homebrain python -c "from duckduckgo_search import DDGS; print(list(DDGS().files('test pdf', max_results=3)))"`
+- Verify DuckDuckGo search works: `docker exec homestew python -c "from duckduckgo_search import DDGS; print(list(DDGS().files('test pdf', max_results=3)))"`
 
 ### LLM not responding?
 

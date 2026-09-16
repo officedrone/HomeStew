@@ -1,4 +1,4 @@
-"""Configuration management for HomeBrain."""
+"""Configuration management for HomeStew."""
 import json
 import logging
 import os
@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
 
-from homebrain.default_prompts import (
+from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     # Application
-    APP_NAME: str = "HomeBrain"
+    APP_NAME: str = "HomeStew"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "llama3.2"
 
     # LLM prompts (editable under Settings > Advanced Settings). Defaults are
-    # the built-in prompt texts from homebrain.default_prompts.
+    # the built-in prompt texts from homestew.default_prompts.
     CHAT_SYSTEM_PROMPT: str = DEFAULT_CHAT_SYSTEM_PROMPT
     SEARCH_TOOL_DESCRIPTION: str = DEFAULT_SEARCH_TOOL_DESCRIPTION
     CALENDAR_TOOL_DESCRIPTION: str = DEFAULT_CALENDAR_TOOL_DESCRIPTION
@@ -113,6 +113,20 @@ def _overrides_path() -> Path:
     return settings.DATA_DIR / "settings.json"
 
 
+def _rebrand_value(value):
+    """Swap the old product name out of a persisted string override.
+
+    Prompts saved before the HomeBrain -> HomeStew rebrand still address the
+    assistant by its old name; patch them on load so the new brand applies to
+    user-customised text too. Saving Settings persists the corrected text.
+    """
+    if not isinstance(value, str):
+        return value
+    for old, new in (("HomeBrain", "HomeStew"), ("HOMEBRAIN", "HOMESTEW"), ("homebrain", "homestew")):
+        value = value.replace(old, new)
+    return value
+
+
 def load_settings_overrides() -> None:
     """Apply persisted UI overrides on top of env/default values.
 
@@ -131,7 +145,10 @@ def load_settings_overrides() -> None:
         return
     for key in EDITABLE_SETTINGS:
         if key in data and data[key] is not None:
-            setattr(settings, key, data[key])
+            value = _rebrand_value(data[key])
+            if isinstance(value, str) and value != data[key]:
+                logger.info("Rebranded persisted value of %s (HomeBrain -> HomeStew)", key)
+            setattr(settings, key, value)
     logger.info("Loaded settings overrides from %s", path)
 
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HomeBrain - Device Manual Manager</title>
+    <title>HomeStew - Device Manual Manager</title>
     <!-- Markdown rendering for chat answers (all assets vendored locally so
          the app works fully offline). marked: MIT, DOMPurify: Apache-2.0,
          github-markdown-css: MIT. The vendor sheet loads BEFORE styles.css on
@@ -31,7 +31,7 @@
         <button type="button" class="icon-btn" id="menu-btn" title="Open menu" aria-label="Open menu">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
-        <span class="topbar-title">HomeBrain</span>
+        <span class="topbar-title">HomeStew</span>
     </header>
 
     <!-- Click-outside target for the sidebar drawer (mobile only) -->
@@ -46,7 +46,7 @@
                 </button>
             </div>
             <div class="logo content-only">
-                <h1>HomeBrain</h1>
+                <h1>HomeStew</h1>
                 <p class="tagline">Device Information Management</p>
             </div>
 
@@ -151,7 +151,7 @@
                         <div id="chat-messages" class="chat-messages">
                             <div class="message assistant">
                                 <div class="message-content">
-                                    Hello! I'm HomeBrain. Ask me anything about your devices, and I'll search through your manuals to find answers.
+                                    Hello! I'm HomeStew. Ask me anything about your devices, and I'll search through your manuals to find answers.
                                 </div>
                             </div>
                         </div>
@@ -191,7 +191,7 @@
                     <h2>Devices</h2>
                 </div>
                 <div class="devices-actions">
-                    <button type="button" id="add-device-btn-devices" class="btn btn-primary btn-small" data-dedupe title="Add a new device to HomeBrain">
+                    <button type="button" id="add-device-btn-devices" class="btn btn-primary btn-small" data-dedupe title="Add a new device to HomeStew">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         <span>New Device</span>
                     </button>
@@ -435,7 +435,7 @@
                             <details id="advanced-settings-section" class="advanced-settings">
                                 <summary>Advanced</summary>
                                 <p class="settings-hint advanced-settings-intro">
-                                    Customize the prompts HomeBrain sends to your LLM. Clear a field and save
+                                    Customize the prompts HomeStew sends to your LLM. Clear a field and save
                                     to restore its built-in default.
                                 </p>
                                 <div class="settings-field">
@@ -471,7 +471,7 @@
                                     <input type="checkbox" id="settings-notify-enabled">
                                     Enable notifications
                                 </label>
-                                <p class="settings-hint">HomeBrain periodically checks your calendar and alerts you when a maintenance task is due or overdue.</p>
+                                <p class="settings-hint">HomeStew periodically checks your calendar and alerts you when a maintenance task is due or overdue.</p>
                             </div>
                             <div class="settings-field">
                                 <label for="settings-notify-interval">Check every (minutes)</label>
@@ -507,8 +507,8 @@
                             </div>
                             <div class="settings-field">
                                 <label for="settings-notify-webhook-url">Webhook URL</label>
-                                <input type="url" id="settings-notify-webhook-url" placeholder="https://example.com/hooks/homebrain">
-                                <p class="settings-hint" id="webhook-url-hint">HomeBrain POSTs a JSON body (event title, due date, device…) to this URL. Works with custom receivers, Node-RED, Home Assistant webhooks and similar.</p>
+                                <input type="url" id="settings-notify-webhook-url" placeholder="https://example.com/hooks/homestew">
+                                <p class="settings-hint" id="webhook-url-hint">HomeStew POSTs a JSON body (event title, due date, device…) to this URL. Works with custom receivers, Node-RED, Home Assistant webhooks and similar.</p>
                             </div>
                             <div class="settings-field">
                                 <label for="settings-notify-webhook-token">Bearer Token (optional)</label>

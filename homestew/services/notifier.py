@@ -22,10 +22,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi.concurrency import run_in_threadpool
 
-from homebrain.config import settings
-from homebrain.db import get_db_context
-from homebrain.services import calendar_service
-from homebrain.services.notify_channels import CHANNELS
+from homestew.config import settings
+from homestew.db import get_db_context
+from homestew.services import calendar_service
+from homestew.services.notify_channels import CHANNELS
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def build_test_payload() -> Dict[str, Any]:
     sample = {
         "id": 0,
         "title": "Test notification",
-        "description": "This is a test of the HomeBrain webhook channel.",
+        "description": "This is a test of the HomeStew webhook channel.",
         "device_name": None,
         "next_due_date": (now + timedelta(days=1)).date(),
         "start_time": time(9, 0),

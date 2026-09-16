@@ -3,8 +3,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from homebrain.db import get_db_context
-from homebrain.services.pdf_extractor import (
+from homestew.db import get_db_context
+from homestew.services.pdf_extractor import (
     extract_text_from_pdf,
     extract_pages_from_pdf,
     split_text_into_chunks,

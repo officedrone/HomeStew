@@ -5,14 +5,14 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from homebrain.db import get_db_context
-from homebrain.models.schemas import (
+from homestew.db import get_db_context
+from homestew.models.schemas import (
     CalendarEventCreate,
     CalendarEventResponse,
     CalendarEventUpdate,
     UpcomingEventsResponse,
 )
-from homebrain.services import calendar_service
+from homestew.services import calendar_service
 
 logger = logging.getLogger(__name__)
 

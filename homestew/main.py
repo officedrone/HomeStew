@@ -1,4 +1,4 @@
-"""HomeBrain - Lightweight Home Device Manual Manager.
+"""HomeStew - Lightweight Home Device Manual Manager.
 
 A simple web application that helps you manage and search through device manuals.
 """
@@ -10,16 +10,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from homebrain.config import settings
-from homebrain.db import init_db
-from homebrain.api.devices import router as devices_router
-from homebrain.api.downloads import router as downloads_router
-from homebrain.api.search import router as search_router
-from homebrain.api.chat import router as chat_router
-from homebrain.api.settings import router as settings_router
-from homebrain.api.calendar import router as calendar_router
-from homebrain.api.notifications import router as notifications_router
-from homebrain.services.notifier import notification_loop
+from homestew.config import settings
+from homestew.db import init_db
+from homestew.api.devices import router as devices_router
+from homestew.api.downloads import router as downloads_router
+from homestew.api.search import router as search_router
+from homestew.api.chat import router as chat_router
+from homestew.api.settings import router as settings_router
+from homestew.api.calendar import router as calendar_router
+from homestew.api.notifications import router as notifications_router
+from homestew.services.notifier import notification_loop
 
 # Configure logging
 logging.basicConfig(
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
-    logger.info("Starting HomeBrain...")
+    logger.info("Starting HomeStew...")
     await init_db()
     logger.info(f"Data directory: {settings.DATA_DIR}")
     logger.info(f"LLM model: {settings.LLM_MODEL}")
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
         pass
 
     # Shutdown
-    logger.info("Shutting down HomeBrain...")
+    logger.info("Shutting down HomeStew...")
 
 
 # Create FastAPI app
@@ -124,7 +124,7 @@ async def root():
     
     # If no index found, return a simple message
     from fastapi.responses import HTMLResponse
-    return HTMLResponse(content="<h1>HomeBrain API is running</h1><p>Frontend not found.</p>")
+    return HTMLResponse(content="<h1>HomeStew API is running</h1><p>Frontend not found.</p>")
 
 
 # Mount static files
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     import uvicorn
     
     uvicorn.run(
-        "homebrain.main:app",
+        "homestew.main:app",
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG

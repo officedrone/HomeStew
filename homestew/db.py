@@ -4,13 +4,34 @@ import sqlite3
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from homebrain.config import settings
+from homestew.config import settings
+
+# The SQLite file was named homebrain.db before the product was rebranded to
+# HomeStew. _db_path() migrates an existing database to the new filename once,
+# on first use, so upgrades keep all devices, manuals and calendar events.
+_LEGACY_DB_FILENAME = "homebrain.db"
+
+
+def _db_path() -> Path:
+    """Return the database path, renaming a legacy homebrain.db into place."""
+    path = settings.DATA_DIR / "homestew.db"
+    legacy = settings.DATA_DIR / _LEGACY_DB_FILENAME
+    if not path.exists() and legacy.exists():
+        try:
+            legacy.rename(path)
+        except OSError:
+            # Cross-device mount or locked file: copy instead of moving so the
+            # data survives either way (the legacy file is left untouched).
+            import shutil
+
+            shutil.copy2(legacy, path)
+    return path
 
 
 @asynccontextmanager
 async def get_db():
     """Get a database connection as an async context manager."""
-    db_path = settings.DATA_DIR / "homebrain.db"
+    db_path = _db_path()
     db = await aiosqlite.connect(db_path)
     db.row_factory = aiosqlite.Row
     
@@ -29,7 +50,7 @@ async def init_db():
     # Ensure data directory exists
     settings.DEVICES_DIR.mkdir(parents=True, exist_ok=True)
     
-    db_path = settings.DATA_DIR / "homebrain.db"
+    db_path = _db_path()
     
     async with aiosqlite.connect(db_path) as db:
         # Enable foreign keys
@@ -202,7 +223,7 @@ async def init_db():
 
 async def _fts_index_needs_rebuild() -> bool:
     """Return True if pdf_index predates the trigram/manual_id schema."""
-    db_path = settings.DATA_DIR / "homebrain.db"
+    db_path = _db_path()
     async with aiosqlite.connect(db_path) as db:
         cursor = await db.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='pdf_index'"
@@ -219,7 +240,7 @@ async def rebuild_search_index():
     import logging
 
     logger = logging.getLogger(__name__)
-    db_path = settings.DATA_DIR / "homebrain.db"
+    db_path = _db_path()
 
     async with aiosqlite.connect(db_path) as db:
         await db.execute("DROP TABLE IF EXISTS pdf_index")
@@ -236,7 +257,7 @@ async def rebuild_search_index():
         await db.commit()
 
     logger.info("Rebuilt search index with trigram tokenizer; re-indexing manuals...")
-    from homebrain.services.indexer import reindex_all_manuals
+    from homestew.services.indexer import reindex_all_manuals
 
     count = await reindex_all_manuals()
     logger.info(f"Search index rebuild complete: {count} manual(s) re-indexed")
