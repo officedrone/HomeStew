@@ -113,20 +113,6 @@ def _overrides_path() -> Path:
     return settings.DATA_DIR / "settings.json"
 
 
-def _rebrand_value(value):
-    """Swap the old product name out of a persisted string override.
-
-    Prompts saved before the HomeBrain -> HomeStew rebrand still address the
-    assistant by its old name; patch them on load so the new brand applies to
-    user-customised text too. Saving Settings persists the corrected text.
-    """
-    if not isinstance(value, str):
-        return value
-    for old, new in (("HomeBrain", "HomeStew"), ("HOMEBRAIN", "HOMESTEW"), ("homebrain", "homestew")):
-        value = value.replace(old, new)
-    return value
-
-
 def load_settings_overrides() -> None:
     """Apply persisted UI overrides on top of env/default values.
 
@@ -145,10 +131,7 @@ def load_settings_overrides() -> None:
         return
     for key in EDITABLE_SETTINGS:
         if key in data and data[key] is not None:
-            value = _rebrand_value(data[key])
-            if isinstance(value, str) and value != data[key]:
-                logger.info("Rebranded persisted value of %s (HomeBrain -> HomeStew)", key)
-            setattr(settings, key, value)
+            setattr(settings, key, data[key])
     logger.info("Loaded settings overrides from %s", path)
 
 

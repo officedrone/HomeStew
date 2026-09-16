@@ -3,8 +3,8 @@
 ## 🚀 One-Command Deployment (with Docker)
 
 ```bash
-# 1. Clone/download this repository
-cd "c:\Code\HomeBrain - Simple"
+# 1. From the repository root (where docker-compose.yml lives)
+cd <repo-root>
 
 # 2. (Optional) Configure LLM settings
 copy .env.example .env
@@ -29,7 +29,7 @@ start http://localhost:8000
 **Step 1: Build the container**
 
 ```powershell
-cd "c:\Code\HomeBrain - Simple"
+cd <repo-root>  # where docker-compose.yml lives
 docker-compose build
 ```
 
