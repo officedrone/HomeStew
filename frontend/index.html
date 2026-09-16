@@ -15,8 +15,9 @@
     <link rel="stylesheet" href="/static/styles.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <!-- Apply the saved theme (light/dark/auto) before first paint so the
-         page never flashes the wrong colour scheme. See applyTheme() in
-         app.js for the full logic; this snippet only mirrors it early. -->
+         page never flashes the wrong colour scheme. The preference lives in
+         server settings (Settings > General); localStorage is a mirror kept
+         in sync by app.js — see applyTheme(). -->
     <script>
         (function () {
             var pref = localStorage.getItem('theme') || 'auto';
@@ -97,12 +98,6 @@
             <!-- Settings: pinned to the very bottom of the sidebar.
                  Expanded shows gear + label, collapsed shows only the gear. -->
             <div class="sidebar-bottom">
-                <!-- Theme: cycles Auto -> Light -> Dark (label + icon update
-                     in app.js; the choice persists in localStorage). -->
-                <button type="button" class="icon-btn theme-toggle-btn" id="theme-btn" title="Theme: Auto">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-                    <span class="content-only">Theme: Auto</span>
-                </button>
                 <button type="button" class="icon-btn" id="settings-btn" title="Settings">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     <span class="content-only">Settings</span>
@@ -166,23 +161,27 @@
                         </button>
                     </div>
 
-                    <!-- Context / model pickers sit just above the message box. -->
-                    <div class="chat-input-meta">
-                        <label class="chat-context-label" for="chat-device-filter">Context:</label>
-                        <select id="chat-device-filter" class="device-filter" title="Limit answers to one device">
-                            <option value="">All Devices</option>
-                        </select>
-                        <label class="chat-context-label" for="chat-model-select">Model:</label>
-                        <select id="chat-model-select" class="device-filter" title="Switch the LLM model used for answers">
-                            <option value="">No model selected</option>
-                        </select>
-                    </div>
-
                     <div class="chat-input-container">
                         <textarea id="chat-input" placeholder="Ask a question about your devices..." rows="2"></textarea>
                         <button id="stop-btn" class="btn btn-danger" style="display: none;" title="Stop generating">■ Stop</button>
                         <button id="send-btn" class="btn btn-primary" data-dedupe>Send</button>
                     </div>
+
+                    <!-- Context / model pickers, below the input row and collapsed
+                         by default like the Advanced section in Settings. -->
+                    <details id="chat-conversation-params" class="advanced-settings chat-input-meta">
+                        <summary>Conversation Parameters</summary>
+                        <div class="chat-input-meta-inner">
+                            <label class="chat-context-label" for="chat-device-filter">Context:</label>
+                            <select id="chat-device-filter" class="device-filter" title="Limit answers to one device">
+                                <option value="">All Devices</option>
+                            </select>
+                            <label class="chat-context-label" for="chat-model-select">Model:</label>
+                            <select id="chat-model-select" class="device-filter" title="Switch the LLM model used for answers">
+                                <option value="">No model selected</option>
+                            </select>
+                        </div>
+                    </details>
                 </div>
             </div>
 
@@ -381,64 +380,90 @@
         </div>
     </div>
 
-    <!-- Settings Modal -->
+    <!-- Settings Modal: section nav (General / AI) + one visible panel -->
     <div id="settings-modal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content settings-modal-content">
             <span class="modal-close" onclick="closeSettingsModal()">&times;</span>
             <h2>Settings</h2>
 
+            <!-- One form wraps both panels so Save always submits everything. -->
             <form id="settings-form" class="device-form">
-                <div class="settings-field">
-                    <label for="settings-llm-base-url">LLM Base URL</label>
-                    <input type="text" id="settings-llm-base-url" placeholder="e.g., http://localhost:11434/v1" required>
-                </div>
-                <div class="settings-field">
-                    <label for="settings-llm-api-key">LLM API Key</label>
-                    <input type="password" id="settings-llm-api-key" autocomplete="new-password">
-                    <p class="settings-hint" id="settings-api-key-hint"></p>
-                </div>
-                <div class="settings-field">
-                    <label for="settings-llm-model">LLM Model</label>
-                    <div class="model-row">
-                        <!-- Plain select (no free text): the option list is
-                             refreshed from the server whenever it is opened. -->
-                        <select id="settings-llm-model" required></select>
-                        <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">Models</button>
-                    </div>
-                    <p class="settings-hint" id="model-list-hint"></p>
-                </div>
+                <div class="settings-layout">
+                    <nav class="settings-nav" aria-label="Settings sections">
+                        <button type="button" class="settings-nav-btn active" data-settings-section="general">General</button>
+                        <button type="button" class="settings-nav-btn" data-settings-section="ai">AI</button>
+                    </nav>
 
-                <!-- Advanced Settings: collapsed by default -->
-                <details id="advanced-settings-section" class="advanced-settings">
-                    <summary>Advanced Settings</summary>
-                    <p class="settings-hint advanced-settings-intro">
-                        Customize the prompts HomeBrain sends to your LLM. Clear a field and save
-                        to restore its built-in default.
-                    </p>
-                    <div class="settings-field">
-                        <div class="prompt-label-row">
-                            <label for="settings-chat-system-prompt">Chat System Prompt</label>
-                            <button type="button" class="btn btn-small btn-secondary" data-restore-default="chat_system_prompt">Restore Default</button>
-                        </div>
-                        <textarea id="settings-chat-system-prompt" rows="5" spellcheck="false"></textarea>
+                    <div class="settings-panels">
+                        <!-- General -->
+                        <section id="settings-panel-general" class="settings-panel">
+                            <div class="settings-field">
+                                <label id="settings-theme-label">Theme</label>
+                                <div class="radio-row" role="radiogroup" aria-labelledby="settings-theme-label">
+                                    <label class="radio-option"><input type="radio" name="theme" value="auto"> Auto</label>
+                                    <label class="radio-option"><input type="radio" name="theme" value="dark"> Dark</label>
+                                    <label class="radio-option"><input type="radio" name="theme" value="light"> Light</label>
+                                </div>
+                                <p class="settings-hint">Auto follows your operating system's light/dark setting.</p>
+                            </div>
+                        </section>
+
+                        <!-- AI -->
+                        <section id="settings-panel-ai" class="settings-panel" hidden>
+                            <div class="settings-field">
+                                <label for="settings-llm-base-url">LLM Base URL</label>
+                                <input type="text" id="settings-llm-base-url" placeholder="e.g., http://localhost:11434/v1" required>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-llm-api-key">LLM API Key</label>
+                                <input type="password" id="settings-llm-api-key" autocomplete="new-password">
+                                <p class="settings-hint" id="settings-api-key-hint"></p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-llm-model">LLM Model</label>
+                                <div class="model-row">
+                                    <!-- Plain select (no free text): the option list is
+                                         refreshed from the server whenever it is opened. -->
+                                    <select id="settings-llm-model" required></select>
+                                    <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">Models</button>
+                                </div>
+                                <p class="settings-hint" id="model-list-hint"></p>
+                            </div>
+
+                            <!-- Advanced (prompts): collapsed by default -->
+                            <details id="advanced-settings-section" class="advanced-settings">
+                                <summary>Advanced</summary>
+                                <p class="settings-hint advanced-settings-intro">
+                                    Customize the prompts HomeBrain sends to your LLM. Clear a field and save
+                                    to restore its built-in default.
+                                </p>
+                                <div class="settings-field">
+                                    <div class="prompt-label-row">
+                                        <label for="settings-chat-system-prompt">Chat System Prompt</label>
+                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="chat_system_prompt">Restore Default</button>
+                                    </div>
+                                    <textarea id="settings-chat-system-prompt" rows="5" spellcheck="false"></textarea>
+                                </div>
+                                <div class="settings-field">
+                                    <div class="prompt-label-row">
+                                        <label for="settings-search-tool-description">Search Tool Description</label>
+                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="search_tool_description">Restore Default</button>
+                                    </div>
+                                    <textarea id="settings-search-tool-description" rows="4" spellcheck="false"></textarea>
+                                    <p class="settings-hint">Tells the LLM when to search your manuals.</p>
+                                </div>
+                                <div class="settings-field">
+                                    <div class="prompt-label-row">
+                                        <label for="settings-calendar-tool-description">Calendar Tool Description</label>
+                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="calendar_tool_description">Restore Default</button>
+                                    </div>
+                                    <textarea id="settings-calendar-tool-description" rows="4" spellcheck="false"></textarea>
+                                    <p class="settings-hint">Tells the LLM how to manage your maintenance reminders.</p>
+                                </div>
+                            </details>
+                        </section>
                     </div>
-                    <div class="settings-field">
-                        <div class="prompt-label-row">
-                            <label for="settings-search-tool-description">Search Tool Description</label>
-                            <button type="button" class="btn btn-small btn-secondary" data-restore-default="search_tool_description">Restore Default</button>
-                        </div>
-                        <textarea id="settings-search-tool-description" rows="4" spellcheck="false"></textarea>
-                        <p class="settings-hint">Tells the LLM when to search your manuals.</p>
-                    </div>
-                    <div class="settings-field">
-                        <div class="prompt-label-row">
-                            <label for="settings-calendar-tool-description">Calendar Tool Description</label>
-                            <button type="button" class="btn btn-small btn-secondary" data-restore-default="calendar_tool_description">Restore Default</button>
-                        </div>
-                        <textarea id="settings-calendar-tool-description" rows="4" spellcheck="false"></textarea>
-                        <p class="settings-hint">Tells the LLM how to manage your maintenance reminders.</p>
-                    </div>
-                </details>
+                </div>
 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeSettingsModal()">Cancel</button>

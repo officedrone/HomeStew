@@ -251,12 +251,16 @@ function setupEventListeners() {
         if (window.innerWidth > 768) closeDrawer();
     });
 
-    // Theme switcher (Auto -> Light -> Dark), persisted in localStorage.
+    // Theme: preference lives in server settings (Settings > General radio
+    // buttons); applyTheme() mirrors it onto <html data-theme>.
     applyTheme();
-    document.getElementById('theme-btn').addEventListener('click', cycleTheme);
 
     // Settings modal
     document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
+    // Section nav (General / AI): show one panel at a time.
+    document.querySelectorAll('.settings-nav-btn').forEach((btn) => {
+        btn.addEventListener('click', () => showSettingsSection(btn.dataset.settingsSection));
+    });
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
     setupModelDropdownRefresh();
@@ -2240,23 +2244,30 @@ function updateSidebarToggle() {
 }
 
 // ---------------------------------------------------------------------------
-// Theme switcher (Auto / Light / Dark)
+// Theme (Auto / Light / Dark)
 // ---------------------------------------------------------------------------
 
-// Preference stored under 'theme': 'auto' follows prefers-color-scheme;
-// 'light'/'dark' pin it via <html data-theme>. The inline snippet in
-// index.html applies the same value before first paint.
+// The preference is a server-side setting ('THEME', edited under
+// Settings > General): 'auto' follows prefers-color-scheme; 'light'/'dark'
+// pin it via <html data-theme>. It is mirrored to localStorage so the inline
+// snippet in index.html can apply it before first paint (no flash).
 const THEME_ORDER = ['auto', 'light', 'dark'];
-const THEME_ICONS = {
-    // Feather-style icons; label mirrors what the button currently means.
-    auto: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>',
-    light: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>',
-    dark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>',
-};
-
 function currentThemePref() {
-    const pref = localStorage.getItem('theme');
-    return THEME_ORDER.includes(pref) ? pref : 'auto';
+    try {
+        const pref = localStorage.getItem('theme');
+        return THEME_ORDER.includes(pref) ? pref : 'auto';
+    } catch (e) {
+        return 'auto';
+    }
+}
+
+// Apply a theme preference everywhere it matters: the live document, the
+// localStorage mirror used before first paint, and the radio buttons if the
+// Settings modal happens to be open.
+function setThemePref(pref) {
+    if (!THEME_ORDER.includes(pref)) pref = 'auto';
+    try { localStorage.setItem('theme', pref); } catch (e) { /* private mode */ }
+    applyTheme();
 }
 
 function applyTheme() {
@@ -2266,21 +2277,10 @@ function applyTheme() {
     } else {
         document.documentElement.setAttribute('data-theme', pref);
     }
-    const btn = document.getElementById('theme-btn');
-    if (!btn) return;
-    const label = `Theme: ${pref.charAt(0).toUpperCase() + pref.slice(1)}`;
-    btn.title = label;
-    btn.innerHTML = `${THEME_ICONS[pref]}<span class="content-only">${label}</span>`;
-}
-
-function cycleTheme() {
-    const next = THEME_ORDER[(THEME_ORDER.indexOf(currentThemePref()) + 1) % THEME_ORDER.length];
-    localStorage.setItem('theme', next);
-    applyTheme();
 }
 
 // ---------------------------------------------------------------------------
-// Settings modal (LLM configuration)
+// Settings modal (sections: General / AI)
 // ---------------------------------------------------------------------------
 
 // Shown inside the API key field when a key is already configured. The real
@@ -2304,6 +2304,17 @@ function restorePromptDefault(settingName) {
     document.getElementById(fieldId).value = promptDefaults[settingName] || '';
 }
 
+// Show one settings panel at a time ("general" | "ai") and highlight the
+// matching sidebar button. The form itself is shared, so Save submits both.
+function showSettingsSection(name) {
+    document.querySelectorAll('.settings-nav-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.settingsSection === name);
+    });
+    for (const panel of document.querySelectorAll('.settings-panel')) {
+        panel.hidden = panel.id !== `settings-panel-${name}`;
+    }
+}
+
 async function openSettingsModal() {
     let settings;
     try {
@@ -2315,6 +2326,11 @@ async function openSettingsModal() {
         showToast('Failed to load settings', 'error');
         return;
     }
+
+    // General: theme radios (server value wins; localStorage mirror covers
+    // the brief window before this fetch completes).
+    const themePref = THEME_ORDER.includes(settings.theme) ? settings.theme : 'auto';
+    setThemePref(themePref);
 
     document.getElementById('settings-llm-base-url').value = settings.llm_base_url || '';
 
@@ -2354,8 +2370,9 @@ async function openSettingsModal() {
         settings.search_tool_description || '';
     document.getElementById('settings-calendar-tool-description').value =
         settings.calendar_tool_description || '';
-    // Always open the modal with Advanced Settings collapsed.
+    // Always open the modal with Advanced collapsed, on the General section.
     document.getElementById('advanced-settings-section').open = false;
+    showSettingsSection('general');
 
     document.getElementById('settings-modal').style.display = 'flex';
 }
@@ -2490,7 +2507,9 @@ function setupModelDropdownRefresh() {
 async function handleSettingsSave(event) {
     event.preventDefault();
 
+    const themeInput = document.querySelector('#settings-form input[name="theme"]:checked');
     const payload = {
+        theme: themeInput ? themeInput.value : 'auto',
         llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
         llm_model: document.getElementById('settings-llm-model').value.trim(),
         // Prompts are always sent; the server treats a blank value as
@@ -2520,6 +2539,9 @@ async function handleSettingsSave(event) {
             } catch (e) { /* non-JSON error body */ }
             throw new Error(detail);
         }
+        // Apply the (possibly changed) theme immediately — before closing,
+        // so the new colors are already visible when the modal disappears.
+        setThemePref(payload.theme);
         closeSettingsModal();
         showToast('Settings saved');
         // If the chat tab is open behind the modal, re-probe so a fixed

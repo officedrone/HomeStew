@@ -1,7 +1,7 @@
 """Pydantic models for API requests and responses."""
 from pydantic import BaseModel, Field
 from datetime import date, datetime, time
-from typing import Optional
+from typing import Literal, Optional
 
 
 class DeviceBase(BaseModel):
@@ -155,6 +155,7 @@ class DownloadStatus(BaseModel):
 
 class SettingsResponse(BaseModel):
     """Current application settings (secrets are never included)."""
+    theme: str = Field(..., description="UI theme preference: auto | light | dark")
     llm_base_url: str
     llm_model: str
     llm_api_key_set: bool = Field(
@@ -182,6 +183,9 @@ class SettingsResponse(BaseModel):
 
 class SettingsUpdate(BaseModel):
     """Update application settings. Omitted/blank fields are left unchanged."""
+    theme: Optional[Literal["auto", "light", "dark"]] = Field(
+        None, description="UI theme preference: auto follows the OS; light/dark pin it"
+    )
     llm_base_url: Optional[str] = Field(None, max_length=500)
     llm_api_key: Optional[str] = Field(None, max_length=500)
     llm_model: Optional[str] = Field(None, min_length=1, max_length=200)

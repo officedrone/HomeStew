@@ -710,6 +710,11 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     color: var(--success);
 }
 
+/* Push the Edit / Delete buttons to the far right of a sidebar device row. */
+.device-row .card-actions {
+    margin-left: auto;
+}
+
 /* The same icon buttons on the dark sidebar (Recent Devices rows): dimmer by
    default, brighter on hover, keeping the red delete tint. */
 .sidebar .card-icon-btn {
@@ -1214,14 +1219,33 @@ a.result-page-link:hover {
     flex-shrink: 0;
 }
 
-/* Context / model pickers, directly above the chat input. */
+/* Context / model pickers, below the chat input row. Collapsed by default
+   (a <details> element styled like Settings > Advanced). */
 .chat-input-meta {
+    width: 100%;
+    flex-shrink: 0;
+}
+
+/* The .advanced-settings rule (defined later) sets a vertical margin of
+   "4px 0 20px"; keep tighter spacing under the chat input. */
+details.chat-input-meta {
+    margin-top: 8px;
+    margin-bottom: 0;
+}
+
+/* The summary keeps the shared .advanced-settings look; just make sure it
+   doesn't inherit the flex alignment of the old meta row. */
+.chat-input-meta > summary {
+    display: block;
+}
+
+/* Pickers line up horizontally inside the expanded panel. */
+.chat-input-meta-inner {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
-    margin-bottom: 8px;
-    flex-shrink: 0;
+    margin: 0 14px 14px;
 }
 
 /* New Session button matches the New Device / New Event buttons (icon + label) */
@@ -1593,6 +1617,84 @@ a.result-page-link:hover {
 }
 
 /* (Responsive rules live at the end of this file, in the drawer-mode block.) */
+
+/* Settings modal: section sidebar (General / AI) beside one panel. Wider
+   than the default modal so the two columns breathe. */
+.settings-modal-content {
+    max-width: min(760px, 100%);
+}
+
+.settings-layout {
+    display: flex;
+    align-items: stretch;
+    gap: 24px;
+}
+
+.settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+    width: 130px;
+    /* Vertical rule separating the nav from the panel content */
+    border-right: 1px solid var(--border-color);
+    padding-right: 16px;
+}
+
+.settings-nav-btn {
+    text-align: left;
+    padding: 9px 12px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.settings-nav-btn:hover {
+    background: var(--bg-light);
+    color: var(--text-primary);
+}
+
+.settings-nav-btn.active {
+    background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    color: var(--primary-color);
+}
+
+.settings-panels {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Theme radio group: horizontal options on one row */
+.radio-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 4px 0;
+}
+
+.radio-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    margin-bottom: 0;
+}
+
+/* Undo the block-level text-input styling .device-form/.settings-field apply
+   to every <input> — radios must stay small square controls. */
+.settings-field input[type="radio"] {
+    width: auto;
+    padding: 0;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
 
 /* Settings modal fields */
 .settings-field {
@@ -2270,6 +2372,21 @@ a.result-page-link:hover {
     .modal-actions .btn {
         flex: 1 1 auto;
         text-align: center;
+    }
+
+    /* Settings sections become a horizontal strip above the panel */
+    .settings-layout {
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .settings-nav {
+        width: auto;
+        flex-direction: row;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding-right: 0;
+        padding-bottom: 12px;
     }
 
     #chat-device-filter,

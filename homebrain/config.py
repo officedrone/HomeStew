@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Settings that can be changed at runtime via the UI and persisted to disk.
 EDITABLE_SETTINGS = (
+    "THEME",
     "LLM_BASE_URL",
     "LLM_API_KEY",
     "LLM_MODEL",
@@ -36,6 +37,9 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+
+    # UI theme: 'auto' follows the OS preference; 'light'/'dark' pin it.
+    THEME: str = "auto"
     
     # LLM Configuration
     LLM_BASE_URL: str = "http://localhost:11434/v1"

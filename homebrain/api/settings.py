@@ -35,6 +35,7 @@ def _current_settings() -> SettingsResponse:
     buttons can repopulate them without shipping a second copy of the text.
     """
     return SettingsResponse(
+        theme=settings.THEME,
         llm_base_url=settings.LLM_BASE_URL,
         llm_model=settings.LLM_MODEL,
         llm_api_key_set=bool(settings.LLM_API_KEY),
@@ -61,6 +62,10 @@ async def update_settings(update: SettingsUpdate):
     llm_api_key means "keep the existing key".
     """
     changes = {}
+
+    # UI theme: validated by the schema (Literal), so any value here is valid.
+    if update.theme is not None:
+        changes["THEME"] = update.theme
 
     if update.llm_base_url is not None and update.llm_base_url.strip():
         base_url = update.llm_base_url.strip()
