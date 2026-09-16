@@ -491,14 +491,22 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 
 .device-accordion {
     background: var(--sidebar-surface);
+    /* Transparent border by default so expanding (which shows a visible
+       border) doesn't shift the layout. */
+    border: 1px solid transparent;
     border-radius: 8px;
     margin-bottom: 6px;
     overflow: hidden;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s;
 }
 
 .device-accordion:hover {
     background: var(--sidebar-surface-hover);
+}
+
+/* Expanded accordion gets a visible border so the header row stands out. */
+.device-accordion.open {
+    border-color: var(--accent-color);
 }
 
 /* Collapsed header row: caret + name + brand/model on one line */
@@ -551,6 +559,11 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     min-height: 0;
 }
 
+/* The expanded body is clickable (opens the Edit dialog). */
+.device-accordion.open .device-details-inner {
+    cursor: pointer;
+}
+
 /* Keep content clickable only when actually open (0fr still renders at height 0) */
 .device-accordion:not(.open) .device-details-inner {
     visibility: hidden;
@@ -571,12 +584,6 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 .device-meta {
     font-size: 0.8rem;
     color: var(--sidebar-text-dim);
-}
-
-.device-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 10px;
 }
 
 /* Unified tab header: shown at the top of every tab (Search, AI Chat,
@@ -623,6 +630,8 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     padding: 16px;
     box-shadow: var(--shadow-sm);
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+    /* Whole card is clickable: opens the Edit dialog. */
+    cursor: pointer;
 }
 
 .device-card:hover {
@@ -630,13 +639,90 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     box-shadow: var(--shadow-md);
 }
 
+/* Card title row: device name on the left, square icon actions on the right. */
+.device-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
 .device-card .device-name {
     color: var(--text-primary);
-    margin-bottom: 4px;
+    /* Allow the (nowrap/ellipsis) name to shrink instead of pushing the
+       action buttons out of the card. */
+    min-width: 0;
 }
 
 .device-card .device-meta {
     color: var(--text-secondary);
+}
+
+/* Square icon-only action buttons (Edit / Delete) beside the card title. */
+.card-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.card-icon-btn {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.card-icon-btn svg {
+    width: 15px;
+    height: 15px;
+    display: block;
+}
+
+.card-icon-btn:hover {
+    background: var(--bg-light);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+/* Delete gets a subtle red tint on hover instead of a solid danger fill. */
+.card-icon-danger:hover {
+    background: color-mix(in srgb, var(--error) 10%, transparent);
+    border-color: color-mix(in srgb, var(--error) 45%, transparent);
+    color: var(--error);
+}
+
+/* The same icon buttons on the dark sidebar (Recent Devices rows): dimmer by
+   default, brighter on hover, keeping the red delete tint. */
+.sidebar .card-icon-btn {
+    width: 26px;
+    height: 26px;
+    color: var(--sidebar-text-dim);
+}
+
+.sidebar .card-icon-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sidebar .card-icon-btn:hover {
+    background: color-mix(in srgb, white 10%, transparent);
+    border-color: var(--sidebar-border);
+    color: var(--sidebar-text);
+}
+
+.sidebar .card-icon-danger:hover {
+    background: color-mix(in srgb, var(--error) 22%, transparent);
+    border-color: transparent;
+    color: #fca5a5;
 }
 
 /* Main Content */

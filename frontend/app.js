@@ -358,9 +358,12 @@ function warrantyDetailLines(device) {
     return lines;
 }
 
-// Sidebar: each device is a single collapsed line; clicking it expands an
-// animated panel with the model, configured details (serial / product /
-// custom attributes), manual count and Edit / Delete buttons.
+// Sidebar "Recent Devices": only the three most recently created devices,
+// newest first. Each is a single collapsed line with square Edit / Delete
+// icon buttons beside the name; clicking the header expands an animated
+// panel with the model, configured details (serial / product / custom
+// attributes) and manual count. Clicking the expanded body (not a button)
+// opens the Edit dialog instead.
 function renderDeviceList() {
     const container = document.getElementById('device-list');
     
@@ -369,27 +372,29 @@ function renderDeviceList() {
         return;
     }
     
-    container.innerHTML = devices.map(device => {
+    // created_at is a UTC "YYYY-MM-DD HH:MM:SS" string, so plain string
+    // comparison sorts chronologically.
+    const recent = [...devices]
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .slice(0, 3);
+    
+    container.innerHTML = recent.map(device => {
         const open = expandedDeviceIds.has(device.id);
         return `
         <div class="device-accordion${open ? ' open' : ''}" data-id="${device.id}">
-            <button type="button" class="device-row" onclick="toggleDeviceExpansion(${device.id})">
+            <div class="device-row" onclick="toggleDeviceExpansion(${device.id})">
                 <span class="device-caret">›</span>
                 <span class="device-name">${escapeHtml(device.name)}</span>
-            </button>
-            <div class="device-details">
+                <span class="card-actions">
+                    <button type="button" class="card-icon-btn" title="Edit device" aria-label="Edit device" data-dedupe onclick="event.stopPropagation(); editDevice(${device.id})">${CARD_ACTION_ICONS.edit}</button>
+                    <button type="button" class="card-icon-btn card-icon-danger" title="Delete device" aria-label="Delete device" data-dedupe onclick="event.stopPropagation(); deleteDevice(${device.id})">${CARD_ACTION_ICONS.trash}</button>
+                </span>
+            </div>
+            <div class="device-details" onclick="onDeviceBodyClick(event, ${device.id})">
                 <div class="device-details-inner">
                     <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
                     ${deviceDetailLines(device)}
                     <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
-                    <div class="device-actions">
-                        <button class="btn btn-secondary btn-small" data-dedupe onclick="editDevice(${device.id})">
-                            Edit
-                        </button>
-                        <button class="btn btn-danger btn-small" data-dedupe onclick="deleteDevice(${device.id})">
-                            Delete
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>`;
@@ -405,6 +410,19 @@ function toggleDeviceExpansion(deviceId) {
     else expandedDeviceIds.delete(deviceId);
 }
 
+// Clicking the expanded accordion body opens the Edit dialog for that device.
+// Clicks on buttons inside the panel keep their own handlers.
+function onDeviceBodyClick(event, deviceId) {
+    if (event.target.closest('button')) return;
+    editDevice(deviceId);
+}
+
+// Feather-style icons for the square icon-only buttons on device cards.
+const CARD_ACTION_ICONS = {
+    edit: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>',
+    trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>'
+};
+
 // Devices tab: card grid with the full device details and actions.
 function renderDevicesGrid() {
     const container = document.getElementById('devices-grid');
@@ -415,22 +433,23 @@ function renderDevicesGrid() {
         return;
     }
 
+    // The whole card is clickable and opens the Edit dialog; the icon buttons
+    // beside the title keep their own actions (stopPropagation keeps a card
+    // click from firing twice).
     container.innerHTML = devices.map(device => `
-        <div class="device-card" data-id="${device.id}">
-            <div class="device-name">${escapeHtml(device.name)}</div>
+        <div class="device-card" data-id="${device.id}" onclick="editDevice(${device.id})">
+            <div class="device-card-header">
+                <div class="device-name">${escapeHtml(device.name)}</div>
+                <div class="card-actions">
+                    <button type="button" class="card-icon-btn" title="Edit device" aria-label="Edit device" data-dedupe onclick="event.stopPropagation(); editDevice(${device.id})">${CARD_ACTION_ICONS.edit}</button>
+                    <button type="button" class="card-icon-btn card-icon-danger" title="Delete device" aria-label="Delete device" data-dedupe onclick="event.stopPropagation(); deleteDevice(${device.id})">${CARD_ACTION_ICONS.trash}</button>
+                </div>
+            </div>
             <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
             ${device.serial_number ? `<div class="device-meta">Serial: ${escapeHtml(device.serial_number)}</div>` : ''}
             ${device.product_number ? `<div class="device-meta">Product: ${escapeHtml(device.product_number)}</div>` : ''}
             ${warrantyDetailLines(device).map(line => `<div class="device-meta">${escapeHtml(line)}</div>`).join('')}
             <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
-            <div class="device-actions">
-                <button class="btn btn-secondary btn-small" data-dedupe onclick="editDevice(${device.id})">
-                    Edit
-                </button>
-                <button class="btn btn-danger btn-small" data-dedupe onclick="deleteDevice(${device.id})">
-                    Delete
-                </button>
-            </div>
         </div>
     `).join('');
 }
@@ -491,7 +510,7 @@ function dueLabel(dateStr) {
 }
 
 // Sidebar: events due within the next 7 days (overdue included), shown as a
-// compact notification feed under "My Devices".
+// compact notification feed under "Recent Devices".
 async function loadUpcomingEvents() {
     const container = document.getElementById('upcoming-events');
     try {
