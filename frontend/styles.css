@@ -1202,12 +1202,22 @@ a.result-page-link:hover {
     color: var(--error);
 }
 
-/* Row above the conversation: New Session on the left, then the device
-   context dropdown ("Context: <select>") and the LLM model switcher. */
+/* Row above the conversation: New Session button. The Context / Model
+   dropdowns live below the messages, just above the input box. */
 .chat-toolbar {
     display: flex;
     align-items: center;
     justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+/* Context / model pickers, directly above the chat input. */
+.chat-input-meta {
+    display: flex;
+    align-items: center;
     flex-wrap: wrap;
     gap: 10px;
     margin-bottom: 8px;
@@ -1233,8 +1243,8 @@ a.result-page-link:hover {
     flex-shrink: 0;
 }
 
-/* The chat device filter lives in the toolbar above the conversation,
-   next to the New Session button. */
+/* The chat device filter lives just above the input box, beside the model
+   switcher. */
 #chat-device-filter {
     min-width: 150px;
     max-width: 200px;
@@ -1860,11 +1870,13 @@ a.result-page-link:hover {
     border-radius: var(--radius-md);
     padding: 14px 16px;
     box-shadow: var(--shadow-sm);
+    /* Whole card is clickable: opens the Edit dialog (icon buttons keep their
+       own actions via stopPropagation), same as .device-card. */
+    cursor: pointer;
     transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* Hover highlight + lift, matching the device cards (the card itself isn't
-   clickable — actions live in .event-actions). */
+/* Hover highlight + lift, matching the device cards. */
 .event-card:hover {
     transform: translateY(-2px);
     background: color-mix(in srgb, var(--primary-color) 6%, var(--surface));

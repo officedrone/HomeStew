@@ -586,7 +586,7 @@ function renderCalendarList() {
             ? `${new Date(`${ev.next_due_date}T00:00:00`).toLocaleDateString()} · ${dueLabel(ev.next_due_date)}`
             : 'Completed';
         return `
-        <div class="event-card${statusClass}" data-id="${ev.id}">
+        <div class="event-card${statusClass}" data-id="${ev.id}" onclick="editCalendarEvent(${ev.id})">
             <div class="event-card-main">
                 <div class="event-card-title">${escapeHtml(ev.title)}</div>
                 ${ev.description ? `<div class="event-card-desc">${escapeHtml(ev.description)}</div>` : ''}
@@ -599,9 +599,9 @@ function renderCalendarList() {
             <div class="event-card-side">
                 <div class="event-when">${when}</div>
                 <div class="event-actions">
-                    ${ev.status !== 'done' ? `<button type="button" class="card-icon-btn card-icon-success" title="Mark this occurrence as done" aria-label="Mark this occurrence as done" data-dedupe onclick="completeEvent(${ev.id})">${CARD_ACTION_ICONS.check}</button>` : ''}
-                    <button type="button" class="card-icon-btn" title="Edit event" aria-label="Edit event" data-dedupe onclick="editCalendarEvent(${ev.id})">${CARD_ACTION_ICONS.edit}</button>
-                    <button type="button" class="card-icon-btn card-icon-danger" title="Delete event" aria-label="Delete event" data-dedupe onclick="deleteCalendarEvent(${ev.id})">${CARD_ACTION_ICONS.trash}</button>
+                    ${ev.status !== 'done' ? `<button type="button" class="card-icon-btn card-icon-success" title="Mark this occurrence as done" aria-label="Mark this occurrence as done" data-dedupe onclick="event.stopPropagation(); completeEvent(${ev.id})">${CARD_ACTION_ICONS.check}</button>` : ''}
+                    <button type="button" class="card-icon-btn" title="Edit event" aria-label="Edit event" data-dedupe onclick="event.stopPropagation(); editCalendarEvent(${ev.id})">${CARD_ACTION_ICONS.edit}</button>
+                    <button type="button" class="card-icon-btn card-icon-danger" title="Delete event" aria-label="Delete event" data-dedupe onclick="event.stopPropagation(); deleteCalendarEvent(${ev.id})">${CARD_ACTION_ICONS.trash}</button>
                 </div>
             </div>
         </div>`;

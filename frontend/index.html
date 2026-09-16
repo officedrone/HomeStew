@@ -145,13 +145,6 @@
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                             <span>New Session</span>
                         </button>
-                        <label class="chat-context-label" for="chat-device-filter">Context:</label>
-                        <select id="chat-device-filter" class="device-filter" title="Limit answers to one device">
-                            <option value="">All Devices</option>
-                        </select>
-                        <select id="chat-model-select" class="device-filter" title="Switch the LLM model used for answers">
-                            <option value="">No model selected</option>
-                        </select>
                     </div>
                     <div id="chat-model-warning" class="chat-model-warning" style="display: none;">
                         <span id="chat-model-warning-text" class="chat-model-warning-text"></span>
@@ -171,6 +164,18 @@
                         <button id="scroll-down-btn" class="scroll-down-btn hidden" title="Scroll to latest">
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                         </button>
+                    </div>
+
+                    <!-- Context / model pickers sit just above the message box. -->
+                    <div class="chat-input-meta">
+                        <label class="chat-context-label" for="chat-device-filter">Context:</label>
+                        <select id="chat-device-filter" class="device-filter" title="Limit answers to one device">
+                            <option value="">All Devices</option>
+                        </select>
+                        <label class="chat-context-label" for="chat-model-select">Model:</label>
+                        <select id="chat-model-select" class="device-filter" title="Switch the LLM model used for answers">
+                            <option value="">No model selected</option>
+                        </select>
                     </div>
 
                     <div class="chat-input-container">
@@ -455,7 +460,7 @@
                 <textarea id="event-description" placeholder="Description (optional)" rows="2"></textarea>
 
                 <div class="settings-field">
-                    <label for="event-device">Device</label>
+                    <label for="event-device">Device Association</label>
                     <select id="event-device">
                         <option value="">No device</option>
                     </select>
