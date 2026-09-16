@@ -226,6 +226,10 @@ class ModelStatusResponse(BaseModel):
     llm_base_url: str
     llm_model: str
     available_models_count: Optional[int] = None
+    available_models: Optional[list[str]] = Field(
+        None,
+        description="Model ids offered by the server (None when unreachable)",
+    )
     error: Optional[str] = None
 
 

@@ -199,4 +199,5 @@ async def get_model_status():
         llm_base_url=base_url,
         llm_model=settings.LLM_MODEL,
         available_models_count=len(result.models),
+        available_models=result.models,
     )

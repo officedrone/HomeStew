@@ -264,6 +264,10 @@ function setupEventListeners() {
     // Chat model warning banner: takes the user straight to Settings.
     document.getElementById('chat-open-settings-btn').addEventListener('click', openSettingsModal);
 
+    // Model switcher in the chat toolbar: picking a model saves it right away
+    // (same settings the modal writes) and re-runs the availability probe.
+    document.getElementById('chat-model-select').addEventListener('change', handleChatModelChange);
+
     // "Restore Default" buttons in Advanced Settings repopulate the built-in
     // prompt text (fetched from the API) into the matching textarea.
     document.querySelectorAll('[data-restore-default]').forEach((btn) => {
@@ -420,7 +424,8 @@ function onDeviceBodyClick(event, deviceId) {
 // Feather-style icons for the square icon-only buttons on device cards.
 const CARD_ACTION_ICONS = {
     edit: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>',
-    trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>'
+    trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>',
+    check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>'
 };
 
 // Devices tab: card grid with the full device details and actions.
@@ -594,9 +599,9 @@ function renderCalendarList() {
             <div class="event-card-side">
                 <div class="event-when">${when}</div>
                 <div class="event-actions">
-                    ${ev.status !== 'done' ? `<button class="btn btn-secondary btn-small" data-dedupe onclick="completeEvent(${ev.id})" title="Mark this occurrence as done">Done</button>` : ''}
-                    <button class="btn btn-secondary btn-small" data-dedupe onclick="editCalendarEvent(${ev.id})">Edit</button>
-                    <button class="btn btn-danger btn-small" data-dedupe onclick="deleteCalendarEvent(${ev.id})">Delete</button>
+                    ${ev.status !== 'done' ? `<button type="button" class="card-icon-btn card-icon-success" title="Mark this occurrence as done" aria-label="Mark this occurrence as done" data-dedupe onclick="completeEvent(${ev.id})">${CARD_ACTION_ICONS.check}</button>` : ''}
+                    <button type="button" class="card-icon-btn" title="Edit event" aria-label="Edit event" data-dedupe onclick="editCalendarEvent(${ev.id})">${CARD_ACTION_ICONS.edit}</button>
+                    <button type="button" class="card-icon-btn card-icon-danger" title="Delete event" aria-label="Delete event" data-dedupe onclick="deleteCalendarEvent(${ev.id})">${CARD_ACTION_ICONS.trash}</button>
                 </div>
             </div>
         </div>`;
@@ -2020,6 +2025,9 @@ async function checkChatModelStatus() {
         const response = await fetch('/api/settings/model-status');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         status = await response.json();
+        // Keep the toolbar model switcher in sync with what the server offers
+        // (and at least show the saved selection when the probe failed).
+        populateChatModelSelect(status);
     } catch (error) {
         // The status probe itself failed — treat as unavailable but keep the
         // chat usable-looking rather than blocking on our own error.
@@ -2063,6 +2071,84 @@ async function checkChatModelStatus() {
     // Reachable and the selected model is present: clear the warning.
     chatModelAvailable = true;
     banner.style.display = 'none';
+}
+
+// Fill the chat toolbar's model switcher from a /model-status result. The
+// probe already returns the server's model list, so no extra request is
+// needed; when the server was unreachable only the saved model is shown
+// (marked) so the current choice stays visible.
+function populateChatModelSelect(status) {
+    const select = document.getElementById('chat-model-select');
+    if (!select) return;
+
+    const current = (status.llm_model || '').trim();
+    const models = status.available_models || [];
+
+    select.innerHTML = '';
+    for (const modelId of models) {
+        const option = document.createElement('option');
+        option.value = modelId;
+        option.textContent = modelId;
+        select.appendChild(option);
+    }
+
+    // Keep the saved selection visible even if the server no longer lists it.
+    if (current && !models.some((m) => m.toLowerCase() === current.toLowerCase())) {
+        const staleOption = document.createElement('option');
+        staleOption.value = current;
+        staleOption.textContent = `${current} (not on this server)`;
+        select.appendChild(staleOption);
+    }
+
+    if (!select.options.length) {
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'No model selected';
+        select.appendChild(emptyOption);
+    }
+
+    // Select the saved model case-insensitively (the list may differ in case).
+    for (const option of select.options) {
+        if (option.value.toLowerCase() === current.toLowerCase()) {
+            select.value = option.value;
+            break;
+        }
+    }
+}
+
+// Persist a model picked in the chat toolbar. Blank values are the empty
+// placeholder and never saved; after saving, re-probe so the warning banner
+// (and this dropdown) reflect the new selection.
+async function handleChatModelChange() {
+    const select = document.getElementById('chat-model-select');
+    const model = select.value.trim();
+    if (!model) return;
+
+    select.disabled = true;
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ llm_model: model }),
+        });
+        if (!response.ok) {
+            let detail = `HTTP ${response.status}`;
+            try {
+                const data = await response.json();
+                if (data.detail) detail = data.detail;
+            } catch (e) { /* non-JSON error body */ }
+            throw new Error(detail);
+        }
+        showToast(`Model switched to ${model}`);
+        checkChatModelStatus();
+    } catch (error) {
+        console.error('Failed to switch model:', error);
+        showToast('Failed to switch model', 'error', error.message);
+        // Restore the dropdown to what the server actually has saved.
+        checkChatModelStatus();
+    } finally {
+        select.disabled = false;
+    }
 }
 
 function showToast(message, type = 'success', detailedError = null) {

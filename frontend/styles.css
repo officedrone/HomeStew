@@ -629,7 +629,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     border-radius: var(--radius-lg);
     padding: 16px;
     box-shadow: var(--shadow-sm);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
     /* Whole card is clickable: opens the Edit dialog. */
     cursor: pointer;
 }
@@ -637,6 +637,9 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 .device-card:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
+    /* Tint the whole card on hover so it's obvious which one is under the cursor. */
+    background: color-mix(in srgb, var(--primary-color) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
 }
 
 /* Card title row: device name on the left, square icon actions on the right. */
@@ -698,6 +701,13 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     background: color-mix(in srgb, var(--error) 10%, transparent);
     border-color: color-mix(in srgb, var(--error) 45%, transparent);
     color: var(--error);
+}
+
+/* "Mark done" gets the matching green tint on hover. */
+.card-icon-success:hover {
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+    border-color: color-mix(in srgb, var(--success) 45%, transparent);
+    color: var(--success);
 }
 
 /* The same icon buttons on the dark sidebar (Recent Devices rows): dimmer by
@@ -779,7 +789,8 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
 }
 
 #search-tab.active,
-#devices-tab.active {
+#devices-tab.active,
+#calendar-tab.active {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -1192,11 +1203,12 @@ a.result-page-link:hover {
 }
 
 /* Row above the conversation: New Session on the left, then the device
-   context dropdown ("Context: <select>"). */
+   context dropdown ("Context: <select>") and the LLM model switcher. */
 .chat-toolbar {
     display: flex;
     align-items: center;
     justify-content: flex-start;
+    flex-wrap: wrap;
     gap: 10px;
     margin-bottom: 8px;
     flex-shrink: 0;
@@ -1226,6 +1238,14 @@ a.result-page-link:hover {
 #chat-device-filter {
     min-width: 150px;
     max-width: 200px;
+    flex-shrink: 0;
+}
+
+/* Model switcher sits right after the device filter; model ids can be long,
+   so it gets a bit more room but still ellipsizes inside the native select. */
+#chat-model-select {
+    min-width: 150px;
+    max-width: 280px;
     flex-shrink: 0;
 }
 
@@ -1840,6 +1860,16 @@ a.result-page-link:hover {
     border-radius: var(--radius-md);
     padding: 14px 16px;
     box-shadow: var(--shadow-sm);
+    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Hover highlight + lift, matching the device cards (the card itself isn't
+   clickable — actions live in .event-actions). */
+.event-card:hover {
+    transform: translateY(-2px);
+    background: color-mix(in srgb, var(--primary-color) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+    box-shadow: var(--shadow-md);
 }
 
 .event-card.today {
@@ -2230,7 +2260,8 @@ a.result-page-link:hover {
         text-align: center;
     }
 
-    #chat-device-filter {
+    #chat-device-filter,
+    #chat-model-select {
         max-width: none;
         flex: 1 1 100%;
     }
