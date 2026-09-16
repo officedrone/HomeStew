@@ -179,6 +179,25 @@ class SettingsResponse(BaseModel):
     calendar_tool_description_default: str = Field(
         ..., description="Built-in default for calendar_tool_description (Restore Default)"
     )
+    notify_enabled: bool = Field(..., description="Background due-event notifier on/off")
+    notify_check_interval_minutes: int = Field(
+        ..., description="How often the notifier loop scans the calendar"
+    )
+    notify_lead_value: int = Field(..., description="Lead-time magnitude before due")
+    notify_lead_unit: str = Field(..., description="Lead-time unit: hours | days")
+    notify_webhook_enabled: bool = Field(
+        ..., description="Webhook channel on/off (requires a URL below)"
+    )
+    notify_webhook_url: str = Field(
+        ..., description="Webhook endpoint URL (empty = channel inactive)"
+    )
+    notify_webhook_token_set: bool = Field(
+        ..., description="True if a webhook bearer token is configured (value not exposed)"
+    )
+    notify_webhook_verify_ssl: bool = Field(
+        ...,
+        description="Verify TLS certificates when POSTing to the webhook URL",
+    )
 
 
 class SettingsUpdate(BaseModel):
@@ -197,6 +216,43 @@ class SettingsUpdate(BaseModel):
     )
     calendar_tool_description: Optional[str] = Field(
         None, max_length=4000, description="Custom manage_calendar tool description"
+    )
+    notify_enabled: Optional[bool] = None
+    notify_check_interval_minutes: Optional[int] = Field(
+        None, ge=1, le=1440, description="Notifier scan cadence in minutes"
+    )
+    notify_lead_value: Optional[int] = Field(
+        None, ge=1, le=365, description="Notify this many hours/days before due"
+    )
+    notify_lead_unit: Optional[Literal["hours", "days"]] = None
+    notify_webhook_enabled: Optional[bool] = None
+    notify_webhook_url: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Webhook URL; blank clears it (channel goes inactive)",
+    )
+    notify_webhook_token: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Bearer token; blank keeps the existing token",
+    )
+    notify_webhook_verify_ssl: Optional[bool] = Field(
+        None,
+        description="Validate TLS certificates for webhook POSTs (uncheck for self-signed certs)",
+    )
+
+
+class WebhookTestRequest(BaseModel):
+    """Optionally override webhook URL / token when sending a test payload.
+
+    Blank/omitted values fall back to the currently saved settings, so the
+    Settings UI can test a freshly typed (not yet saved) configuration.
+    """
+    webhook_url: Optional[str] = Field(None, max_length=500)
+    webhook_token: Optional[str] = Field(None, max_length=500)
+    verify_ssl: Optional[bool] = Field(
+        None,
+        description="TLS verification for this test; omitted uses the saved setting",
     )
 
 

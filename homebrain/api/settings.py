@@ -45,6 +45,14 @@ def _current_settings() -> SettingsResponse:
         chat_system_prompt_default=DEFAULT_CHAT_SYSTEM_PROMPT,
         search_tool_description_default=DEFAULT_SEARCH_TOOL_DESCRIPTION,
         calendar_tool_description_default=DEFAULT_CALENDAR_TOOL_DESCRIPTION,
+        notify_enabled=settings.NOTIFY_ENABLED,
+        notify_check_interval_minutes=settings.NOTIFY_CHECK_INTERVAL_MINUTES,
+        notify_lead_value=settings.NOTIFY_LEAD_VALUE,
+        notify_lead_unit=settings.NOTIFY_LEAD_UNIT,
+        notify_webhook_enabled=settings.NOTIFY_WEBHOOK_ENABLED,
+        notify_webhook_url=settings.NOTIFY_WEBHOOK_URL,
+        notify_webhook_token_set=bool(settings.NOTIFY_WEBHOOK_TOKEN),
+        notify_webhook_verify_ssl=settings.NOTIFY_WEBHOOK_VERIFY_SSL,
     )
 
 
@@ -96,6 +104,40 @@ async def update_settings(update: SettingsUpdate):
         changes["CALENDAR_TOOL_DESCRIPTION"] = (
             update.calendar_tool_description.strip() or DEFAULT_CALENDAR_TOOL_DESCRIPTION
         )
+
+    # Notifications: the notifier loop re-reads these each tick, so saving is
+    # enough — no restart or client reset needed.
+    if update.notify_enabled is not None:
+        changes["NOTIFY_ENABLED"] = update.notify_enabled
+    if update.notify_check_interval_minutes is not None:
+        changes["NOTIFY_CHECK_INTERVAL_MINUTES"] = update.notify_check_interval_minutes
+    if update.notify_lead_value is not None:
+        changes["NOTIFY_LEAD_VALUE"] = update.notify_lead_value
+    if update.notify_lead_unit is not None:
+        changes["NOTIFY_LEAD_UNIT"] = update.notify_lead_unit
+    if update.notify_webhook_enabled is not None:
+        changes["NOTIFY_WEBHOOK_ENABLED"] = update.notify_webhook_enabled
+
+    # Webhook URL: unlike the API key, a blank value intentionally clears it
+    # (the UI round-trips the real URL from GET, so blank only means "remove").
+    if update.notify_webhook_url is not None:
+        url = update.notify_webhook_url.strip()
+        if url and not url.startswith(("http://", "https://")):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Webhook URL must start with http:// or https://"
+            )
+        changes["NOTIFY_WEBHOOK_URL"] = url
+
+    # Webhook bearer token: blank/omitted keeps the existing token, exactly
+    # like llm_api_key above — its value is never returned by GET.
+    if update.notify_webhook_token is not None and update.notify_webhook_token.strip():
+        changes["NOTIFY_WEBHOOK_TOKEN"] = update.notify_webhook_token.strip()
+
+    # SSL validation toggle: a plain boolean, so False must be applied too
+    # (None means "unchanged", which the Optional schema already gives us).
+    if update.notify_webhook_verify_ssl is not None:
+        changes["NOTIFY_WEBHOOK_VERIFY_SSL"] = update.notify_webhook_verify_ssl
 
     if not changes:
         return _current_settings()

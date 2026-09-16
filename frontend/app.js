@@ -263,6 +263,7 @@ function setupEventListeners() {
     });
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
+    document.getElementById('test-webhook-btn').addEventListener('click', () => sendTestNotification());
     setupModelDropdownRefresh();
 
     // Chat model warning banner: takes the user straight to Settings.
@@ -2370,6 +2371,36 @@ async function openSettingsModal() {
         settings.search_tool_description || '';
     document.getElementById('settings-calendar-tool-description').value =
         settings.calendar_tool_description || '';
+    // Notifications: enable toggle, cadence, lead time and webhook fields.
+    document.getElementById('settings-notify-enabled').checked = !!settings.notify_enabled;
+    document.getElementById('settings-notify-interval').value =
+        settings.notify_check_interval_minutes ?? 15;
+    document.getElementById('settings-notify-lead-value').value =
+        settings.notify_lead_value ?? 24;
+    document.getElementById('settings-notify-lead-unit').value =
+        settings.notify_lead_unit === 'days' ? 'days' : 'hours';
+    document.getElementById('settings-notify-webhook-enabled').checked =
+        !!settings.notify_webhook_enabled;
+    document.getElementById('settings-notify-webhook-url').value =
+        settings.notify_webhook_url || '';
+    // SSL validation defaults to on; only an explicit false unchecks it.
+    document.getElementById('settings-notify-webhook-verify-ssl').checked =
+        settings.notify_webhook_verify_ssl !== false;
+
+    // Webhook bearer token: same placeholder treatment as the LLM API key —
+    // the value is never sent to the client, blank on save keeps it.
+    const tokenInput = document.getElementById('settings-notify-webhook-token');
+    tokenInput.value = '';
+    if (settings.notify_webhook_token_set) {
+        tokenInput.placeholder = API_KEY_PLACEHOLDER;
+        document.getElementById('settings-webhook-token-hint').textContent =
+            'A token is configured. Leave blank to keep it, or type a new one to replace it.';
+    } else {
+        tokenInput.placeholder = '';
+        document.getElementById('settings-webhook-token-hint').textContent = '';
+    }
+    document.getElementById('webhook-test-hint').textContent = '';
+
     // Always open the modal with Advanced collapsed, on the General section.
     document.getElementById('advanced-settings-section').open = false;
     showSettingsSection('general');
@@ -2413,6 +2444,14 @@ function populateModelSelect(modelIds) {
     if (current) {
         select.value = current;
     }
+}
+
+// Parse an <input type=number> into an integer clamped to [min, max]; a
+// blank/invalid value falls back to `fallback` so saving never sends NaN.
+function clampInt(raw, min, max, fallback) {
+    const n = parseInt(String(raw).trim(), 10);
+    if (Number.isNaN(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
 }
 
 // Guards against overlapping refreshes when the dropdown is clicked rapidly.
@@ -2481,6 +2520,56 @@ async function fetchLlmModels({ openPicker = false } = {}) {
     }
 }
 
+// Guards against overlapping test sends from the Notifications panel.
+let webhookTestInFlight = false;
+
+// POST a sample payload to /api/notifications/test using whatever URL/token
+// are currently in the form (saved or freshly typed), mirroring fetchLlmModels.
+async function sendTestNotification() {
+    if (webhookTestInFlight) return;
+
+    const hint = document.getElementById('webhook-test-hint');
+    const btn = document.getElementById('test-webhook-btn');
+
+    const url = document.getElementById('settings-notify-webhook-url').value.trim();
+    if (!url) {
+        hint.textContent = 'Enter the Webhook URL first, then send a test.';
+        return;
+    }
+
+    const payload = { webhook_url: url };
+    // Only send a freshly typed token; if blank, the server uses the saved one.
+    const token = document.getElementById('settings-notify-webhook-token').value.trim();
+    if (token) payload.webhook_token = token;
+    // Send the checkbox state so an unsaved change is testable immediately.
+    payload.verify_ssl = document.getElementById('settings-notify-webhook-verify-ssl').checked;
+
+    webhookTestInFlight = true;
+    btn.disabled = true;
+    hint.textContent = 'Sending test notification...';
+    try {
+        const response = await fetch('/api/notifications/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            let detail = `HTTP ${response.status}`;
+            try {
+                const data = await response.json();
+                if (data.detail) detail = data.detail;
+            } catch (e) { /* non-JSON error body */ }
+            throw new Error(detail);
+        }
+        hint.textContent = 'Test notification sent — check your webhook receiver.';
+    } catch (error) {
+        hint.textContent = error.message;
+    } finally {
+        webhookTestInFlight = false;
+        btn.disabled = false;
+    }
+}
+
 // Clicking (or keyboard-opening) the model dropdown refreshes its options
 // from the server first, then opens the list — so users always see fresh
 // models without a separate "fetch" step.
@@ -2517,11 +2606,27 @@ async function handleSettingsSave(event) {
         chat_system_prompt: document.getElementById('settings-chat-system-prompt').value.trim(),
         search_tool_description: document.getElementById('settings-search-tool-description').value.trim(),
         calendar_tool_description: document.getElementById('settings-calendar-tool-description').value.trim(),
+        notify_enabled: document.getElementById('settings-notify-enabled').checked,
+        notify_check_interval_minutes:
+            clampInt(document.getElementById('settings-notify-interval').value, 1, 1440, 15),
+        notify_lead_value:
+            clampInt(document.getElementById('settings-notify-lead-value').value, 1, 365, 24),
+        notify_lead_unit: document.getElementById('settings-notify-lead-unit').value,
+        notify_webhook_enabled: document.getElementById('settings-notify-webhook-enabled').checked,
+        // Blank URL intentionally clears it (server treats blank as "remove"),
+        // matching how the field round-trips its real value from GET.
+        notify_webhook_url: document.getElementById('settings-notify-webhook-url').value.trim(),
+        notify_webhook_verify_ssl:
+            document.getElementById('settings-notify-webhook-verify-ssl').checked,
     };
     // Blank API key field means "keep the existing key" — omit it entirely.
     // (The obscured placeholder is only a visual hint, never a value.)
     const apiKey = document.getElementById('settings-llm-api-key').value.trim();
     if (apiKey) payload.llm_api_key = apiKey;
+
+    // Same keep-existing semantics for the webhook bearer token.
+    const webhookToken = document.getElementById('settings-notify-webhook-token').value.trim();
+    if (webhookToken) payload.notify_webhook_token = webhookToken;
 
     const saveBtn = document.getElementById('settings-save-btn');
     saveBtn.disabled = true;

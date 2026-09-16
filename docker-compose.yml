@@ -9,6 +9,11 @@ services:
     volumes:
       # Persistent data storage (PDFs, database)
       - ./data:/data
+    # Uncomment so webhook URLs can target services running on the host via
+    # http://host.docker.internal:<port>. Modern Docker Desktop already
+    # provides this name natively; it is required on Linux Docker engines.
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     environment:
       # LLM Configuration - adjust based on your setup
       - LLM_BASE_URL=http://localhost:11434/v1  # Ollama default

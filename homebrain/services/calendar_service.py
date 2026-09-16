@@ -5,7 +5,7 @@ queries (e.g. injecting upcoming maintenance into the system prompt) without
 importing FastAPI code paths.
 """
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from homebrain.db import get_db_context
@@ -159,3 +159,42 @@ async def upcoming_for_device(
 ) -> List[Dict[str, Any]]:
     """Events due within ``days`` (overdue included), optionally per device."""
     return await list_events(device_id=device_id, within_days=days)
+
+
+async def list_notify_candidates(
+    within_days: int,
+    today: Optional[date] = None,
+) -> List[Dict[str, Any]]:
+    """Events eligible for a due/overdue notification alert.
+
+    Same shape as ``list_events`` rows except that an UNCOMPLETED one-time
+    event whose date has passed keeps its (past) start_date as next_due_date
+    with status 'overdue'. The regular list_events treats such events as done
+    — which is right for the Calendar tab, but would make a missed one-time
+    reminder invisible to the notifier. Completed events stay excluded.
+    """
+    today = today or date.today()
+    async with get_db_context() as db:
+        cursor = await db.execute(_SELECT + " ORDER BY e.start_date ASC, e.id ASC")
+        rows = await cursor.fetchall()
+
+    horizon = (today + timedelta(days=within_days)).toordinal()
+    events: List[Dict[str, Any]] = []
+    for row in rows:
+        event = _row_to_event(row, today)
+        if (
+            event["next_due_date"] is None
+            and event["recurrence_type"] == "none"
+            and event["last_completed_at"] is None
+        ):
+            # Missed one-time occurrence: still pending, just overdue.
+            event["next_due_date"] = event["start_date"]
+            event["status"] = event_status(event["next_due_date"], today)
+        if (
+            event["next_due_date"] is not None
+            and event["next_due_date"].toordinal() <= horizon
+        ):
+            events.append(event)
+
+    events.sort(key=lambda e: (e["next_due_date"] or date.max, e["id"]))
+    return events

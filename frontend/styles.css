@@ -1696,6 +1696,46 @@ details.chat-input-meta {
     accent-color: var(--primary-color);
 }
 
+/* Notification checkboxes: label text and box inline on one line, matching
+   the radio options above (same reset for the block-level input styling). */
+.settings-field .checkbox-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    margin-bottom: 0;
+}
+
+.settings-field input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
+
+/* Sub-heading inside a settings panel (e.g. the Webhook group in Notifications) */
+.settings-subheading {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+    margin: 22px 0 14px;
+}
+
+/* "Send Test" row: explanatory text fills the space a field input would */
+.webhook-test-label {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0;
+}
+
 /* Settings modal fields */
 .settings-field {
     margin-bottom: 16px;

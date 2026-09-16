@@ -23,6 +23,14 @@ EDITABLE_SETTINGS = (
     "CHAT_SYSTEM_PROMPT",
     "SEARCH_TOOL_DESCRIPTION",
     "CALENDAR_TOOL_DESCRIPTION",
+    "NOTIFY_ENABLED",
+    "NOTIFY_CHECK_INTERVAL_MINUTES",
+    "NOTIFY_LEAD_VALUE",
+    "NOTIFY_LEAD_UNIT",
+    "NOTIFY_WEBHOOK_ENABLED",
+    "NOTIFY_WEBHOOK_URL",
+    "NOTIFY_WEBHOOK_TOKEN",
+    "NOTIFY_WEBHOOK_VERIFY_SSL",
 )
 
 
@@ -53,6 +61,25 @@ class Settings(BaseSettings):
     CHAT_SYSTEM_PROMPT: str = DEFAULT_CHAT_SYSTEM_PROMPT
     SEARCH_TOOL_DESCRIPTION: str = DEFAULT_SEARCH_TOOL_DESCRIPTION
     CALENDAR_TOOL_DESCRIPTION: str = DEFAULT_CALENDAR_TOOL_DESCRIPTION
+
+    # Notifications — a background loop (services/notifier.py) checks calendar
+    # events every NOTIFY_CHECK_INTERVAL_MINUTES minutes and alerts when one is
+    # overdue or due within the lead time (value + hours/days unit). The loop
+    # re-reads these values each tick, so UI changes apply without a restart.
+    NOTIFY_ENABLED: bool = False
+    NOTIFY_CHECK_INTERVAL_MINUTES: int = 15
+    NOTIFY_LEAD_VALUE: int = 24
+    NOTIFY_LEAD_UNIT: str = "hours"  # 'hours' | 'days'
+
+    # Webhook notification channel — generic JSON POST to the user's URL.
+    # The token is an optional bearer secret; like the LLM API key its value
+    # is never returned by the settings API, only whether one is configured.
+    NOTIFY_WEBHOOK_ENABLED: bool = True
+    NOTIFY_WEBHOOK_URL: str = ""
+    NOTIFY_WEBHOOK_TOKEN: str = ""
+    # When False, webhook POSTs skip TLS certificate verification — needed for
+    # receivers with self-signed certs (e.g. a LAN Synology DSM webhook).
+    NOTIFY_WEBHOOK_VERIFY_SSL: bool = True
     
     # Data directories
     DATA_DIR: Path = Path("/data")

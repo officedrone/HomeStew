@@ -150,6 +150,23 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_calendar_events_device 
             ON calendar_events(device_id)
         """)
+
+        # Notification ledger — one row per (event, occurrence, kind) already
+        # delivered. The background loop re-scans every tick, so this is what
+        # makes a due/overdue alert fire exactly once; recurring events re-alert
+        # on future occurrences because the due date differs. Rows cascade with
+        # their event. See services/notifier.py.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS notification_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER NOT NULL,
+                due_date DATE NOT NULL,
+                kind TEXT NOT NULL,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(event_id, due_date, kind),
+                FOREIGN KEY (event_id) REFERENCES calendar_events(id) ON DELETE CASCADE
+            )
+        """)
         
         # Create FTS5 virtual table for PDF content search.
         #

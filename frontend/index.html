@@ -392,6 +392,7 @@
                     <nav class="settings-nav" aria-label="Settings sections">
                         <button type="button" class="settings-nav-btn active" data-settings-section="general">General</button>
                         <button type="button" class="settings-nav-btn" data-settings-section="ai">AI</button>
+                        <button type="button" class="settings-nav-btn" data-settings-section="notifications">Notifications</button>
                     </nav>
 
                     <div class="settings-panels">
@@ -461,6 +462,65 @@
                                     <p class="settings-hint">Tells the LLM how to manage your maintenance reminders.</p>
                                 </div>
                             </details>
+                        </section>
+
+                        <!-- Notifications -->
+                        <section id="settings-panel-notifications" class="settings-panel" hidden>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-notify-enabled">
+                                    <input type="checkbox" id="settings-notify-enabled">
+                                    Enable notifications
+                                </label>
+                                <p class="settings-hint">HomeBrain periodically checks your calendar and alerts you when a maintenance task is due or overdue.</p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-interval">Check every (minutes)</label>
+                                <input type="number" id="settings-notify-interval" min="1" max="1440" step="1">
+                                <p class="settings-hint">How often the background check runs. Changes apply without a restart.</p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-lead-value">Notify before due</label>
+                                <div class="model-row">
+                                    <input type="number" id="settings-notify-lead-value" min="1" max="365" step="1">
+                                    <select id="settings-notify-lead-unit">
+                                        <option value="hours">Hours</option>
+                                        <option value="days">Days</option>
+                                    </select>
+                                </div>
+                                <p class="settings-hint">Send an alert this far ahead of the due date. Overdue tasks are also alerted once.</p>
+                            </div>
+
+                            <h4 class="settings-subheading">Webhook</h4>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-notify-webhook-enabled">
+                                    <input type="checkbox" id="settings-notify-webhook-enabled">
+                                    Enable webhook channel
+                                </label>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-webhook-url">Webhook URL</label>
+                                <input type="url" id="settings-notify-webhook-url" placeholder="https://example.com/hooks/homebrain">
+                                <p class="settings-hint">HomeBrain POSTs a JSON body (event title, due date, device…) to this URL. Works with custom receivers, Node-RED, Home Assistant webhooks and similar.</p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-webhook-token">Bearer Token (optional)</label>
+                                <input type="password" id="settings-notify-webhook-token" autocomplete="new-password">
+                                <p class="settings-hint" id="settings-webhook-token-hint"></p>
+                            </div>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-notify-webhook-verify-ssl">
+                                    <input type="checkbox" id="settings-notify-webhook-verify-ssl">
+                                    Validate SSL
+                                </label>
+                                <p class="settings-hint">Verify the webhook server's TLS certificate. Uncheck only if your receiver uses a self-signed or internal-CA certificate (e.g. a LAN Synology NAS).</p>
+                            </div>
+                            <div class="settings-field">
+                                <div class="model-row">
+                                    <span class="settings-hint webhook-test-label">Send a sample notification to test the URL.</span>
+                                    <button type="button" class="btn btn-secondary" id="test-webhook-btn">Send Test</button>
+                                </div>
+                                <p class="settings-hint" id="webhook-test-hint"></p>
+                            </div>
                         </section>
                     </div>
                 </div>

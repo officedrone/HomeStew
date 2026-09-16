@@ -1,0 +1,54 @@
+"""Notification API endpoints (webhook test sends)."""
+import logging
+
+import requests
+from fastapi import APIRouter, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
+
+from homebrain.config import settings
+from homebrain.models.schemas import WebhookTestRequest
+from homebrain.services.notifier import build_test_payload
+from homebrain.services.notify_channels import send_test_webhook
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+
+@router.post("/test")
+async def test_webhook(test: WebhookTestRequest):
+    """Send a sample payload to the webhook so the user can verify it works.
+
+    Mirrors the settings model-probe pattern: URL/token from the request body
+    win over saved values (so unsaved edits are testable), connection errors
+    and non-2xx responses become a friendly 502. This never writes the dedupe
+    ledger and does not require notifications to be enabled — testing before
+    switching the feature on is expected.
+    """
+    url = (test.webhook_url or "").strip() or settings.NOTIFY_WEBHOOK_URL
+    if not url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No webhook URL configured",
+        )
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Webhook URL must start with http:// or https://",
+        )
+
+    token = (test.webhook_token or "").strip() or settings.NOTIFY_WEBHOOK_TOKEN
+    payload = build_test_payload()
+
+    try:
+        await run_in_threadpool(
+            lambda: send_test_webhook(payload, url, token, test.verify_ssl)
+        )
+    except requests.RequestException as exc:
+        logger.warning("Webhook test to %s failed: %s", url, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The webhook could not be reached or rejected the request",
+        )
+
+    return {"ok": True}

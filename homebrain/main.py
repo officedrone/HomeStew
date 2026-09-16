@@ -2,6 +2,7 @@
 
 A simple web application that helps you manage and search through device manuals.
 """
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -17,6 +18,8 @@ from homebrain.api.search import router as search_router
 from homebrain.api.chat import router as chat_router
 from homebrain.api.settings import router as settings_router
 from homebrain.api.calendar import router as calendar_router
+from homebrain.api.notifications import router as notifications_router
+from homebrain.services.notifier import notification_loop
 
 # Configure logging
 logging.basicConfig(
@@ -34,9 +37,20 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info(f"Data directory: {settings.DATA_DIR}")
     logger.info(f"LLM model: {settings.LLM_MODEL}")
-    
+
+    # Background due-event notifier (services/notifier.py). uvicorn runs a
+    # single process, so one task per container is enough; it re-reads the
+    # notify_* settings every tick and no-ops while NOTIFY_ENABLED is off.
+    notifier_task = asyncio.create_task(notification_loop())
+
     yield
-    
+
+    notifier_task.cancel()
+    try:
+        await notifier_task
+    except asyncio.CancelledError:
+        pass
+
     # Shutdown
     logger.info("Shutting down HomeBrain...")
 
@@ -80,6 +94,7 @@ app.include_router(search_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
 app.include_router(calendar_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")
 
 
 @app.get("/health")
