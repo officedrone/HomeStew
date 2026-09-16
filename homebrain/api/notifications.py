@@ -40,15 +40,21 @@ async def test_webhook(test: WebhookTestRequest):
     token = (test.webhook_token or "").strip() or settings.NOTIFY_WEBHOOK_TOKEN
     payload = build_test_payload()
 
+    wtype = test.webhook_type or getattr(settings, "NOTIFY_WEBHOOK_TYPE", "generic")
+
     try:
         await run_in_threadpool(
-            lambda: send_test_webhook(payload, url, token, test.verify_ssl)
+            lambda: send_test_webhook(payload, url, token, test.verify_ssl, wtype)
         )
     except requests.RequestException as exc:
         logger.warning("Webhook test to %s failed: %s", url, exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="The webhook could not be reached or rejected the request",
-        )
+        # Synology Chat answers HTTP 200 with {"success": false} on rejection;
+        # send_test_webhook turns that into an exception whose message names
+        # the reason (e.g. an invalid token). When the server responded at all,
+        # pass its explanation through; pure connection errors stay generic.
+        detail = "The webhook could not be reached or rejected the request"
+        if getattr(exc, "response", None) is not None:
+            detail = str(exc)[:300] or detail
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
 
     return {"ok": True}

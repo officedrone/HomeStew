@@ -264,6 +264,10 @@ function setupEventListeners() {
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
     document.getElementById('test-webhook-btn').addEventListener('click', () => sendTestNotification());
+    // Switching webhook type updates the URL hint and hides the bearer-token
+    // field (Synology Chat authenticates via the token= param in its URL).
+    document.getElementById('settings-notify-webhook-type').addEventListener(
+        'change', updateWebhookTypeHints);
     setupModelDropdownRefresh();
 
     // Chat model warning banner: takes the user straight to Settings.
@@ -2381,6 +2385,9 @@ async function openSettingsModal() {
         settings.notify_lead_unit === 'days' ? 'days' : 'hours';
     document.getElementById('settings-notify-webhook-enabled').checked =
         !!settings.notify_webhook_enabled;
+    document.getElementById('settings-notify-webhook-type').value =
+        settings.notify_webhook_type === 'synology' ? 'synology' : 'generic';
+    updateWebhookTypeHints();
     document.getElementById('settings-notify-webhook-url').value =
         settings.notify_webhook_url || '';
     // SSL validation defaults to on; only an explicit false unchecks it.
@@ -2410,6 +2417,29 @@ async function openSettingsModal() {
 
 function closeSettingsModal() {
     document.getElementById('settings-modal').style.display = 'none';
+}
+
+// Per-type help text for the webhook fields. Synology Chat incoming webhooks
+// take their token in the URL and want form-encoded payload={text} bodies,
+// so the generic bearer-token field is hidden for them.
+function updateWebhookTypeHints() {
+    const type = document.getElementById('settings-notify-webhook-type').value;
+    const urlHint = document.getElementById('webhook-url-hint');
+    const tokenField = document.getElementById(
+        'settings-notify-webhook-token').closest('.settings-field');
+    if (type === 'synology') {
+        urlHint.textContent =
+            'Paste the full Incoming Webhook URL from DSM > Chat > Integration, '
+            + 'including its token= parameter. HomeBrain sends Chat\u2019s '
+            + 'payload={"text": ...} format.';
+        tokenField.style.display = 'none';
+    } else {
+        urlHint.textContent =
+            'HomeBrain POSTs a JSON body (event title, due date, device\u2026) to '
+            + 'this URL. Works with custom receivers, Node-RED, Home Assistant '
+            + 'webhooks and similar.';
+        tokenField.style.display = '';
+    }
 }
 
 // Fill the LLM Model <select> from a model id list. The currently selected
@@ -2543,6 +2573,8 @@ async function sendTestNotification() {
     if (token) payload.webhook_token = token;
     // Send the checkbox state so an unsaved change is testable immediately.
     payload.verify_ssl = document.getElementById('settings-notify-webhook-verify-ssl').checked;
+    // Same for the webhook type dropdown (generic JSON vs Synology Chat).
+    payload.webhook_type = document.getElementById('settings-notify-webhook-type').value;
 
     webhookTestInFlight = true;
     btn.disabled = true;
@@ -2613,6 +2645,7 @@ async function handleSettingsSave(event) {
             clampInt(document.getElementById('settings-notify-lead-value').value, 1, 365, 24),
         notify_lead_unit: document.getElementById('settings-notify-lead-unit').value,
         notify_webhook_enabled: document.getElementById('settings-notify-webhook-enabled').checked,
+        notify_webhook_type: document.getElementById('settings-notify-webhook-type').value,
         // Blank URL intentionally clears it (server treats blank as "remove"),
         // matching how the field round-trips its real value from GET.
         notify_webhook_url: document.getElementById('settings-notify-webhook-url').value.trim(),

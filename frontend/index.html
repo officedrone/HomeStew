@@ -498,9 +498,17 @@
                                 </label>
                             </div>
                             <div class="settings-field">
+                                <label for="settings-notify-webhook-type">Webhook Type</label>
+                                <select id="settings-notify-webhook-type">
+                                    <option value="generic">Generic (JSON POST)</option>
+                                    <option value="synology">Synology Chat (incoming webhook)</option>
+                                </select>
+                                <p class="settings-hint" id="webhook-type-hint"></p>
+                            </div>
+                            <div class="settings-field">
                                 <label for="settings-notify-webhook-url">Webhook URL</label>
                                 <input type="url" id="settings-notify-webhook-url" placeholder="https://example.com/hooks/homebrain">
-                                <p class="settings-hint">HomeBrain POSTs a JSON body (event title, due date, device…) to this URL. Works with custom receivers, Node-RED, Home Assistant webhooks and similar.</p>
+                                <p class="settings-hint" id="webhook-url-hint">HomeBrain POSTs a JSON body (event title, due date, device…) to this URL. Works with custom receivers, Node-RED, Home Assistant webhooks and similar.</p>
                             </div>
                             <div class="settings-field">
                                 <label for="settings-notify-webhook-token">Bearer Token (optional)</label>

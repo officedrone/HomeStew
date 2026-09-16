@@ -50,6 +50,7 @@ def _current_settings() -> SettingsResponse:
         notify_lead_value=settings.NOTIFY_LEAD_VALUE,
         notify_lead_unit=settings.NOTIFY_LEAD_UNIT,
         notify_webhook_enabled=settings.NOTIFY_WEBHOOK_ENABLED,
+        notify_webhook_type=getattr(settings, "NOTIFY_WEBHOOK_TYPE", "generic"),
         notify_webhook_url=settings.NOTIFY_WEBHOOK_URL,
         notify_webhook_token_set=bool(settings.NOTIFY_WEBHOOK_TOKEN),
         notify_webhook_verify_ssl=settings.NOTIFY_WEBHOOK_VERIFY_SSL,
@@ -117,6 +118,9 @@ async def update_settings(update: SettingsUpdate):
         changes["NOTIFY_LEAD_UNIT"] = update.notify_lead_unit
     if update.notify_webhook_enabled is not None:
         changes["NOTIFY_WEBHOOK_ENABLED"] = update.notify_webhook_enabled
+    # Webhook kind (generic JSON vs Synology Chat): validated by the schema.
+    if update.notify_webhook_type is not None:
+        changes["NOTIFY_WEBHOOK_TYPE"] = update.notify_webhook_type
 
     # Webhook URL: unlike the API key, a blank value intentionally clears it
     # (the UI round-trips the real URL from GET, so blank only means "remove").
