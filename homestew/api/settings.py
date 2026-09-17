@@ -1,5 +1,6 @@
 """Application settings API endpoints (LLM configuration)."""
 import logging
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from fastapi import APIRouter, HTTPException, status
@@ -24,13 +25,40 @@ logger = logging.getLogger(__name__)
 # How long to wait for the LLM server when probing its model list.
 MODEL_LIST_TIMEOUT = 10
 
+# Maps clear_secrets request values to settings attribute names.
+_CLEARABLE_SECRETS = {
+    "llm_api_key": "LLM_API_KEY",
+    "notify_webhook_url": "NOTIFY_WEBHOOK_URL",
+    "notify_webhook_token": "NOTIFY_WEBHOOK_TOKEN",
+}
+
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+def _normalize_base_url(base_url: str) -> str:
+    """Canonical form of an LLM base URL for equality checks.
+
+    Lowercases scheme+host and strips a trailing slash (and a trailing "/v1"
+    is kept — servers are addressed consistently enough that this matters
+    only to decide whether the saved API key may be sent).
+    """
+    base_url = base_url.strip().rstrip("/")
+    try:
+        parts = urlsplit(base_url)
+    except ValueError:
+        return base_url.lower()
+    if not parts.netloc:
+        return base_url.lower()
+    netloc = parts.netloc.lower()
+    path = parts.path.rstrip("/")
+    return urlunsplit((parts.scheme.lower(), netloc, path, parts.query, ""))
 
 
 def _current_settings() -> SettingsResponse:
     """Build the response from the live settings singleton.
 
-    The API key value is never returned — only whether one is configured.
+    Secret values (API key, webhook URL and token — Synology webhook URLs
+    embed their token) are never returned — only whether each is configured.
     The built-in prompt defaults are included so the UI's "Restore Default"
     buttons can repopulate them without shipping a second copy of the text.
     """
@@ -51,9 +79,11 @@ def _current_settings() -> SettingsResponse:
         notify_lead_unit=settings.NOTIFY_LEAD_UNIT,
         notify_webhook_enabled=settings.NOTIFY_WEBHOOK_ENABLED,
         notify_webhook_type=getattr(settings, "NOTIFY_WEBHOOK_TYPE", "generic"),
-        notify_webhook_url=settings.NOTIFY_WEBHOOK_URL,
+        notify_webhook_url_set=bool(settings.NOTIFY_WEBHOOK_URL),
         notify_webhook_token_set=bool(settings.NOTIFY_WEBHOOK_TOKEN),
         notify_webhook_verify_ssl=settings.NOTIFY_WEBHOOK_VERIFY_SSL,
+        secrets_encrypted=settings.secrets_encrypted,
+        unreadable_secrets=list(settings.unreadable_secrets),
     )
 
 
@@ -67,8 +97,9 @@ async def get_settings():
 async def update_settings(update: SettingsUpdate):
     """Update LLM settings, persist them and apply immediately.
 
-    Blank/omitted fields are left unchanged — in particular an empty
-    llm_api_key means "keep the existing key".
+    Blank/omitted secret fields are left unchanged — in particular an empty
+    llm_api_key means "keep the existing key". Use ``clear_secrets`` to
+    remove a stored secret (the UI's Remove buttons).
     """
     changes = {}
 
@@ -122,11 +153,11 @@ async def update_settings(update: SettingsUpdate):
     if update.notify_webhook_type is not None:
         changes["NOTIFY_WEBHOOK_TYPE"] = update.notify_webhook_type
 
-    # Webhook URL: unlike the API key, a blank value intentionally clears it
-    # (the UI round-trips the real URL from GET, so blank only means "remove").
-    if update.notify_webhook_url is not None:
+    # Webhook URL: like the API key it is write-only, so a blank value keeps
+    # the stored URL; removal goes through clear_secrets.
+    if update.notify_webhook_url is not None and update.notify_webhook_url.strip():
         url = update.notify_webhook_url.strip()
-        if url and not url.startswith(("http://", "https://")):
+        if not url.startswith(("http://", "https://")):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Webhook URL must start with http:// or https://"
@@ -142,6 +173,11 @@ async def update_settings(update: SettingsUpdate):
     # (None means "unchanged", which the Optional schema already gives us).
     if update.notify_webhook_verify_ssl is not None:
         changes["NOTIFY_WEBHOOK_VERIFY_SSL"] = update.notify_webhook_verify_ssl
+
+    # Explicit secret removal (UI Remove buttons). Applied after the updates
+    # above; an empty string persists as "cleared" (load treats it as unset).
+    for name in update.clear_secrets or []:
+        changes[_CLEARABLE_SECRETS[name]] = ""
 
     if not changes:
         return _current_settings()
@@ -176,6 +212,12 @@ async def list_llm_models(probe: ModelListRequest):
     freshly typed, unsaved configuration can be probed), otherwise falls back
     to the currently saved settings. The key is only ever sent to the server
     itself and never logged or returned.
+
+    Security: the *saved* key is attached only when the effective URL matches
+    the saved base URL. A different (typed) URL can be probed with a freshly
+    typed key, but never silently carries the stored one — otherwise this
+    endpoint would let any caller ship the saved credential to an arbitrary
+    host.
     """
     base_url = (probe.llm_base_url or "").strip() or settings.LLM_BASE_URL
     base_url = base_url.rstrip("/")
@@ -185,7 +227,13 @@ async def list_llm_models(probe: ModelListRequest):
             detail="LLM base URL must start with http:// or https://"
         )
 
-    api_key = (probe.llm_api_key or "").strip() or settings.LLM_API_KEY
+    typed_key = (probe.llm_api_key or "").strip()
+    if typed_key:
+        api_key = typed_key
+    elif _normalize_base_url(base_url) == _normalize_base_url(settings.LLM_BASE_URL):
+        api_key = settings.LLM_API_KEY
+    else:
+        api_key = ""
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     try:

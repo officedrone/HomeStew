@@ -96,12 +96,14 @@ The AI will automatically search your manuals and provide answers based on the a
 
 ### Environment Variables
 
-| Variable       | Default                     | Description                           |
-| -------------- | --------------------------- | ------------------------------------- |
-| `LLM_BASE_URL` | `http://localhost:11434/v1` | LLM API endpoint (Ollama, vLLM, etc.) |
-| `LLM_API_KEY`  | `changeme`                  | API key (ignored by local servers)    |
-| `LLM_MODEL`    | `llama3.2`                  | Model name to use                     |
-| `DATA_DIR`     | `/data`                     | Persistent data directory             |
+| Variable                | Default                              | Description                                        |
+| ----------------------- | ------------------------------------ | -------------------------------------------------- |
+| `LLM_BASE_URL`          | `http://localhost:11434/v1`          | LLM API endpoint (Ollama, vLLM, etc.)              |
+| `LLM_API_KEY`           | *(empty)*                            | API key (ignored by local servers)                 |
+| `LLM_MODEL`             | `llama3.2`                           | Model name to use                                  |
+| `DATA_DIR`              | `/data`                              | Persistent data directory                          |
+| `SECRETS_KEY_FILE`      | `/run/secrets/homestew_secret_key`   | Master-key file for secret encryption (see Secrets) |
+| `EXTRA_ALLOWED_ORIGINS` | *(empty — same-origin only)*         | Comma-separated origins allowed cross-origin API access |
 
 ### Example: Using with Ollama
 
@@ -118,14 +120,70 @@ docker-compose up -d
 
 ### Example: Using with OpenAI
 
-Edit `docker-compose.yml`:
+Set the base URL / model in `docker-compose.yml`, but **do not put the API key
+there** — enter it once in the Settings UI instead. It is encrypted at rest
+(see below) and never written to any file you commit:
 
 ```yaml
 environment:
   - LLM_BASE_URL=https://api.openai.com/v1
-  - LLM_API_KEY=sk-your-api-key-here
   - LLM_MODEL=gpt-4o-mini
 ```
+
+## Secrets (API keys & tokens)
+
+Credentials — the LLM API key, webhook URL and webhook bearer token — are
+encrypted with **AES-256-GCM** before being written to `settings.json` in the
+data volume. The Settings UI is *write-only* for them: their values never
+leave the server (the API reports only whether each is configured), so they
+cannot be read back through the browser.
+
+**No setup required.** On first boot HomeStew generates a random 32-byte
+master key and stores it at `/data/.secrets_key` (mode `0600`) inside the
+`homestew_data` volume, so encryption is on from the start — nothing to
+create by hand, and the key survives rebuilds and container recreation.
+
+**Back it up.** The key lives next to the ciphertext: a backup of the data
+volume covers both, but if you lose the volume (or delete `.secrets_key`)
+stored secrets can no longer be decrypted — they're reported as unreadable
+and treated as unset, and you re-enter them once in the Settings UI.
+
+**What this protects against — and what it doesn't:** plaintext keys in git,
+in `settings.json`, or in container metadata. With auto-generation the key
+sits in the same volume as the ciphertext, so anyone who can read `/data`
+(or restore a backup of it) can decrypt. To raise that bar, keep the master
+key **outside** the volume by mounting your own key file (the mounted file
+always wins over auto-generation):
+
+```bash
+# Once, from the repository root
+mkdir -p secrets
+openssl rand -base64 32 > secrets/homestew_secret_key   # Linux/macOS/WSL
+```
+
+```powershell
+# PowerShell
+mkdir secrets -Force
+[IO.File]::WriteAllBytes("secrets\homestew_secret_key",
+    (1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+```
+
+Then uncomment the `secrets:` blocks in `docker-compose.yml` — Compose mounts
+the file read-only at `/run/secrets/homestew_secret_key`, so it never appears
+in `docker-compose.yml`, `docker inspect` or the image. The `secrets/`
+directory is git-ignored. Even then, the `file` secret driver is still a host
+file: someone with root on the host can read both the key and the ciphertext.
+For that threat use full-disk encryption or an external secrets manager.
+
+- **No usable key at all?** (e.g. `/data` not writable) HomeStew still runs
+  but stores secrets as plaintext and shows a warning banner in Settings —
+  useful for bare `uvicorn` dev runs on a read-only checkout.
+- **Key rotated or lost?** Stored secrets can no longer be decrypted; they're
+  reported as unreadable and treated as unset — re-enter them once in the
+  Settings UI.
+- **Rotating deliberately:** replace the key (mounted file, or
+  `/data/.secrets_key`), restart, re-enter the secrets; old ciphertext is
+  overwritten with new on save.
 
 ## Project Structure
 

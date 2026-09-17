@@ -386,6 +386,10 @@
             <span class="modal-close" onclick="closeSettingsModal()">&times;</span>
             <h2>Settings</h2>
 
+            <!-- Secrets-at-rest status (plaintext warning / unreadable secrets).
+                 Hidden unless the server reports a problem. -->
+            <div id="secrets-status-banner" class="secret-banner" hidden></div>
+
             <!-- One form wraps both panels so Save always submits everything. -->
             <form id="settings-form" class="device-form">
                 <div class="settings-layout">
@@ -417,7 +421,10 @@
                             </div>
                             <div class="settings-field">
                                 <label for="settings-llm-api-key">LLM API Key</label>
-                                <input type="password" id="settings-llm-api-key" autocomplete="new-password">
+                                <div class="model-row">
+                                    <input type="password" id="settings-llm-api-key" autocomplete="new-password">
+                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="llm_api_key" hidden>Remove</button>
+                                </div>
                                 <p class="settings-hint" id="settings-api-key-hint"></p>
                             </div>
                             <div class="settings-field">
@@ -507,12 +514,19 @@
                             </div>
                             <div class="settings-field">
                                 <label for="settings-notify-webhook-url">Webhook URL</label>
-                                <input type="url" id="settings-notify-webhook-url" placeholder="https://example.com/hooks/homestew">
-                                <p class="settings-hint" id="webhook-url-hint">HomeStew POSTs a JSON body (event title, due date, device…) to this URL. Works with custom receivers, Node-RED, Home Assistant webhooks and similar.</p>
+                                <div class="model-row">
+                                    <!-- type=password: Synology webhook URLs embed their secret token, so the field is write-only and obscured like a key. -->
+                                    <input type="password" id="settings-notify-webhook-url" autocomplete="new-password" placeholder="https://example.com/hooks/homestew">
+                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="notify_webhook_url" hidden>Remove</button>
+                                </div>
+                                <p class="settings-hint" id="webhook-url-hint"></p>
                             </div>
                             <div class="settings-field">
                                 <label for="settings-notify-webhook-token">Bearer Token (optional)</label>
-                                <input type="password" id="settings-notify-webhook-token" autocomplete="new-password">
+                                <div class="model-row">
+                                    <input type="password" id="settings-notify-webhook-token" autocomplete="new-password">
+                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="notify_webhook_token" hidden>Remove</button>
+                                </div>
                                 <p class="settings-hint" id="settings-webhook-token-hint"></p>
                             </div>
                             <div class="settings-field">

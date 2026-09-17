@@ -1,0 +1,6 @@
+# Development-only dependencies (testing). The app itself is installed with
+# `pip install -r requirements.txt`; this file adds nothing beyond pytest.
+# Note: the pinned versions in requirements.txt target Python 3.12 (the Docker
+# image). On newer interpreters, installing unpinned pydantic/fastapi/cryptography
+# works for running the tests.
+pytest==8.3.3

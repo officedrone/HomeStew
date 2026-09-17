@@ -192,8 +192,10 @@ class SettingsResponse(BaseModel):
         ...,
         description="Webhook request shape: generic JSON or Synology Chat incoming webhook",
     )
-    notify_webhook_url: str = Field(
-        ..., description="Webhook endpoint URL (empty = channel inactive)"
+    notify_webhook_url_set: bool = Field(
+        ...,
+        description="True if a webhook URL is configured (value not exposed — "
+        "Synology URLs embed their secret token, so the URL is write-only too)",
     )
     notify_webhook_token_set: bool = Field(
         ..., description="True if a webhook bearer token is configured (value not exposed)"
@@ -201,6 +203,16 @@ class SettingsResponse(BaseModel):
     notify_webhook_verify_ssl: bool = Field(
         ...,
         description="Verify TLS certificates when POSTing to the webhook URL",
+    )
+    secrets_encrypted: bool = Field(
+        ...,
+        description="False when no master key file is mounted and secrets are "
+        "stored as plaintext (the UI shows a warning banner)",
+    )
+    unreadable_secrets: list[str] = Field(
+        default_factory=list,
+        description="Names of stored secrets that could not be decrypted "
+        "(wrong key file or tampered data); they are treated as unset",
     )
 
 
@@ -236,7 +248,8 @@ class SettingsUpdate(BaseModel):
     notify_webhook_url: Optional[str] = Field(
         None,
         max_length=500,
-        description="Webhook URL; blank clears it (channel goes inactive)",
+        description="Webhook URL; blank keeps the existing one (use "
+        "clear_secrets to remove it)",
     )
     notify_webhook_token: Optional[str] = Field(
         None,
@@ -246,6 +259,14 @@ class SettingsUpdate(BaseModel):
     notify_webhook_verify_ssl: Optional[bool] = Field(
         None,
         description="Validate TLS certificates for webhook POSTs (uncheck for self-signed certs)",
+    )
+    clear_secrets: Optional[list[Literal[
+        "llm_api_key", "notify_webhook_url", "notify_webhook_token"
+    ]]] = Field(
+        None,
+        description="Secrets to remove (the UI's Remove buttons). Applied "
+        "after the updates above, so a field and its clear entry must not "
+        "be combined in one request.",
     )
 
 

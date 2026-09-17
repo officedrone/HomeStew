@@ -63,14 +63,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: the frontend is served same-origin, so by default no CORS middleware
+# is added at all. A wildcard with credentials would let any web page the
+# user visits read API responses and write settings (incl. secrets) through
+# the browser. Extra origins are opt-in via EXTRA_ALLOWED_ORIGINS.
+_extra_origins = [o.strip() for o in settings.EXTRA_ALLOWED_ORIGINS.split(",") if o.strip()]
+if _extra_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_extra_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.middleware("http")

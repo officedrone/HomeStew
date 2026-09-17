@@ -1777,6 +1777,30 @@ details.chat-input-meta {
     margin-top: 6px;
 }
 
+/* Secrets-at-rest warning at the top of the Settings modal (plaintext mode
+   or undecryptable stored secrets — see renderSecretsBanner in app.js). */
+.secret-banner {
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    border-radius: var(--radius-md);
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-text);
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.secret-banner.is-error {
+    background: color-mix(in srgb, var(--error) 12%, var(--surface));
+    border-color: var(--error);
+    color: var(--error);
+}
+
+/* "Remove" button beside a write-only secret field. */
+.secret-remove-btn {
+    align-self: stretch;
+}
+
 /* LLM model input + "fetch models" button on one row */
 .model-row {
     display: flex;

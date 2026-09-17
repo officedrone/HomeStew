@@ -1,7 +1,21 @@
-version: '3.8'
-
 # Compose project (stack) name. Without this it defaults to the folder name
 name: homestew
+
+# Encryption of API keys/tokens in /data/settings.json works out of the
+# box: on first boot HomeStew generates a random master key and stores it at
+# /data/.secrets_key (mode 0600) inside the homestew_data volume — no setup
+# step needed. Include that file in volume backups; without it, stored
+# secrets cannot be decrypted.
+#
+# Optional hardening: keep the master key OUTSIDE the data volume by
+# generating your own key file once and uncommenting the block below (and
+# the `secrets:` entry under the service). A mounted key file always wins
+# over auto-generation. See README "Secrets".
+#   Linux/macOS:  mkdir -p secrets && openssl rand -base64 32 > secrets/homestew_secret_key
+#   PowerShell:   mkdir secrets; [IO.File]::WriteAllBytes("secrets\homestew_secret_key", (1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+# secrets:
+#   homestew_secret_key:
+#     file: ./secrets/homestew_secret_key
 
 services:
   homestew:
@@ -11,8 +25,12 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Persistent data storage (PDFs, database)
-      - ./data:/data
+      # Persistent data storage (PDFs, database, settings.json and the
+      # auto-generated master key /data/.secrets_key). A named volume keeps
+      # it out of the repo checkout — no accidental commits.
+      - homestew_data:/data
+    # secrets:
+    #   - homestew_secret_key  # only with the commented `secrets:` block above
     # Uncomment so webhook URLs can target services running on the host via
     # http://host.docker.internal:<port>. Modern Docker Desktop already
     # provides this name natively; it is required on Linux Docker engines.
@@ -40,6 +58,9 @@ services:
           memory: 512M
         reservations:
           memory: 128M
+
+volumes:
+  homestew_data:
 
 # Optional: Add an LLM service if running Ollama locally
 # Uncomment if you want to run everything in one compose file

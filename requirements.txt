@@ -27,3 +27,6 @@ beautifulsoup4==4.12.3
 
 # LLM integration
 openai==3.7.0
+
+# Secret-at-rest encryption (AES-256-GCM for persisted API keys/tokens)
+cryptography==46.0.5

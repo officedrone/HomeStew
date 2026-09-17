@@ -264,6 +264,20 @@ function setupEventListeners() {
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
     document.getElementById('test-webhook-btn').addEventListener('click', () => sendTestNotification());
+    // "Remove" buttons next to the write-only secret fields schedule deletion
+    // for save; typing into a cleared field cancels that removal (without
+    // re-rendering, so the in-progress value survives).
+    document.querySelectorAll('.secret-remove-btn').forEach((btn) => {
+        btn.addEventListener('click', () => clearSecret(btn.dataset.clearSecret));
+    });
+    for (const [name, field] of Object.entries(SECRET_FIELDS)) {
+        document.getElementById(field.inputId).addEventListener('input', () => {
+            if (!secretsState.cleared.delete(name)) return;
+            const btn = document.querySelector(`.secret-remove-btn[data-clear-secret="${name}"]`);
+            if (btn) btn.hidden = !(secretsState.configured[name]);
+            document.getElementById(field.hintId).textContent = secretHintText(name);
+        });
+    }
     // Switching webhook type updates the URL hint and hides the bearer-token
     // field (Synology Chat authenticates via the token= param in its URL).
     document.getElementById('settings-notify-webhook-type').addEventListener(
@@ -2293,6 +2307,128 @@ function applyTheme() {
 // "a key exists"; leaving the field blank keeps it, typing replaces it.
 const API_KEY_PLACEHOLDER = '********';
 
+// ---------------------------------------------------------------------------
+// Write-only secret fields (LLM API key, webhook URL / bearer token). The
+// server never sends their values; a placeholder signals "configured", a
+// blank field keeps the stored value, typing replaces it and Remove schedules
+// deletion via clear_secrets on save. Synology webhook URLs embed their
+// secret token in the query string, so the URL field is obscured too.
+// ---------------------------------------------------------------------------
+const SECRET_LABELS = {
+    llm_api_key: 'API key',
+    notify_webhook_url: 'Webhook URL',
+    notify_webhook_token: 'Bearer token',
+};
+
+// Labels for the setting names reported in unreadable_secrets (server-side
+// env-style names).
+const UNREADABLE_SECRET_LABELS = {
+    LLM_API_KEY: 'API key',
+    NOTIFY_WEBHOOK_URL: 'webhook URL',
+    NOTIFY_WEBHOOK_TOKEN: 'webhook token',
+};
+
+const SECRET_FIELDS = {
+    llm_api_key: { inputId: 'settings-llm-api-key', hintId: 'settings-api-key-hint' },
+    notify_webhook_url: { inputId: 'settings-notify-webhook-url', hintId: 'webhook-url-hint' },
+    notify_webhook_token: { inputId: 'settings-notify-webhook-token', hintId: 'settings-webhook-token-hint' },
+};
+
+// Per-webhook-type help text for the URL field (composed with the
+// configured/cleared status by webhookUrlHintText()).
+const WEBHOOK_URL_HINTS = {
+    generic: 'HomeStew POSTs a JSON body (event title, due date, device\u2026) to '
+        + 'this URL. Works with custom receivers, Node-RED, Home Assistant '
+        + 'webhooks and similar.',
+    synology: 'Paste the full Incoming Webhook URL from DSM > Chat > Integration, '
+        + 'including its token= parameter. HomeStew sends Chat\u2019s '
+        + 'payload={"text": ...} format.',
+};
+
+// What the server reports as configured (from GET /api/settings) plus what
+// the user marked for removal in the currently open modal.
+const secretsState = {
+    configured: { llm_api_key: false, notify_webhook_url: false, notify_webhook_token: false },
+    cleared: new Set(),
+};
+
+function webhookUrlHintText() {
+    const type = document.getElementById('settings-notify-webhook-type').value;
+    let text = WEBHOOK_URL_HINTS[type] || '';
+    if (secretsState.cleared.has('notify_webhook_url')) {
+        text += ' The stored URL will be removed when you save.';
+    } else if (secretsState.configured.notify_webhook_url) {
+        text += ' A URL is configured \u2014 leave blank to keep it, or type a new one to replace it.';
+    }
+    return text;
+}
+
+function secretHintText(name) {
+    if (name === 'notify_webhook_url') return webhookUrlHintText();
+    if (secretsState.cleared.has(name)) {
+        return `${SECRET_LABELS[name]} will be removed when you save.`;
+    }
+    if (!secretsState.configured[name]) return '';
+    return `${SECRET_LABELS[name]} is configured. Leave blank to keep it, or type a new one to replace it.`;
+}
+
+// Sync one secret input (placeholder + hint + Remove button) with the
+// configured/cleared state. Never touches a value the user is typing.
+function renderSecretField(name) {
+    const field = SECRET_FIELDS[name];
+    const input = document.getElementById(field.inputId);
+    const hint = document.getElementById(field.hintId);
+    const removeBtn = document.querySelector(
+        `.secret-remove-btn[data-clear-secret="${name}"]`);
+
+    if (!secretsState.cleared.has(name) && secretsState.configured[name]) {
+        input.placeholder = API_KEY_PLACEHOLDER;
+    } else {
+        // No secret configured — the URL field keeps its example placeholder.
+        input.placeholder =
+            name === 'notify_webhook_url' ? 'https://example.com/hooks/homestew' : '';
+    }
+    hint.textContent = secretHintText(name);
+    if (removeBtn) {
+        removeBtn.hidden = !(secretsState.configured[name] && !secretsState.cleared.has(name));
+    }
+}
+
+// "Remove" clicked: schedule deletion on save and blank the field so a stale
+// placeholder can't be mistaken for a value.
+function clearSecret(name) {
+    secretsState.cleared.add(name);
+    document.getElementById(SECRET_FIELDS[name].inputId).value = '';
+    renderSecretField(name);
+}
+
+// Warning banner at the top of the Settings modal: plaintext storage (no key
+// file mounted) and/or stored secrets that failed to decrypt.
+function renderSecretsBanner(apiSettings) {
+    const banner = document.getElementById('secrets-status-banner');
+    const unreadable = apiSettings.unreadable_secrets || [];
+    if (apiSettings.secrets_encrypted && !unreadable.length) {
+        banner.hidden = true;
+        return;
+    }
+    const parts = [];
+    if (!apiSettings.secrets_encrypted) {
+        parts.push('No secrets master key is available (the data directory '
+            + 'may not be writable): API keys and tokens are saved as '
+            + 'plaintext in settings.json. See the README \u201cSecrets\u201d '
+            + 'section.');
+    }
+    if (unreadable.length) {
+        const names = unreadable
+            .map((key) => UNREADABLE_SECRET_LABELS[key] || key).join(', ');
+        parts.push(`Stored secret(s) could not be decrypted with the current `
+            + `key file and are treated as unset: ${names}. Re-enter them below.`);
+    }
+    banner.textContent = parts.join(' ');
+    banner.classList.toggle('is-error', unreadable.length > 0);
+    banner.hidden = false;
+}
+
 // Built-in prompt defaults fetched from the API, used by the "Restore
 // Default" buttons in Advanced Settings. Keyed by setting name.
 let promptDefaults = {};
@@ -2339,17 +2475,20 @@ async function openSettingsModal() {
 
     document.getElementById('settings-llm-base-url').value = settings.llm_base_url || '';
 
+    // Write-only secret fields: remember what the server reports as
+    // configured, reset any pending removals and paint placeholder/hint/Remove
+    // for each. Values themselves never reach the browser.
+    secretsState.configured = {
+        llm_api_key: !!settings.llm_api_key_set,
+        notify_webhook_url: !!settings.notify_webhook_url_set,
+        notify_webhook_token: !!settings.notify_webhook_token_set,
+    };
+    secretsState.cleared.clear();
+    renderSecretsBanner(settings);
+
     const keyInput = document.getElementById('settings-llm-api-key');
     keyInput.value = '';
-    if (settings.llm_api_key_set) {
-        keyInput.placeholder = API_KEY_PLACEHOLDER;
-        document.getElementById('settings-api-key-hint').textContent =
-            'An API key is configured. Leave blank to keep it, or type a new one to replace it.';
-    } else {
-        keyInput.placeholder = '';
-        // No hint when nothing is configured — the empty field says it all.
-        document.getElementById('settings-api-key-hint').textContent = '';
-    }
+    renderSecretField('llm_api_key');
 
     // The model field is a plain <select>: seed it with the saved value so it
     // displays before any refresh; clicking the dropdown loads fresh options.
@@ -2387,9 +2526,11 @@ async function openSettingsModal() {
         !!settings.notify_webhook_enabled;
     document.getElementById('settings-notify-webhook-type').value =
         settings.notify_webhook_type === 'synology' ? 'synology' : 'generic';
+    // The URL is write-only too: blank it (a previously typed, unsaved value
+    // must not linger) and paint placeholder/hint from the configured state.
+    document.getElementById('settings-notify-webhook-url').value = '';
+    renderSecretField('notify_webhook_url');
     updateWebhookTypeHints();
-    document.getElementById('settings-notify-webhook-url').value =
-        settings.notify_webhook_url || '';
     // SSL validation defaults to on; only an explicit false unchecks it.
     document.getElementById('settings-notify-webhook-verify-ssl').checked =
         settings.notify_webhook_verify_ssl !== false;
@@ -2398,14 +2539,7 @@ async function openSettingsModal() {
     // the value is never sent to the client, blank on save keeps it.
     const tokenInput = document.getElementById('settings-notify-webhook-token');
     tokenInput.value = '';
-    if (settings.notify_webhook_token_set) {
-        tokenInput.placeholder = API_KEY_PLACEHOLDER;
-        document.getElementById('settings-webhook-token-hint').textContent =
-            'A token is configured. Leave blank to keep it, or type a new one to replace it.';
-    } else {
-        tokenInput.placeholder = '';
-        document.getElementById('settings-webhook-token-hint').textContent = '';
-    }
+    renderSecretField('notify_webhook_token');
     document.getElementById('webhook-test-hint').textContent = '';
 
     // Always open the modal with Advanced collapsed, on the General section.
@@ -2421,25 +2555,14 @@ function closeSettingsModal() {
 
 // Per-type help text for the webhook fields. Synology Chat incoming webhooks
 // take their token in the URL and want form-encoded payload={text} bodies,
-// so the generic bearer-token field is hidden for them.
+// so the generic bearer-token field is hidden for them. The URL hint also
+// carries the configured/cleared status of the write-only URL field.
 function updateWebhookTypeHints() {
     const type = document.getElementById('settings-notify-webhook-type').value;
-    const urlHint = document.getElementById('webhook-url-hint');
+    document.getElementById('webhook-url-hint').textContent = webhookUrlHintText();
     const tokenField = document.getElementById(
         'settings-notify-webhook-token').closest('.settings-field');
-    if (type === 'synology') {
-        urlHint.textContent =
-            'Paste the full Incoming Webhook URL from DSM > Chat > Integration, '
-            + 'including its token= parameter. HomeStew sends Chat\u2019s '
-            + 'payload={"text": ...} format.';
-        tokenField.style.display = 'none';
-    } else {
-        urlHint.textContent =
-            'HomeStew POSTs a JSON body (event title, due date, device\u2026) to '
-            + 'this URL. Works with custom receivers, Node-RED, Home Assistant '
-            + 'webhooks and similar.';
-        tokenField.style.display = '';
-    }
+    tokenField.style.display = type === 'synology' ? 'none' : '';
 }
 
 // Fill the LLM Model <select> from a model id list. The currently selected
@@ -2506,7 +2629,9 @@ async function fetchLlmModels({ openPicker = false } = {}) {
 
     const keyInput = document.getElementById('settings-llm-api-key');
     const payload = { llm_base_url: baseUrl };
-    // Only send a freshly typed key; if blank, the server probes with the saved one.
+    // Only send a freshly typed key. If blank, the server probes with the
+    // saved key — but only when the URL matches the saved base URL (a foreign
+    // URL never receives the stored credential).
     if (keyInput.value.trim()) {
         payload.llm_api_key = keyInput.value.trim();
     }
@@ -2561,13 +2686,17 @@ async function sendTestNotification() {
     const hint = document.getElementById('webhook-test-hint');
     const btn = document.getElementById('test-webhook-btn');
 
+    // The URL field is write-only (blank = stored one). A test needs either a
+    // freshly typed URL or a configured stored URL that wasn't just cleared.
     const url = document.getElementById('settings-notify-webhook-url').value.trim();
-    if (!url) {
+    if (!url && (secretsState.cleared.has('notify_webhook_url')
+        || !secretsState.configured.notify_webhook_url)) {
         hint.textContent = 'Enter the Webhook URL first, then send a test.';
         return;
     }
 
-    const payload = { webhook_url: url };
+    const payload = {};
+    if (url) payload.webhook_url = url;
     // Only send a freshly typed token; if blank, the server uses the saved one.
     const token = document.getElementById('settings-notify-webhook-token').value.trim();
     if (token) payload.webhook_token = token;
@@ -2646,12 +2775,13 @@ async function handleSettingsSave(event) {
         notify_lead_unit: document.getElementById('settings-notify-lead-unit').value,
         notify_webhook_enabled: document.getElementById('settings-notify-webhook-enabled').checked,
         notify_webhook_type: document.getElementById('settings-notify-webhook-type').value,
-        // Blank URL intentionally clears it (server treats blank as "remove"),
-        // matching how the field round-trips its real value from GET.
-        notify_webhook_url: document.getElementById('settings-notify-webhook-url').value.trim(),
         notify_webhook_verify_ssl:
             document.getElementById('settings-notify-webhook-verify-ssl').checked,
     };
+    // The webhook URL is write-only like the key: only a freshly typed value
+    // is sent; blank keeps the stored one (removal goes through clear_secrets).
+    const webhookUrl = document.getElementById('settings-notify-webhook-url').value.trim();
+    if (webhookUrl) payload.notify_webhook_url = webhookUrl;
     // Blank API key field means "keep the existing key" — omit it entirely.
     // (The obscured placeholder is only a visual hint, never a value.)
     const apiKey = document.getElementById('settings-llm-api-key').value.trim();
@@ -2660,6 +2790,10 @@ async function handleSettingsSave(event) {
     // Same keep-existing semantics for the webhook bearer token.
     const webhookToken = document.getElementById('settings-notify-webhook-token').value.trim();
     if (webhookToken) payload.notify_webhook_token = webhookToken;
+
+    // Secrets marked "Remove" in this modal session; the server applies
+    // these after the updates above.
+    if (secretsState.cleared.size) payload.clear_secrets = [...secretsState.cleared];
 
     const saveBtn = document.getElementById('settings-save-btn');
     saveBtn.disabled = true;
