@@ -40,6 +40,9 @@ EDITABLE_SETTINGS = (
     "NOTIFY_WEBHOOK_URL",
     "NOTIFY_WEBHOOK_TOKEN",
     "NOTIFY_WEBHOOK_VERIFY_SSL",
+    # First-run wizard bookkeeping: which steps were skipped/saved, so a
+    # skipped step is never re-prompted on the next launch.
+    "SETUP_STEPS",
 )
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
@@ -67,7 +70,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # Comma-separated extra origins allowed to call the API cross-origin
-    # (e.g. a separate frontend on another port). Empty — the default — means
+    # (e.g. a separate frontend on another port). Empty - the default - means
     # same-origin only: no CORS headers are emitted, so arbitrary web pages
     # cannot read responses or push settings (incl. secrets) from a browser.
     EXTRA_ALLOWED_ORIGINS: str = ""
@@ -77,7 +80,7 @@ class Settings(BaseSettings):
     
     # LLM Configuration
     LLM_BASE_URL: str = "http://localhost:11434/v1"
-    # Empty by default — local servers (Ollama etc.) ignore the key, and an
+    # Empty by default - local servers (Ollama etc.) ignore the key, and an
     # empty value means "no API key configured" in the Settings UI.
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "llama3.2"
@@ -88,7 +91,7 @@ class Settings(BaseSettings):
     SEARCH_TOOL_DESCRIPTION: str = DEFAULT_SEARCH_TOOL_DESCRIPTION
     CALENDAR_TOOL_DESCRIPTION: str = DEFAULT_CALENDAR_TOOL_DESCRIPTION
 
-    # Notifications — a background loop (services/notifier.py) checks calendar
+    # Notifications - a background loop (services/notifier.py) checks calendar
     # events every NOTIFY_CHECK_INTERVAL_MINUTES minutes and alerts when one is
     # overdue or due within the lead time (value + hours/days unit). The loop
     # re-reads these values each tick, so UI changes apply without a restart.
@@ -97,7 +100,7 @@ class Settings(BaseSettings):
     NOTIFY_LEAD_VALUE: int = 24
     NOTIFY_LEAD_UNIT: str = "hours"  # 'hours' | 'days'
 
-    # Webhook notification channel — generic JSON POST to the user's URL.
+    # Webhook notification channel - generic JSON POST to the user's URL.
     # The token is an optional bearer secret; like the LLM API key its value
     # is never returned by the settings API, only whether one is configured.
     NOTIFY_WEBHOOK_ENABLED: bool = True
@@ -106,9 +109,16 @@ class Settings(BaseSettings):
     NOTIFY_WEBHOOK_TYPE: str = "generic"
     NOTIFY_WEBHOOK_URL: str = ""
     NOTIFY_WEBHOOK_TOKEN: str = ""
-    # When False, webhook POSTs skip TLS certificate verification — needed for
+    # When False, webhook POSTs skip TLS certificate verification - needed for
     # receivers with self-signed certs (e.g. a LAN Synology DSM webhook).
     NOTIFY_WEBHOOK_VERIFY_SSL: bool = True
+
+    # First-run setup wizard bookkeeping: step name -> resolution
+    # ('skipped' | 'saved'), e.g. {"secrets_key": "skipped", "llm": "saved"}.
+    # Persisted to settings.json so a step the user skipped (or completed)
+    # is never re-prompted on a later launch; empty dict = nothing resolved
+    # yet, and steps whose condition still applies are offered again.
+    SETUP_STEPS: dict = {}
     
     # Data directories
     DATA_DIR: Path = Path("/data")
@@ -146,7 +156,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 # Secret encryption for persisted settings; built once at import from the
-# key resolved at boot (mounted file or an existing managed key — a fresh
+# key resolved at boot (mounted file or an existing managed key - a fresh
 # install starts without one and creates it via the wizard / Advanced
 # settings). The two functions below are the only paths through which
 # secrets reach the disk.
@@ -183,6 +193,10 @@ def load_settings_overrides() -> None:
         logger.warning("Could not read settings overrides from %s: %s", path, exc)
         settings.secrets_encrypted = _secret_store.available
         return
+    # Wizard bookkeeping must be a str->str map; anything else on disk is
+    # ignored rather than crashing the load of every other setting.
+    if "SETUP_STEPS" in data:
+        data["SETUP_STEPS"] = normalize_setup_steps(data["SETUP_STEPS"])
     unreadable: list[str] = []
     migrate = False  # plaintext secrets found while a key is available
     for key in EDITABLE_SETTINGS:
@@ -196,7 +210,7 @@ def load_settings_overrides() -> None:
                 except SecretError as exc:
                     logger.error(
                         "Stored secret %s could not be decrypted (%s). It is "
-                        "treated as unset — re-enter it in the Settings UI.",
+                        "treated as unset - re-enter it in the Settings UI.",
                         key, exc,
                     )
                     unreadable.append(key)
@@ -230,7 +244,7 @@ def save_settings_overrides(values: dict) -> None:
 
     Only keys present in EDITABLE_SETTINGS are written. Existing stored
     values for keys not included here are preserved (they stay as they were
-    saved — encrypted secrets keep their existing ciphertext tokens).
+    saved - encrypted secrets keep their existing ciphertext tokens).
 
     Secret values (SECRET_SETTINGS) are encrypted before writing when a
     master key is available; without one they fall back to plaintext (the
@@ -261,7 +275,7 @@ def save_settings_overrides(values: dict) -> None:
                     logger.error("Could not encrypt %s (%s); storing plaintext", key, exc)
             else:
                 logger.warning(
-                    "No secrets master key available — storing %s "
+                    "No secrets master key available - storing %s "
                     "UNENCRYPTED. See README 'Secrets'.", key,
                 )
         existing[key] = value
@@ -270,13 +284,67 @@ def save_settings_overrides(values: dict) -> None:
     path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
     try:
         # Restrict to the owner. On Windows chmod only toggles the read-only
-        # bit — real protection there comes from NTFS ACLs / volume choice.
+        # bit - real protection there comes from NTFS ACLs / volume choice.
         os.chmod(path, 0o600)
     except OSError:
         pass
 
 
+def normalize_setup_steps(value) -> dict:
+    """Coerce a stored SETUP_STEPS value to a plain ``{step: resolution}`` map.
+
+    Only string keys with 'skipped'/'saved' values survive, so a hand-edited
+    or corrupted settings.json can never smuggle junk into the wizard logic.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(k): v
+        for k, v in value.items()
+        if isinstance(k, str) and v in ("skipped", "saved")
+    }
+
+
+def resolve_setup_step(step: str, resolution: str) -> dict:
+    """Record how a first-run wizard step ended and persist it.
+
+    Called by ``POST /api/settings/setup-steps/resolve`` when the user skips
+    or saves a step. Persisting means the step is never re-prompted on a
+    later launch, even after a container restart; the in-memory singleton is
+    updated too so GET /api/settings agrees without a reload.
+    """
+    merged = {**normalize_setup_steps(settings.SETUP_STEPS), step: resolution}
+    # Persist first: if the data volume rejects the write the in-memory state
+    # must not claim a step is resolved (it would silently vanish on restart).
+    save_settings_overrides({"SETUP_STEPS": merged})
+    settings.SETUP_STEPS = merged
+    logger.info("Setup wizard step %r resolved as %r", step, resolution)
+    return merged
+
+
+def llm_looks_configured() -> bool:
+    """Whether the LLM integration appears set up already.
+
+    True when a key is configured, the wizard's AI step was saved once, or
+    the base URL / model differ from the built-in defaults - i.e. someone
+    (env vars, compose, Settings) deliberately pointed HomeStew at an LLM
+    server and the first-run wizard should not offer to do it again.
+    """
+    if (settings.LLM_API_KEY or "").strip():
+        return True
+    if (settings.SETUP_STEPS or {}).get("llm") == "saved":
+        return True
+    fields = Settings.model_fields
+    if str(settings.LLM_BASE_URL).strip() != str(fields["LLM_BASE_URL"].default):
+        return True
+    if str(settings.LLM_MODEL).strip() != str(fields["LLM_MODEL"].default):
+        return True
+    return False
+
+
 # Apply any persisted overrides immediately after the singleton is created.
+# Must come after normalize_setup_steps(), which load_settings_overrides()
+# uses to sanitize a stored SETUP_STEPS value at boot.
 load_settings_overrides()
 
 
@@ -302,7 +370,7 @@ def create_master_key_runtime() -> tuple[bool, str]:
 
     Returns ``(ok, reason)``: ``reason`` is ``"created"`` when a fresh key
     was written and picked up, ``"exists"`` when a usable key is already in
-    place (mounted or managed — never overwritten), ``"mounted"`` when a
+    place (mounted or managed - never overwritten), ``"mounted"`` when a
     mounted key file exists but is unreadable (fix the file, not the app),
     or ``"failed"`` when the data directory rejected the write.
     """
@@ -311,7 +379,7 @@ def create_master_key_runtime() -> tuple[bool, str]:
         return False, "exists"
     auto_path = settings.DATA_DIR / AUTO_KEY_FILENAME
     if auto_path.exists():
-        # A managed key file is there but unreadable/corrupt — do not touch
+        # A managed key file is there but unreadable/corrupt - do not touch
         # it; deleting it is an explicit Advanced action.
         return False, "failed"
     if settings.SECRETS_KEY_FILE and Path(settings.SECRETS_KEY_FILE).exists():
@@ -334,13 +402,13 @@ def delete_master_key_runtime() -> tuple[bool, str]:
     """Delete the HomeStew-managed master key while running (Advanced UI).
 
     Troubleshooting/rotation aid: after deleting, stored ciphertext can no
-    longer be decrypted — reload treats it as unset and the Settings banner
+    longer be decrypted - reload treats it as unset and the Settings banner
     reports it until a new key is created and secrets are re-entered. A
     mounted key file (SECRETS_KEY_FILE) is outside HomeStew's management and
     never removed here.
 
     Returns ``(ok, reason)``: ``"deleted"``, ``"mounted"`` (a mounted key
-    file is in use — remove the mount instead), or ``"none"`` (no managed
+    file is in use - remove the mount instead), or ``"none"`` (no managed
     key to delete).
     """
     global _secret_store

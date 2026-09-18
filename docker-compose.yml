@@ -27,7 +27,7 @@ services:
     volumes:
       # Persistent data storage (PDFs, database, settings.json and the
       # secrets master key /data/.secrets_key once created). A named volume
-      # keeps it out of the repo checkout — no accidental commits.
+      # keeps it out of the repo checkout - no accidental commits.
       - homestew_data:/data
     # secrets:
     #   - homestew_secret_key  # only with the commented `secrets:` block above

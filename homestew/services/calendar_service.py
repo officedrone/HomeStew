@@ -170,7 +170,7 @@ async def list_notify_candidates(
     Same shape as ``list_events`` rows except that an UNCOMPLETED one-time
     event whose date has passed keeps its (past) start_date as next_due_date
     with status 'overdue'. The regular list_events treats such events as done
-    — which is right for the Calendar tab, but would make a missed one-time
+    - which is right for the Calendar tab, but would make a missed one-time
     reminder invisible to the notifier. Completed events stay excluded.
     """
     today = today or date.today()

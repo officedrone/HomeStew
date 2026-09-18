@@ -29,7 +29,7 @@ class LLMClient:
         """
         self.base_url = base_url.rstrip('/')
         # OpenAI-compatible clients require a non-empty key even when the
-        # server ignores it (local Ollama etc.) — substitute a dummy.
+        # server ignores it (local Ollama etc.) - substitute a dummy.
         self.api_key = api_key if api_key and api_key.strip() else "not-needed"
         self.model = model
         
@@ -144,8 +144,8 @@ class LLMClient:
         """Open a streaming chat completion and return an event iterator.
 
         Blocking call: returns a (lazy) generator yielding normalised dicts:
-          - {"type": "reasoning", "delta": str}  — model thinking tokens
-          - {"type": "content", "delta": str}    — answer text tokens
+          - {"type": "reasoning", "delta": str}  - model thinking tokens
+          - {"type": "content", "delta": str}    - answer text tokens
           - {"type": "tool_call", "call": {"id","name","arguments"}}
           - {"type": "finish", "reason": str}
 
@@ -156,7 +156,7 @@ class LLMClient:
 
         Returns a ``(events, close)`` tuple: ``events`` is the lazy generator
         of normalised dicts and ``close`` tears down the underlying HTTP
-        response (safe to call from another thread — it unblocks a pending
+        response (safe to call from another thread - it unblocks a pending
         read so generation can be interrupted).
         """
         if self._use_openai:
@@ -312,8 +312,8 @@ async def _aiter_stream(client: LLMClient, messages, tools):
     Each ``next()`` on the underlying HTTP stream blocks; running them in
     worker threads keeps the event loop free so SSE events flush promptly.
 
-    When the consumer goes away — e.g. the browser aborts the request and
-    Starlette cancels this generator — ``close()`` is invoked to tear down
+    When the consumer goes away - e.g. the browser aborts the request and
+    Starlette cancels this generator - ``close()`` is invoked to tear down
     the upstream HTTP response, which unblocks the pending read in the
     worker thread so generation actually stops instead of running on until
     the LLM finishes.
@@ -370,7 +370,7 @@ def create_calendar_tool() -> Dict[str, Any]:
     """Create the manage_calendar tool definition.
 
     One tool covers every calendar mutation (create/update/delete/complete)
-    plus a list action used to look up event ids — see calendar_tool.py for
+    plus a list action used to look up event ids - see calendar_tool.py for
     why a single action-based schema works better with small local models.
     """
     return {
@@ -504,7 +504,7 @@ async def _execute_search_tool(
         logger.info(f"Executing search tool: '{query}' (device={device_id})")
 
         # Execute search. The callback may return either a plain result list
-        # or a (results, note) tuple — the note carries warnings the model
+        # or a (results, note) tuple - the note carries warnings the model
         # must see (e.g. an invented device id whose filter was dropped).
         results = await search_func(query, device_id)
         note = ""
@@ -523,7 +523,7 @@ async def _execute_search_tool(
                 "knowledge."
             )
             # A dropped/invalid device filter means nothing was actually
-            # searched in that device's manuals — the model must retry
+            # searched in that device's manuals - the model must retry
             # without it rather than conclude the manuals are silent.
             if note:
                 content = f"{note}\n\n{content}"
@@ -531,29 +531,29 @@ async def _execute_search_tool(
             formatted_results = []
             for i, result in enumerate(results[:8], 1):
                 # Snippets wrap hits in <mark> tags for the web UI; here we
-                # want plain text. Remove the tags themselves — stripping
+                # want plain text. Remove the tags themselves - stripping
                 # only the angle brackets would leave stray "mark" words
                 # that the model then quotes verbatim ("markUSBmark").
                 snippet_clean = re.sub(r"</?mark>", "", result.snippet)
                 if result.manual_id == 0:
                     # Hit inside a device's own record (details / custom
-                    # attributes), not a PDF page — no file link exists.
+                    # attributes), not a PDF page - no file link exists.
                     formatted_results.append(
-                        f"Result {i} — Device entry: {result.filename}\n"
+                        f"Result {i} - Device entry: {result.filename}\n"
                         f'   Entry text: "{snippet_clean[:600]}"'
                     )
                     continue
-                # Markdown link opening the exact PDF page in the browser —
+                # Markdown link opening the exact PDF page in the browser -
                 # the same URL scheme the Search tab uses for its results.
                 file_url = f"/api/downloads/manuals/{result.manual_id}/file#page={result.page_number}"
                 formatted_results.append(
-                    f"Result {i} — {result.filename}, Page {result.page_number}\n"
+                    f"Result {i} - {result.filename}, Page {result.page_number}\n"
                     f"   Reference link: [Page {result.page_number}]({file_url})\n"
                     f'   Snippet from this page: "{snippet_clean[:600]}"'
                 )
 
             # Same as the no-results case: a dropped bogus device_id means
-            # these hits may come from other devices' manuals — say so.
+            # these hits may come from other devices' manuals - say so.
             prefix = f"{note}\n\n" if note else ""
             content = (
                 prefix +
@@ -568,7 +568,7 @@ async def _execute_search_tool(
                 "(its details and custom attributes): it is a valid source, "
                 "but cite it as the device entry, not as a manual page. "
                 "Facts not visible in any snippet or entry are NOT covered "
-                "by the manuals — say so instead of inventing them or citing "
+                "by the manuals - say so instead of inventing them or citing "
                 "a page for them."
             )
 
@@ -618,17 +618,17 @@ async def chat_with_tool_events(
     Chat with tool calling, streaming the model's work as typed SSE events.
 
     Event shapes (JSON-serialisable dicts, consumed by the SSE endpoint):
-      - {"type": "thinking_start"}                — a thinking block begins
-      - {"type": "thinking_delta", "delta": str}  — streamed reasoning tokens
-      - {"type": "thinking_end"}                  — the thinking block closed
-      - {"type": "content_delta", "delta": str}   — streamed answer text
-      - {"type": "tool_call", "id", "name", "arguments"}     — full call once
+      - {"type": "thinking_start"}                - a thinking block begins
+      - {"type": "thinking_delta", "delta": str}  - streamed reasoning tokens
+      - {"type": "thinking_end"}                  - the thinking block closed
+      - {"type": "content_delta", "delta": str}   - streamed answer text
+      - {"type": "tool_call", "id", "name", "arguments"}     - full call once
         its streamed argument fragments are complete
       - {"type": "tool_result", "id", "ok", "result_count",
-         "summary"?}  — execution outcome (summary: calendar calls only)
+         "summary"?}  - execution outcome (summary: calendar calls only)
       - {"type": "message", "content": str, "used_search": bool,
-         "search_results_count": int}             — final answer (terminal)
-      - {"type": "done"}                          — stream finished
+         "search_results_count": int}             - final answer (terminal)
+      - {"type": "done"}                          - stream finished
 
     Thinking events only appear when the server exposes reasoning deltas
     (Ollama / llama.cpp thinking models etc.); other servers just skip them.

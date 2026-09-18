@@ -96,14 +96,14 @@ The AI will automatically search your manuals and provide answers based on the a
 
 ### Environment Variables
 
-| Variable                | Default                              | Description                                        |
-| ----------------------- | ------------------------------------ | -------------------------------------------------- |
-| `LLM_BASE_URL`          | `http://localhost:11434/v1`          | LLM API endpoint (Ollama, vLLM, etc.)              |
-| `LLM_API_KEY`           | *(empty)*                            | API key (ignored by local servers)                 |
-| `LLM_MODEL`             | `llama3.2`                           | Model name to use                                  |
-| `DATA_DIR`              | `/data`                              | Persistent data directory                          |
-| `SECRETS_KEY_FILE`      | `/run/secrets/homestew_secret_key`   | Master-key file for secret encryption (see Secrets) |
-| `EXTRA_ALLOWED_ORIGINS` | *(empty — same-origin only)*         | Comma-separated origins allowed cross-origin API access |
+| Variable                | Default                            | Description                                             |
+| ----------------------- | ---------------------------------- | ------------------------------------------------------- |
+| `LLM_BASE_URL`          | `http://localhost:11434/v1`        | LLM API endpoint (Ollama, vLLM, etc.)                   |
+| `LLM_API_KEY`           | _(empty)_                          | API key (ignored by local servers)                      |
+| `LLM_MODEL`             | `llama3.2`                         | Model name to use                                       |
+| `DATA_DIR`              | `/data`                            | Persistent data directory                               |
+| `SECRETS_KEY_FILE`      | `/run/secrets/homestew_secret_key` | Master-key file for secret encryption (see Secrets)     |
+| `EXTRA_ALLOWED_ORIGINS` | _(empty - same-origin only)_       | Comma-separated origins allowed cross-origin API access |
 
 ### Example: Using with Ollama
 
@@ -121,7 +121,7 @@ docker-compose up -d
 ### Example: Using with OpenAI
 
 Set the base URL / model in `docker-compose.yml`, but **do not put the API key
-there** — enter it once in the Settings UI instead. It is encrypted at rest
+there** - enter it once in the Settings UI instead. It is encrypted at rest
 (see below) and never written to any file you commit:
 
 ```yaml
@@ -132,27 +132,32 @@ environment:
 
 ## Secrets (API keys & tokens)
 
-Credentials — the LLM API key, webhook URL and webhook bearer token — are
+Credentials - the LLM API key, webhook URL and webhook bearer token - are
 encrypted with **AES-256-GCM** before being written to `settings.json` in the
-data volume. The Settings UI is *write-only* for them: their values never
+data volume. The Settings UI is _write-only_ for them: their values never
 leave the server (the API reports only whether each is configured), so they
 cannot be read back through the browser.
 
-**One-time setup.** On first start HomeStew shows a short wizard offering to
-generate a random 32-byte master key at `/data/.secrets_key` (mode `0600`)
-inside the `homestew_data` volume. Creating it turns encryption on for good —
-the key survives rebuilds and container recreation, and the wizard never
-appears again. *Skip* defers it: secrets are stored as plaintext meanwhile,
-and the offer returns on the next page load until you create a key (or mount
-your own). The same controls live under **Settings > Advanced**, which also
-lets you **delete** the managed key to troubleshoot or rotate it.
+**One-time setup.** On first start HomeStew shows a short **setup wizard**:
+create an encryption key, connect your AI model and add your first device.
+The key step generates a random 32-byte master key at `/data/.secrets_key`
+(mode `0600`) inside the `homestew_data` volume. Creating it turns encryption
+on for good - the key survives rebuilds and container recreation, and the
+step never appears again. _Every_ step can be skipped, and skipping (or
+saving) is remembered in the data volume, so a resolved step is not re-shown
+on later launches even after a restart. Steps whose condition no longer
+applies - a key already exists, an LLM was configured via env/Settings, or
+devices already exist - are skipped automatically. You can also manage the
+key later under **Settings > Advanced**, which lets you **delete** the
+managed key to troubleshoot or rotate it; AI settings live under
+**Settings > AI**.
 
 **Back it up.** The key lives next to the ciphertext: a backup of the data
 volume covers both, but if you lose the volume (or delete `.secrets_key`)
-stored secrets can no longer be decrypted — they're reported as unreadable
+stored secrets can no longer be decrypted - they're reported as unreadable
 and treated as unset, and you re-enter them once in the Settings UI.
 
-**What this protects against — and what it doesn't:** plaintext keys in git,
+**What this protects against - and what it doesn't:** plaintext keys in git,
 in `settings.json`, or in container metadata. With a HomeStew-managed key it
 sits in the same volume as the ciphertext, so anyone who can read `/data`
 (or restore a backup of it) can decrypt. To raise that bar, keep the master
@@ -172,7 +177,7 @@ mkdir secrets -Force
     (1..32 | ForEach-Object { Get-Random -Maximum 256 }))
 ```
 
-Then uncomment the `secrets:` blocks in `docker-compose.yml` — Compose mounts
+Then uncomment the `secrets:` blocks in `docker-compose.yml` - Compose mounts
 the file read-only at `/run/secrets/homestew_secret_key`, so it never appears
 in `docker-compose.yml`, `docker inspect` or the image. The `secrets/`
 directory is git-ignored. Even then, the `file` secret driver is still a host
@@ -181,15 +186,15 @@ For that threat use full-disk encryption or an external secrets manager.
 
 - **No usable key at all?** (fresh install, skipped wizard, or `/data` not
   writable) HomeStew still runs but stores secrets as plaintext and shows a
-  warning banner in Settings — useful for bare `uvicorn` dev runs on a
+  warning banner in Settings - useful for bare `uvicorn` dev runs on a
   read-only checkout.
 - **Key rotated or lost?** Stored secrets can no longer be decrypted; they're
-  reported as unreadable and treated as unset — re-enter them once in the
+  reported as unreadable and treated as unset - re-enter them once in the
   Settings UI.
 - **Rotating deliberately:** delete the managed key under Settings >
   Advanced (or replace the mounted file), create a new one, then re-enter
-  the secrets; old ciphertext is overwritten with new on save. A *mounted*
-  key file is never deleted by the app — remove the container's secret
+  the secrets; old ciphertext is overwritten with new on save. A _mounted_
+  key file is never deleted by the app - remove the container's secret
   mount for that.
 
 ## Project Structure

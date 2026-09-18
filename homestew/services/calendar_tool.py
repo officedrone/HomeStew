@@ -6,14 +6,14 @@ right action from a single well-described schema far more reliably than they
 juggle several tools, and one call keeps the trace readable in the UI.
 
 Device scoping mirrors the search tool: when the chat is filtered to a device
-(``chat_device_id``), every action is forced onto that device — an event can
+(``chat_device_id``), every action is forced onto that device - an event can
 be created for it, but events belonging to other devices are invisible and
 untouchable from this conversation. The LLM can never widen that scope.
 
 Every handler returns a plain-text report aimed at the model: what changed,
 the ids involved and enough schedule detail (next due date, recurrence) for
 the model to confirm the change without guessing. Errors come back as text
-too — raising here would surface a generic "tool failed" message instead of
+too - raising here would surface a generic "tool failed" message instead of
 something the model can explain or retry from.
 """
 import json
@@ -61,7 +61,7 @@ def _device_note(device_id: Optional[int], device_name: Optional[str]) -> str:
 def _event_line(event: Dict[str, Any]) -> str:
     """One-line summary of an event with everything the model needs.
 
-    The id is NOT included — callers prefix it (``id=7: ...``) so list and
+    The id is NOT included - callers prefix it (``id=7: ...``) so list and
     mutation reports share one format.
     """
     due = event["next_due_date"]
@@ -70,9 +70,9 @@ def _event_line(event: Dict[str, Any]) -> str:
     )
     when = f", time {event['start_time'].strftime('%H:%M')}" if event.get("start_time") else ""
     return (
-        f'"{event["title"]}" — {event["recurrence_label"]}'
+        f'"{event["title"]}" - {event["recurrence_label"]}'
         f"{when}, {status_word}{_device_note(event.get('device_id'), event.get('device_name'))}"
-        + (f" — {event['description']}" if event.get("description") else "")
+        + (f" - {event['description']}" if event.get("description") else "")
     )
 
 

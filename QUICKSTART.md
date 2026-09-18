@@ -8,11 +8,12 @@ cd <repo-root>
 
 # 2. (Optional) Configure LLM settings
 copy .env.example .env
-notepad .env  # Edit if needed — keep real API keys out of this file;
+notepad .env  # Edit if needed - keep real API keys out of this file;
               # enter them in the Settings UI (stored encrypted)
 
-# 3. Build and run (on first start a one-time wizard offers to create the
-#    secrets master key — see README "Secrets")
+# 3. Build and run (on first start a setup wizard walks you through the
+#    encryption key, AI model and your first device - each step is skippable,
+#    see README "Secrets")
 docker-compose up -d --build
 
 # 4. Open browser
@@ -29,7 +30,7 @@ start http://localhost:8000
 > ```
 >
 > Plaintext secrets in an old `settings.json` are encrypted automatically once
-> the master key is created (first-run wizard, or Settings > Advanced).
+> the master key is created (setup wizard, or Settings > Advanced).
 
 ## 📋 Step-by-Step Instructions
 
@@ -64,6 +65,11 @@ curl http://localhost:8000/health
 Open your browser to: http://localhost:8000
 
 ### First-Time Setup
+
+On the first page load a **setup wizard** offers three one-time steps: create
+the secrets encryption key, connect your AI model and add your first device.
+Skip any of them - skipped/saved steps are remembered and never re-prompted,
+and everything stays editable later under Settings.
 
 1. **Add your first device** (e.g., Samsung TV):
    - Name: "Living Room TV"

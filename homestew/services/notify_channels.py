@@ -4,11 +4,11 @@ A channel knows how to deliver one notification payload somewhere. The
 notifier loop (services/notifier.py) iterates the CHANNELS registry and sends
 through every enabled channel, so adding a new delivery method (ntfy, email,
 Home Assistant service call, ...) means subclassing NotificationChannel and
-appending an instance to CHANNELS — nothing else changes.
+appending an instance to CHANNELS - nothing else changes.
 
 The webhook channel supports two request shapes, selected by
 NOTIFY_WEBHOOK_TYPE: ``generic`` POSTs the payload as application/json, while
-``synology`` renders it into Synology Chat's incoming-webhook format — a form-
+``synology`` renders it into Synology Chat's incoming-webhook format - a form-
 encoded ``payload={"text": ...}`` body whose auth token lives in the URL.
 
 ``send()`` is intentionally synchronous/blocking: callers run it through
@@ -51,7 +51,7 @@ def _format_synology_text(payload: Dict[str, Any]) -> str:
     """Render a generic notification payload as Synology Chat message text."""
     kind = "overdue" if payload.get("type") == "calendar_overdue" else "due soon"
     source = payload.get("source") or settings.APP_NAME
-    lines = [f"**{source}** — {payload.get('title') or 'Notification'} ({kind})"]
+    lines = [f"**{source}** - {payload.get('title') or 'Notification'} ({kind})"]
     if payload.get("device_name"):
         lines.append(f"Device: {payload['device_name']}")
     due = payload.get("due_date")
@@ -86,7 +86,7 @@ def _post_webhook(
         resp = requests.post(url, data=body, timeout=WEBHOOK_TIMEOUT, verify=verify)
         resp.raise_for_status()
         # DSM answers HTTP 200 even when it rejects the call (bad token etc.),
-        # reporting the failure in a {"success": false} body — surface that as
+        # reporting the failure in a {"success": false} body - surface that as
         # an error instead of silently "succeeding".
         try:
             data = resp.json()
@@ -128,7 +128,7 @@ class NotificationChannel(ABC):
 class WebhookChannel(NotificationChannel):
     """Webhook delivery in either the generic JSON or Synology Chat shape.
 
-    Generic works with any receiver that accepts a JSON body — custom scripts,
+    Generic works with any receiver that accepts a JSON body - custom scripts,
     Node-RED, Home Assistant webhook triggers, etc. An optional bearer token
     is sent as an ``Authorization`` header for receivers that need auth.
     Synology Chat mode renders the payload into Chat's form-encoded

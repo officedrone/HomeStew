@@ -11,7 +11,7 @@ from it rather than mutated, so editing or completing an event can never drift
 the schedule:
 
 - one-time events are due on their start date and stay done once completed;
-- recurring events roll forward to the first occurrence after "today" — or,
+- recurring events roll forward to the first occurrence after "today" - or,
   when they were just completed, strictly after the completion day, so
   clicking "Done" today never leaves the event due again today.
 """
@@ -80,7 +80,7 @@ def next_due_date(
         if (d > ref) if strict else (d >= ref):
             return d
         k += 1
-        if k > 2600:  # ~50 years of weekly steps — far beyond any real use
+        if k > 2600:  # ~50 years of weekly steps - far beyond any real use
             return None
         d = occurrence(start_date, recurrence_type, interval, k)
 

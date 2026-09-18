@@ -113,7 +113,7 @@ async def run_tick(now: Optional[datetime] = None) -> int:
     lead = lead_timedelta()
 
     # list_notify_candidates keeps overdue + due-on-or-before today+N (and,
-    # unlike the calendar tab's view, also missed one-time events — they are
+    # unlike the calendar tab's view, also missed one-time events - they are
     # pending, just overdue). ceil-ing the lead to whole days is a cheap
     # pre-filter; the exact cutoff incl. start_time is applied below.
     window_days = max(1, math.ceil(lead.total_seconds() / 86400))

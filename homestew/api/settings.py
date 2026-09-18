@@ -9,6 +9,9 @@ from fastapi.concurrency import run_in_threadpool
 from homestew.config import (
     create_master_key_runtime,
     delete_master_key_runtime,
+    llm_looks_configured,
+    normalize_setup_steps,
+    resolve_setup_step,
     save_settings_overrides,
     settings,
 )
@@ -24,6 +27,8 @@ from homestew.models.schemas import (
     SecretsKeyActionResponse,
     SettingsResponse,
     SettingsUpdate,
+    SetupStepResolveRequest,
+    SetupStepResolveResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,7 +50,7 @@ def _normalize_base_url(base_url: str) -> str:
     """Canonical form of an LLM base URL for equality checks.
 
     Lowercases scheme+host and strips a trailing slash (and a trailing "/v1"
-    is kept — servers are addressed consistently enough that this matters
+    is kept - servers are addressed consistently enough that this matters
     only to decide whether the saved API key may be sent).
     """
     base_url = base_url.strip().rstrip("/")
@@ -63,8 +68,8 @@ def _normalize_base_url(base_url: str) -> str:
 def _current_settings() -> SettingsResponse:
     """Build the response from the live settings singleton.
 
-    Secret values (API key, webhook URL and token — Synology webhook URLs
-    embed their token) are never returned — only whether each is configured.
+    Secret values (API key, webhook URL and token - Synology webhook URLs
+    embed their token) are never returned - only whether each is configured.
     The built-in prompt defaults are included so the UI's "Restore Default"
     buttons can repopulate them without shipping a second copy of the text.
     """
@@ -92,6 +97,11 @@ def _current_settings() -> SettingsResponse:
         secrets_key_source=_secrets_key_source(),
         secrets_key_deletable=_secrets_key_source() == "generated",
         unreadable_secrets=list(settings.unreadable_secrets),
+        # First-run wizard: which steps were already skipped/saved (never
+        # re-prompted) and whether the LLM looks configured, so the UI can
+        # decide which steps still apply.
+        setup_steps=normalize_setup_steps(settings.SETUP_STEPS),
+        llm_configured=llm_looks_configured(),
     )
 
 
@@ -116,7 +126,7 @@ async def get_settings():
 async def update_settings(update: SettingsUpdate):
     """Update LLM settings, persist them and apply immediately.
 
-    Blank/omitted secret fields are left unchanged — in particular an empty
+    Blank/omitted secret fields are left unchanged - in particular an empty
     llm_api_key means "keep the existing key". Use ``clear_secrets`` to
     remove a stored secret (the UI's Remove buttons).
     """
@@ -157,7 +167,7 @@ async def update_settings(update: SettingsUpdate):
         )
 
     # Notifications: the notifier loop re-reads these each tick, so saving is
-    # enough — no restart or client reset needed.
+    # enough - no restart or client reset needed.
     if update.notify_enabled is not None:
         changes["NOTIFY_ENABLED"] = update.notify_enabled
     if update.notify_check_interval_minutes is not None:
@@ -184,7 +194,7 @@ async def update_settings(update: SettingsUpdate):
         changes["NOTIFY_WEBHOOK_URL"] = url
 
     # Webhook bearer token: blank/omitted keeps the existing token, exactly
-    # like llm_api_key above — its value is never returned by GET.
+    # like llm_api_key above - its value is never returned by GET.
     if update.notify_webhook_token is not None and update.notify_webhook_token.strip():
         changes["NOTIFY_WEBHOOK_TOKEN"] = update.notify_webhook_token.strip()
 
@@ -228,7 +238,7 @@ async def create_secrets_key():
     """Create the HomeStew-managed secrets master key (one-time setup).
 
     Called by the first-run wizard and Settings > Advanced when no key is
-    available. A mounted key file always wins — this only manages the key
+    available. A mounted key file always wins - this only manages the key
     inside the data volume, never overwrites an existing one.
     """
     ok, reason = create_master_key_runtime()
@@ -238,7 +248,7 @@ async def create_secrets_key():
             detail={
                 "exists": "A usable master key is already in place.",
                 "mounted": "The mounted key file exists but could not be "
-                "read — fix the file at SECRETS_KEY_FILE instead of creating "
+                "read - fix the file at SECRETS_KEY_FILE instead of creating "
                 "a second key.",
                 "failed": "The data directory rejected the new key file. "
                 "Check that it is writable, or mount a key file at "
@@ -259,7 +269,7 @@ async def delete_secrets_key():
     """Delete the HomeStew-managed master key (Settings > Advanced).
 
     Troubleshooting / rotation aid: afterwards stored secrets can no longer
-    be decrypted — they are reported as unreadable and treated as unset
+    be decrypted - they are reported as unreadable and treated as unset
     until a new key is created and the secrets are re-entered. A mounted
     key file is outside HomeStew's management and must be removed via the
     container's secret mount.
@@ -269,7 +279,7 @@ async def delete_secrets_key():
     except OSError:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="The key file could not be deleted — check the data volume.",
+            detail="The key file could not be deleted - check the data volume.",
         )
     if not ok:
         raise HTTPException(
@@ -289,6 +299,20 @@ async def delete_secrets_key():
     )
 
 
+@router.post("/setup-steps/resolve", response_model=SetupStepResolveResponse)
+async def resolve_setup_wizard_step(body: SetupStepResolveRequest):
+    """Record that a first-run wizard step was skipped or completed.
+
+    The resolution is persisted to the data volume, so a step the user
+    skipped is not offered again on the next launch - skipping is a choice,
+    not just a dismissal. Steps whose condition no longer applies (a key
+    exists, an LLM is configured, devices were added) drop out of the wizard
+    by themselves and need no resolution here.
+    """
+    steps = resolve_setup_step(body.step, body.resolution)
+    return SetupStepResolveResponse(setup_steps=steps)
+
+
 @router.post("/models", response_model=ModelListResponse)
 async def list_llm_models(probe: ModelListRequest):
     """Query the LLM server's OpenAI-compatible ``/models`` endpoint.
@@ -300,7 +324,7 @@ async def list_llm_models(probe: ModelListRequest):
 
     Security: the *saved* key is attached only when the effective URL matches
     the saved base URL. A different (typed) URL can be probed with a freshly
-    typed key, but never silently carries the stored one — otherwise this
+    typed key, but never silently carries the stored one - otherwise this
     endpoint would let any caller ship the saved credential to an arbitrary
     host.
     """
@@ -357,7 +381,7 @@ async def get_model_status():
 
     Probes the server's model list with the currently saved configuration
     and reports whether it is reachable and whether the selected model is
-    available. Never raises on a connection failure — the caller (the chat
+    available. Never raises on a connection failure - the caller (the chat
     tab) needs a structured answer to show the user, not an HTTP error.
     """
     base_url = settings.LLM_BASE_URL

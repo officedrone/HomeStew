@@ -22,7 +22,7 @@ async def test_webhook(test: WebhookTestRequest):
     Mirrors the settings model-probe pattern: URL/token from the request body
     win over saved values (so unsaved edits are testable), connection errors
     and non-2xx responses become a friendly 502. This never writes the dedupe
-    ledger and does not require notifications to be enabled — testing before
+    ledger and does not require notifications to be enabled - testing before
     switching the feature on is expected.
     """
     url = (test.webhook_url or "").strip() or settings.NOTIFY_WEBHOOK_URL

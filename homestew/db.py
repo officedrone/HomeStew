@@ -122,7 +122,7 @@ async def init_db():
             ON device_attributes(device_id)
         """)
 
-        # Create calendar events table — periodic maintenance reminders tied
+        # Create calendar events table - periodic maintenance reminders tied
         # (usually) to a device. device_id is nullable so an event can exist
         # without one; when set it cascades on device delete. The schedule is
         # stored as an anchor date + recurrence rule and the next due date is
@@ -150,7 +150,7 @@ async def init_db():
             ON calendar_events(device_id)
         """)
 
-        # Notification ledger — one row per (event, occurrence, kind) already
+        # Notification ledger - one row per (event, occurrence, kind) already
         # delivered. The background loop re-scans every tick, so this is what
         # makes a due/overdue alert fire exactly once; recurring events re-alert
         # on future occurrences because the due date differs. Rows cascade with

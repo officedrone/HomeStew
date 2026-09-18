@@ -9,7 +9,7 @@
          github-markdown-css: MIT. The vendor sheet loads BEFORE styles.css on
          purpose: it hardcodes light-theme colors (.markdown-body { color /
          background-color }) at the same specificity as our token overrides in
-         styles.css, so ours must come last to win the cascade — otherwise dark
+         styles.css, so ours must come last to win the cascade - otherwise dark
          mode renders dark answer text on a dark bubble. -->
     <link rel="stylesheet" href="/static/vendor/github-markdown-light.css">
     <link rel="stylesheet" href="/static/styles.css">
@@ -17,7 +17,7 @@
     <!-- Apply the saved theme (light/dark/auto) before first paint so the
          page never flashes the wrong colour scheme. The preference lives in
          server settings (Settings > General); localStorage is a mirror kept
-         in sync by app.js — see applyTheme(). -->
+         in sync by app.js - see applyTheme(). -->
     <script>
         (function () {
             var pref = localStorage.getItem('theme') || 'auto';
@@ -50,7 +50,7 @@
                 <p class="tagline">Device Information Management</p>
             </div>
 
-            <!-- Tab navigation: same icon-btn pattern as the Settings row —
+            <!-- Tab navigation: same icon-btn pattern as the Settings row -
                  icon + label when expanded, icon only when collapsed. -->
             <nav class="side-tabs">
                 <!-- New Device: opens the Add Device modal (like Settings).
@@ -114,7 +114,7 @@
                         <h2>Search</h2>
                     </div>
                     <div class="search-box">
-                        <input type="text" id="search-input" placeholder='Search manuals & devices — use "quotes" for exact phrases' title='Wrap words in double quotes to require the exact phrase, e.g. "memory speed" upgrade' />
+                        <input type="text" id="search-input" placeholder='Search manuals & devices - use "quotes" for exact phrases' title='Wrap words in double quotes to require the exact phrase, e.g. "memory speed" upgrade' />
                         <select id="device-filter" class="device-filter">
                             <option value="">All Devices</option>
                         </select>
@@ -575,26 +575,95 @@
         </div>
     </div>
 
-    <!-- First-run secrets key wizard: shown once when the server reports no
-         master key, offering a one-time creation (or skipping to plaintext). -->
-    <div id="key-wizard-modal" class="modal">
-        <div class="modal-content key-wizard-content">
-            <h2>Set up secret encryption</h2>
-            <p class="wizard-text">
-                HomeStew couldn't find a secrets master key. Without one, credentials you
-                save (API keys, webhook URLs and tokens) are stored as plaintext in the
-                data volume.
-            </p>
-            <p class="wizard-text">
-                Creating it generates a random key inside your data volume
-                (<code>/data/.secrets_key</code>). This is a one-time step &mdash; after it,
-                every saved secret is encrypted at rest. You can also manage the key later
-                under Settings &gt; Advanced.
-            </p>
-            <p class="wizard-error" id="key-wizard-error" hidden></p>
-            <div class="modal-actions">
-                <button type="button" class="btn btn-secondary" id="key-wizard-skip-btn">Skip for now</button>
-                <button type="button" class="btn btn-primary" id="key-wizard-create-btn">Create Key</button>
+    <!-- First-run setup wizard: one modal, several steps (encryption key,
+         AI/LLM integration, first device). Each step is skippable and every
+         skip/save is persisted server-side, so a resolved step never returns.
+         All steps share this container's size and the Skip / Save footer. -->
+    <div id="setup-wizard-modal" class="modal">
+        <div class="modal-content setup-wizard-content">
+            <h2>Welcome to HomeStew</h2>
+            <p class="wizard-subtitle">A few one-time steps &mdash; you can skip any of them.</p>
+
+            <!-- Step progress dots, rebuilt by renderWizardProgress(). -->
+            <div id="wizard-progress" class="wizard-progress" role="list"></div>
+
+            <!-- 1. Secrets master key -->
+            <section class="wizard-step" id="wizard-step-secrets_key">
+                <h3>Encrypt stored credentials</h3>
+                <p class="wizard-text">
+                    HomeStew couldn't find a secrets master key. Without one, credentials you
+                    save (API keys, webhook URLs and tokens) are stored as plaintext in the
+                    data volume.
+                </p>
+                <p class="wizard-text">
+                    Creating it generates a random key inside your data volume
+                    (<code>/data/.secrets_key</code>). This is a one-time step &mdash; after it,
+                    every saved secret is encrypted at rest. You can also manage the key later
+                    under Settings &gt; Advanced.
+                </p>
+            </section>
+
+            <!-- 2. AI / LLM integration -->
+            <section class="wizard-step" id="wizard-step-llm" hidden>
+                <h3>Connect your AI model</h3>
+                <p class="wizard-text">
+                    Chat and manual search run on an OpenAI-compatible server you control
+                    (Ollama, LM Studio, llama.cpp, or a hosted provider). Point HomeStew at it
+                    and pick a model. You can change this later under Settings &gt; AI.
+                </p>
+                <div class="settings-field">
+                    <label for="wizard-llm-base-url">LLM Base URL</label>
+                    <input type="text" id="wizard-llm-base-url" placeholder="e.g., http://localhost:11434/v1">
+                    <p class="settings-hint">For Ollama on the same machine as the container, use your host's address (e.g. <code>http://host.docker.internal:11434/v1</code>).</p>
+                </div>
+                <div class="settings-field">
+                    <label for="wizard-llm-api-key">API Key (optional)</label>
+                    <input type="password" id="wizard-llm-api-key" autocomplete="new-password" placeholder="Not needed for local servers">
+                </div>
+                <div class="settings-field">
+                    <label for="wizard-llm-model">LLM Model</label>
+                    <div class="model-row">
+                        <select id="wizard-llm-model"></select>
+                        <button type="button" class="btn btn-secondary" id="wizard-fetch-models-btn" title="Load models from the LLM server">Models</button>
+                    </div>
+                    <p class="settings-hint" id="wizard-model-list-hint">Click Models to load the list from your server.</p>
+                </div>
+            </section>
+
+            <!-- 3. First device -->
+            <section class="wizard-step" id="wizard-step-device" hidden>
+                <h3>Add your first device</h3>
+                <p class="wizard-text">
+                    HomeStew organises manuals, search and maintenance reminders around your
+                    devices. Add one now &mdash; manuals can be downloaded or uploaded later
+                    from the device's Edit dialog.
+                </p>
+                <div class="settings-field">
+                    <label for="wizard-device-name">Device Name</label>
+                    <input type="text" id="wizard-device-name" placeholder="e.g., Living Room AC">
+                </div>
+                <div class="warranty-row">
+                    <div class="settings-field">
+                        <label for="wizard-device-brand">Brand</label>
+                        <input type="text" id="wizard-device-brand" placeholder="e.g., Daikin">
+                    </div>
+                    <div class="settings-field">
+                        <label for="wizard-device-model">Model</label>
+                        <input type="text" id="wizard-device-model" placeholder="e.g., FTKM35">
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label for="wizard-device-description">Description (optional)</label>
+                    <textarea id="wizard-device-description" rows="2" placeholder="Anything worth remembering about this device"></textarea>
+                </div>
+            </section>
+
+            <p class="wizard-error" id="wizard-error" hidden></p>
+
+            <!-- Shared footer: identical controls on every step. -->
+            <div class="modal-actions wizard-actions">
+                <button type="button" class="btn btn-secondary" id="wizard-skip-btn">Skip this step</button>
+                <button type="button" class="btn btn-primary" id="wizard-save-btn" data-dedupe>Next</button>
             </div>
         </div>
     </div>

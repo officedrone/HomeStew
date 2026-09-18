@@ -50,7 +50,7 @@ let chatModelAvailable = null;
 // fetch (which also tears down the SSE stream server-side). Null when idle.
 let chatAbortController = null;
 
-// Chat scroll state — pinned-to-bottom with heuristic so user can read mid-stream.
+// Chat scroll state - pinned-to-bottom with heuristic so user can read mid-stream.
 let chatPinned = true;
 const CHAT_SCROLL_THRESHOLD = 80; // px from bottom to consider "pinned"
 let _chatScrollQueued = false;
@@ -97,16 +97,17 @@ async function initializeApp() {
     // last tab persisted to localStorage) so F5 no longer dumps the user on
     // the Search tab.
     restoreActiveTab();
-    // One-time setup: when the server has no secrets master key, offer to
-    // create it instead of silently storing secrets as plaintext.
-    checkSecretsKeyWizard();
+    // One-time setup wizard (encryption key / AI model / first device).
+    // Runs after loadDevices() so the "first device" step can see whether
+    // any devices exist yet; skipped/saved steps are persisted server-side.
+    checkSetupWizard();
 }
 
 // ---------------------------------------------------------------------------
 // Click deduplication (two layers, both needed)
 // ---------------------------------------------------------------------------
 
-// Layer 1 — rapid re-clicks: buttons tagged [data-dedupe] ignore further
+// Layer 1 - rapid re-clicks: buttons tagged [data-dedupe] ignore further
 // clicks inside a short double-click window. The listener only blocks; it
 // never invokes handlers itself, so normal listeners / inline onclick
 // attributes keep working untouched on the first click.
@@ -122,7 +123,7 @@ document.addEventListener('click', (e) => {
     el._lastDedupeClick = Date.now();
 }, true);
 
-// Layer 2 — in-flight operations: server calls (add device, save event,
+// Layer 2 - in-flight operations: server calls (add device, save event,
 // upload manual, delete, ...) hold a named lock for the whole async body, so
 // even a slow request can't be duplicated by a second click that lands after
 // the window above has expired. beginOp returns false when the same key is
@@ -139,7 +140,7 @@ function endOp(key) {
 
 function setupEventListeners() {
     // Tab switching. The buttons now contain an icon/label, so read the tab
-    // name from currentTarget — e.target can be the inner <svg>/<span>.
+    // name from currentTarget - e.target can be the inner <svg>/<span>.
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab));
     });
@@ -300,17 +301,23 @@ function setupEventListeners() {
         btn.addEventListener('click', () => restorePromptDefault(btn.dataset.restoreDefault));
     });
 
-    // Secrets master key management: Settings > Advanced create/delete, and
-    // the first-run wizard's Create/Skip buttons.
+    // Secrets master key management: Settings > Advanced create/delete.
     document.getElementById('create-key-btn').addEventListener('click', handleCreateKeyFromSettings);
     document.getElementById('delete-key-btn').addEventListener('click', handleDeleteKeyFromSettings);
-    document.getElementById('key-wizard-create-btn').addEventListener('click', handleWizardCreateKey);
-    document.getElementById('key-wizard-skip-btn').addEventListener('click', closeKeyWizard);
+
+    // First-run setup wizard footer + AI step's model picker. The wizard is
+    // deliberately not closable via Escape (see below): every step must end
+    // with Skip or Save so its resolution gets persisted.
+    document.getElementById('wizard-skip-btn').addEventListener('click', handleWizardSkip);
+    document.getElementById('wizard-save-btn').addEventListener('click', handleWizardSave);
+    document.getElementById('wizard-fetch-models-btn').addEventListener('click', fetchWizardLlmModels);
 
     // Escape closes any open modal, or the mobile drawer when none is open.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        for (const id of ['settings-modal', 'add-device-modal', 'edit-device-modal', 'event-modal', 'key-wizard-modal']) {
+        // The setup wizard is intentionally absent: skipping/saving a step
+        // must persist its resolution, so it can't be dismissed with Escape.
+        for (const id of ['settings-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 modal.style.display = 'none';
@@ -341,7 +348,7 @@ async function loadDevices() {
 }
 
 // One "Label: value" meta line per configured detail of a device (serial,
-// product number, custom attributes) — used in the expanded accordion panel.
+// product number, custom attributes) - used in the expanded accordion panel.
 function deviceDetailLines(device) {
     const lines = [];
     if (device.serial_number) lines.push(`Serial: ${escapeHtml(device.serial_number)}`);
@@ -986,7 +993,7 @@ async function handleAddDevice(e) {
         const files = [...manualInput.files];
         for (const file of files) {
             if (!file.name.toLowerCase().endsWith('.pdf')) {
-                showToast(`Skipped "${file.name}" — only PDF files are supported`, 'error');
+                showToast(`Skipped "${file.name}" - only PDF files are supported`, 'error');
                 continue;
             }
             const formData = new FormData();
@@ -1086,7 +1093,7 @@ async function loadDeviceAttributes(deviceId) {
     const container = document.getElementById('device-attributes-list');
 
     // The devices array comes from GET /api/devices, which does not include
-    // attributes — fetch the single-device endpoint so newly added/removed
+    // attributes - fetch the single-device endpoint so newly added/removed
     // attributes are reflected immediately.
     let attrs = [];
     try {
@@ -1223,7 +1230,7 @@ async function downloadManuals(deviceId) {
 
             switch(data.type) {
                 case 'step':
-                    // Intermediate progress only — ignore once finished.
+                    // Intermediate progress only - ignore once finished.
                     if (finished) break;
                     addProgressStep(stepsContainer, data.message, data.status || 'searching');
                     statusText.textContent = data.message;
@@ -1506,7 +1513,7 @@ function renderSearchResults(data) {
         </div>
         ${data.results.map(result => {
             // manual_id 0 = a hit in the device's own record (details /
-            // custom attributes), not a PDF page — no file link to open.
+            // custom attributes), not a PDF page - no file link to open.
             const header = result.manual_id === 0
                 ? `
                     <span class="result-title">${escapeHtml(result.filename)}</span>
@@ -1534,7 +1541,7 @@ async function sendChatMessage() {
     // If the last model probe failed, don't waste a round-trip: keep the
     // warning banner visible and point the user at Settings instead.
     if (chatModelAvailable === false) {
-        showToast('No model is available — update the connection in Settings', 'error');
+        showToast('No model is available - update the connection in Settings', 'error');
         return;
     }
     // One request at a time: a second click / Enter while streaming must not
@@ -1991,7 +1998,7 @@ function addMessageToChat(role, content) {
 }
 
 function switchTab(tabName) {
-    // On phones the tab was picked from the drawer — dismiss it so the
+    // On phones the tab was picked from the drawer - dismiss it so the
     // content is visible right away.
     closeDrawer();
 
@@ -2023,7 +2030,7 @@ function switchTab(tabName) {
     }
 }
 
-// Valid tab names, in markup order — also the fallback used by restoreActiveTab.
+// Valid tab names, in markup order - also the fallback used by restoreActiveTab.
 const TAB_NAMES = ['search', 'chat', 'devices', 'calendar'];
 
 // Re-activate the tab from the URL hash (set by switchTab) or, if absent,
@@ -2062,7 +2069,7 @@ async function checkChatModelStatus() {
         // (and at least show the saved selection when the probe failed).
         populateChatModelSelect(status);
     } catch (error) {
-        // The status probe itself failed — treat as unavailable but keep the
+        // The status probe itself failed - treat as unavailable but keep the
         // chat usable-looking rather than blocking on our own error.
         console.error('Model status check failed:', error);
         chatModelAvailable = false;
@@ -2238,8 +2245,8 @@ function escapeHtml(text) {
 // ---------------------------------------------------------------------------
 
 // Two independent body classes drive both modes:
-//   .sidebar-collapsed — desktop icon-rail width (persisted, CSS-only effect)
-//   .sidebar-open      — mobile drawer visibility (CSS media query decides)
+//   .sidebar-collapsed - desktop icon-rail width (persisted, CSS-only effect)
+//   .sidebar-open      - mobile drawer visibility (CSS media query decides)
 function openDrawer() {
     document.body.classList.add('sidebar-open');
 }
@@ -2313,7 +2320,7 @@ function applyTheme() {
 // ---------------------------------------------------------------------------
 
 // Shown inside the API key field when a key is already configured. The real
-// value is never sent to the browser — an obscured placeholder just signals
+// value is never sent to the browser - an obscured placeholder just signals
 // "a key exists"; leaving the field blank keeps it, typing replaces it.
 const API_KEY_PLACEHOLDER = '********';
 
@@ -2394,7 +2401,7 @@ function renderSecretField(name) {
     if (!secretsState.cleared.has(name) && secretsState.configured[name]) {
         input.placeholder = API_KEY_PLACEHOLDER;
     } else {
-        // No secret configured — the URL field keeps its example placeholder.
+        // No secret configured - the URL field keeps its example placeholder.
         input.placeholder =
             name === 'notify_webhook_url' ? 'https://example.com/hooks/homestew' : '';
     }
@@ -2545,7 +2552,7 @@ async function openSettingsModal() {
     document.getElementById('settings-notify-webhook-verify-ssl').checked =
         settings.notify_webhook_verify_ssl !== false;
 
-    // Webhook bearer token: same placeholder treatment as the LLM API key —
+    // Webhook bearer token: same placeholder treatment as the LLM API key -
     // the value is never sent to the client, blank on save keeps it.
     const tokenInput = document.getElementById('settings-notify-webhook-token');
     tokenInput.value = '';
@@ -2643,7 +2650,7 @@ async function fetchLlmModels({ openPicker = false } = {}) {
     const keyInput = document.getElementById('settings-llm-api-key');
     const payload = { llm_base_url: baseUrl };
     // Only send a freshly typed key. If blank, the server probes with the
-    // saved key — but only when the URL matches the saved base URL (a foreign
+    // saved key - but only when the URL matches the saved base URL (a foreign
     // URL never receives the stored credential).
     if (keyInput.value.trim()) {
         payload.llm_api_key = keyInput.value.trim();
@@ -2674,7 +2681,7 @@ async function fetchLlmModels({ openPicker = false } = {}) {
                 // showPicker needs a fresh user gesture; if the request took
                 // too long, just leave the loaded list for manual opening.
                 select.showPicker();
-            } catch (e) { /* activation expired — list is still populated */ }
+            } catch (e) { /* activation expired - list is still populated */ }
         }
 
         hint.textContent = data.models.length
@@ -2735,7 +2742,7 @@ async function sendTestNotification() {
             } catch (e) { /* non-JSON error body */ }
             throw new Error(detail);
         }
-        hint.textContent = 'Test notification sent — check your webhook receiver.';
+        hint.textContent = 'Test notification sent - check your webhook receiver.';
     } catch (error) {
         hint.textContent = error.message;
     } finally {
@@ -2745,7 +2752,7 @@ async function sendTestNotification() {
 }
 
 // Clicking (or keyboard-opening) the model dropdown refreshes its options
-// from the server first, then opens the list — so users always see fresh
+// from the server first, then opens the list - so users always see fresh
 // models without a separate "fetch" step.
 function setupModelDropdownRefresh() {
     const select = document.getElementById('settings-llm-model');
@@ -2758,7 +2765,7 @@ function setupModelDropdownRefresh() {
         fetchLlmModels({ openPicker: true });
     });
 
-    // Keyboard access: Enter / Space / ArrowDown open the picker natively —
+    // Keyboard access: Enter / Space / ArrowDown open the picker natively -
     // intercept them the same way.
     select.addEventListener('keydown', (e) => {
         if (!['Enter', ' ', 'ArrowDown'].includes(e.key)) return;
@@ -2795,7 +2802,7 @@ async function handleSettingsSave(event) {
     // is sent; blank keeps the stored one (removal goes through clear_secrets).
     const webhookUrl = document.getElementById('settings-notify-webhook-url').value.trim();
     if (webhookUrl) payload.notify_webhook_url = webhookUrl;
-    // Blank API key field means "keep the existing key" — omit it entirely.
+    // Blank API key field means "keep the existing key" - omit it entirely.
     // (The obscured placeholder is only a visual hint, never a value.)
     const apiKey = document.getElementById('settings-llm-api-key').value.trim();
     if (apiKey) payload.llm_api_key = apiKey;
@@ -2824,7 +2831,7 @@ async function handleSettingsSave(event) {
             } catch (e) { /* non-JSON error body */ }
             throw new Error(detail);
         }
-        // Apply the (possibly changed) theme immediately — before closing,
+        // Apply the (possibly changed) theme immediately - before closing,
         // so the new colors are already visible when the modal disappears.
         setThemePref(payload.theme);
         closeSettingsModal();
@@ -2852,7 +2859,7 @@ let lastApiSettings = null;
 
 function keyStatusText(s) {
     if (s.secrets_key_source === 'mounted') {
-        return 'Key source: mounted key file (SECRETS_KEY_FILE). HomeStew does not manage this key — remove the container\u2019s secret mount to change it.';
+        return 'Key source: mounted key file (SECRETS_KEY_FILE). HomeStew does not manage this key - remove the container\u2019s secret mount to change it.';
     }
     if (s.secrets_key_source === 'generated') {
         return 'Key source: HomeStew-managed key at /data/.secrets_key. Secrets are encrypted at rest with it.';
@@ -2942,40 +2949,307 @@ async function handleDeleteKeyFromSettings() {
     }
 }
 
-// First-run wizard: shown when GET /api/settings reports no master key.
-// Skippable (plaintext until created); the check runs again on every page
-// load, so skipping only defers it for this session.
-async function checkSecretsKeyWizard() {
+// ---------------------------------------------------------------------------
+// First-run setup wizard (encryption key -> AI/LLM -> first device)
+// ---------------------------------------------------------------------------
+
+// The steps in offer order. A step is shown only while its condition still
+// applies AND it has no persisted resolution; skipping or saving a step
+// records the outcome on the server (setup_steps), so resolved steps never
+// come back - even after a container restart.
+const WIZARD_STEPS = [
+    { id: 'secrets_key', title: 'Encrypt stored credentials', saveLabel: 'Create Key' },
+    { id: 'llm', title: 'Connect your AI model', saveLabel: 'Save & Continue' },
+    { id: 'device', title: 'Add your first device', saveLabel: 'Add Device' },
+];
+
+// Steps pending for this page load + index of the visible one.
+let wizardQueue = [];
+let wizardIndex = 0;
+// Guards both footer buttons against double-clicks during a server call.
+let wizardInFlight = false;
+
+function wizardPendingSteps(s) {
+    const resolved = s.setup_steps || {};
+    return WIZARD_STEPS.filter((step) => {
+        if (resolved[step.id]) return false;
+        if (step.id === 'secrets_key') return s.secrets_key_source === 'none';
+        if (step.id === 'llm') return !s.llm_configured;
+        if (step.id === 'device') return devices.length === 0;
+        return false;
+    }).map((step) => step.id);
+}
+
+// Shown after loadDevices()/settings are available: opens the wizard on the
+// first pending step, or stays closed when everything is set up or skipped.
+async function checkSetupWizard() {
     try {
         const response = await fetch('/api/settings');
         if (!response.ok) return;
         const s = await response.json();
-        // A mounted key file is user-managed: never nag about it, and a key
-        // that exists (mounted or managed) means nothing to set up.
-        if (s.secrets_key_source !== 'none') return;
-        renderAdvancedKeyPanel(s);
-        document.getElementById('key-wizard-error').hidden = true;
-        document.getElementById('key-wizard-modal').style.display = 'flex';
-    } catch (e) { /* offline/server starting up — no wizard this load */ }
+        wizardQueue = wizardPendingSteps(s);
+        if (!wizardQueue.length) return;
+        // Prefill the AI step from what the server has (defaults or env).
+        document.getElementById('wizard-llm-base-url').value = s.llm_base_url || '';
+        seedWizardModelSelect(s.llm_model || '');
+        wizardIndex = 0;
+        showWizardStep();
+        document.getElementById('setup-wizard-modal').style.display = 'flex';
+    } catch (e) { /* offline/server starting up - no wizard this load */ }
 }
 
-function closeKeyWizard() {
-    document.getElementById('key-wizard-modal').style.display = 'none';
+function currentWizardStepId() {
+    return wizardQueue[wizardIndex];
 }
 
-async function handleWizardCreateKey() {
-    const btn = document.getElementById('key-wizard-create-btn');
-    const errorEl = document.getElementById('key-wizard-error');
-    btn.disabled = true;
-    errorEl.hidden = true;
+// Paint the visible step, its footer label and the progress dots. Every step
+// shares the same modal size and Skip/Save controls by construction.
+function showWizardStep() {
+    const id = currentWizardStepId();
+    const meta = WIZARD_STEPS.find((step) => step.id === id);
+    for (const step of WIZARD_STEPS) {
+        document.getElementById(`wizard-step-${step.id}`).hidden = step.id !== id;
+    }
+    document.getElementById('wizard-save-btn').textContent = meta.saveLabel;
+    renderWizardProgress();
+    setWizardError('');
+}
+
+function renderWizardProgress() {
+    const wrap = document.getElementById('wizard-progress');
+    wrap.innerHTML = '';
+    wizardQueue.forEach((id, i) => {
+        const meta = WIZARD_STEPS.find((step) => step.id === id);
+        const dot = document.createElement('div');
+        dot.className = 'wizard-dot'
+            + (i < wizardIndex ? ' is-done' : '')
+            + (i === wizardIndex ? ' is-current' : '');
+        dot.setAttribute('role', 'listitem');
+        dot.setAttribute('aria-label', `${meta.title} (${i < wizardIndex ? 'done' : i === wizardIndex ? 'current' : 'upcoming'})`);
+        dot.title = meta.title;
+        wrap.appendChild(dot);
+    });
+}
+
+function setWizardError(message) {
+    const el = document.getElementById('wizard-error');
+    el.textContent = message || '';
+    el.hidden = !message;
+}
+
+// Persist how a step ended. Skipping is stored exactly like saving: the step
+// is resolved and will not be re-offered on the next launch.
+async function resolveWizardStep(step, resolution) {
+    const response = await fetch('/api/settings/setup-steps/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step, resolution }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+}
+
+// After a skip/save: move to the next pending step or finish the wizard.
+function advanceWizard() {
+    wizardIndex += 1;
+    if (wizardIndex < wizardQueue.length) {
+        showWizardStep();
+        return;
+    }
+    document.getElementById('setup-wizard-modal').style.display = 'none';
+}
+
+async function handleWizardSkip() {
+    if (wizardInFlight) return;
+    const id = currentWizardStepId();
+    wizardInFlight = true;
+    setWizardButtonsDisabled(true);
     try {
-        await postSecretsKeyAction('secrets-key/create');
-        closeKeyWizard();
-        showToast('Master key created \u2014 secrets are encrypted at rest');
+        await resolveWizardStep(id, 'skipped');
+        advanceWizard();
     } catch (error) {
-        errorEl.textContent = error.message;
-        errorEl.hidden = false;
+        // The step stays open; worst case it is offered again next load.
+        setWizardError(`Could not record the skip: ${error.message}`);
     } finally {
+        wizardInFlight = false;
+        setWizardButtonsDisabled(false);
+    }
+}
+
+function setWizardButtonsDisabled(disabled) {
+    document.getElementById('wizard-skip-btn').disabled = disabled;
+    document.getElementById('wizard-save-btn').disabled = disabled;
+}
+
+// Save button: run the current step's action, record it as saved, advance.
+async function handleWizardSave() {
+    if (wizardInFlight) return;
+    const id = currentWizardStepId();
+    wizardInFlight = true;
+    setWizardButtonsDisabled(true);
+    setWizardError('');
+    try {
+        if (id === 'secrets_key') await wizardCreateKey();
+        else if (id === 'llm') await wizardSaveLlm();
+        else if (id === 'device') await wizardCreateDevice();
+        await resolveWizardStep(id, 'saved');
+        advanceWizard();
+    } catch (error) {
+        setWizardError(error.message || String(error));
+    } finally {
+        wizardInFlight = false;
+        setWizardButtonsDisabled(false);
+    }
+}
+
+// --- Step 1: encryption key -------------------------------------------------
+
+async function wizardCreateKey() {
+    await postSecretsKeyAction('secrets-key/create');
+    showToast('Master key created \u2014 secrets are encrypted at rest', 'success');
+}
+
+// --- Step 2: AI / LLM integration --------------------------------------------
+
+// The model field is a plain <select> like in Settings: seed it with the
+// saved/default model so something shows before the list is fetched.
+function seedWizardModelSelect(model) {
+    const select = document.getElementById('wizard-llm-model');
+    select.innerHTML = '';
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = model || 'No model selected';
+    select.appendChild(option);
+}
+
+// Mirror of fetchLlmModels() for the wizard's own field ids: probes
+// /api/settings/models with whatever URL/key are typed (unsaved is fine).
+let wizardModelRefreshInFlight = false;
+
+async function fetchWizardLlmModels() {
+    if (wizardModelRefreshInFlight) return;
+    const hint = document.getElementById('wizard-model-list-hint');
+    const btn = document.getElementById('wizard-fetch-models-btn');
+    const select = document.getElementById('wizard-llm-model');
+
+    const baseUrl = document.getElementById('wizard-llm-base-url').value.trim();
+    if (!baseUrl) {
+        hint.textContent = 'Enter the LLM Base URL first, then pick a model.';
+        return;
+    }
+    const payload = { llm_base_url: baseUrl };
+    // Only send a freshly typed key - the server never ships the stored one
+    // to a foreign URL anyway (same rule as the Settings modal probe).
+    const keyInput = document.getElementById('wizard-llm-api-key');
+    if (keyInput.value.trim()) payload.llm_api_key = keyInput.value.trim();
+
+    wizardModelRefreshInFlight = true;
+    btn.disabled = true;
+    hint.textContent = 'Loading models...';
+    // Read before the try: the catch below restores the previous option and
+    // must still work when the fetch itself throws.
+    const current = select.value;
+    try {
+        const response = await fetch('/api/settings/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            let detail = `HTTP ${response.status}`;
+            try {
+                const data = await response.json();
+                if (data.detail) detail = data.detail;
+            } catch (e) { /* non-JSON error body */ }
+            throw new Error(detail);
+        }
+        const data = await response.json();
+        const current = select.value;
+        select.innerHTML = '';
+        for (const model of data.models) {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            select.appendChild(option);
+        }
+        if (!data.models.length) {
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = 'No models available';
+            select.appendChild(empty);
+        } else if (data.models.includes(current)) {
+            select.value = current;
+        }
+        hint.textContent = data.models.length
+            ? `Loaded ${data.models.length} model${data.models.length === 1 ? '' : 's'} from the server.`
+            : 'Server responded, but no models were listed.';
+    } catch (error) {
+        select.innerHTML = '';
+        const empty = document.createElement('option');
+        empty.value = current;
+        empty.textContent = current || 'No models available';
+        select.appendChild(empty);
+        hint.textContent = error.message;
+    } finally {
+        wizardModelRefreshInFlight = false;
         btn.disabled = false;
     }
+}
+
+async function wizardSaveLlm() {
+    const baseUrl = document.getElementById('wizard-llm-base-url').value.trim();
+    const model = document.getElementById('wizard-llm-model').value.trim();
+    if (!baseUrl) throw new Error('Enter the LLM Base URL (e.g. http://localhost:11434/v1).');
+    if (!/^https?:\/\//i.test(baseUrl)) {
+        throw new Error('The base URL must start with http:// or https://');
+    }
+    if (!model) throw new Error('Pick a model - click "Models" to load the list from your server.');
+
+    const payload = { llm_base_url: baseUrl, llm_model: model };
+    // Blank key = none configured (local servers ignore it); omitted so the
+    // server keeps any stored key untouched.
+    const apiKey = document.getElementById('wizard-llm-api-key').value.trim();
+    if (apiKey) payload.llm_api_key = apiKey;
+
+    const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try {
+            const data = await response.json();
+            if (data.detail) detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+        } catch (e) { /* non-JSON error body */ }
+        throw new Error(detail);
+    }
+    showToast('AI model saved', 'success');
+    // A fixed configuration should clear the chat warning banner right away.
+    if (document.getElementById('chat-tab').classList.contains('active')) {
+        checkChatModelStatus();
+    }
+}
+
+// --- Step 3: first device -----------------------------------------------------
+
+async function wizardCreateDevice() {
+    const name = document.getElementById('wizard-device-name').value.trim();
+    const brand = document.getElementById('wizard-device-brand').value.trim();
+    const model = document.getElementById('wizard-device-model').value.trim();
+    if (!name) throw new Error('Give the device a name (e.g. "Living Room AC").');
+    if (!brand || !model) throw new Error('Brand and Model are required - they drive manual downloads.');
+
+    const response = await fetch('/api/devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name,
+            brand,
+            model,
+            description: document.getElementById('wizard-device-description').value.trim() || null,
+        }),
+    });
+    if (!response.ok) throw new Error('Failed to add the device.');
+    showToast('Device added', 'success');
+    await loadDevices();
 }

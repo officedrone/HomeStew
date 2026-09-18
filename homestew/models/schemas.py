@@ -194,7 +194,7 @@ class SettingsResponse(BaseModel):
     )
     notify_webhook_url_set: bool = Field(
         ...,
-        description="True if a webhook URL is configured (value not exposed — "
+        description="True if a webhook URL is configured (value not exposed - "
         "Synology URLs embed their secret token, so the URL is write-only too)",
     )
     notify_webhook_token_set: bool = Field(
@@ -224,6 +224,18 @@ class SettingsResponse(BaseModel):
         default_factory=list,
         description="Names of stored secrets that could not be decrypted "
         "(wrong key file or tampered data); they are treated as unset",
+    )
+    setup_steps: dict[str, Literal["skipped", "saved"]] = Field(
+        default_factory=dict,
+        description="First-run wizard steps already resolved (skipped or "
+        "saved), keyed by step name. Persisted so a skipped step is never "
+        "re-prompted on the next launch.",
+    )
+    llm_configured: bool = Field(
+        False,
+        description="True when the LLM integration looks set up already "
+        "(API key saved, AI step previously saved in the wizard, or base "
+        "URL/model changed from the built-in defaults)",
     )
 
 
@@ -314,6 +326,25 @@ class WebhookTestRequest(BaseModel):
     )
 
 
+class SetupStepResolveRequest(BaseModel):
+    """Record how a first-run wizard step ended (skip or save).
+
+    Persisted server-side so the step is not offered again on later page
+    loads - skipping is a deliberate choice, not just a dismissal.
+    """
+    step: Literal["secrets_key", "llm", "device"] = Field(
+        ..., description="The wizard step being resolved"
+    )
+    resolution: Literal["skipped", "saved"] = Field(
+        ..., description="How the step ended for this user"
+    )
+
+
+class SetupStepResolveResponse(BaseModel):
+    """All wizard step resolutions after the recorded one."""
+    setup_steps: dict[str, Literal["skipped", "saved"]]
+
+
 class ModelListRequest(BaseModel):
     """Optionally override base URL / API key when probing the LLM server.
 
@@ -377,7 +408,7 @@ class CalendarEventCreate(CalendarEventBase):
 
 
 class CalendarEventUpdate(BaseModel):
-    """Partial update — only provided fields change."""
+    """Partial update - only provided fields change."""
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=2000)
     device_id: Optional[int] = None

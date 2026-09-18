@@ -3,14 +3,14 @@
 The pdf_index table is tokenized with FTS5's ``trigram`` tokenizer, which
 indexes every 3-character sequence. That gives us cheap *candidate*
 retrieval with substring matching: a search for "processor" also finds
-"Microprocessor". Raw trigram matches are noisy though — "RAM" would also
-hit "program" or "framerate" — so every candidate row is re-verified and
+"Microprocessor". Raw trigram matches are noisy though - "RAM" would also
+hit "program" or "framerate" - so every candidate row is re-verified and
 scored in Python, mirroring how real search engines separate retrieval from
 ranking:
 
 1. **Retrieval (OR)**: candidates are pages matching *any* query term, not
    all of them. Requiring every term kills verbose LLM queries like
-   "TPM Trusted Platform Module type version" — no single page contains
+   "TPM Trusted Platform Module type version" - no single page contains
    all six words even though the TPM chapter is obviously relevant.
 2. **Qualification** (word-boundary + length heuristic): short terms
    (<= SHORT_TERM_MAX_LEN chars, e.g. acronyms like "ram") only count when
@@ -28,7 +28,7 @@ Two query features sit on top of that pipeline:
 
 - **Explicit phrases**: text in double quotes ("memory speed") must appear
   verbatim (whole words, adjacent). Phrase groups are OR-ed with the loose
-  terms for retrieval — like mainstream search engines — and a page holding
+  terms for retrieval - like mainstream search engines - and a page holding
   an explicit phrase always ranks in the top tier.
 - **Device entries**: when no device filter is set, each device's own
   record (name, brand, model, description, serial/product numbers and
@@ -130,7 +130,7 @@ def _parse_query(query: str) -> ParsedQuery:
     groups are OR-ed with the loose terms for retrieval (a page holding the
     phrase qualifies even without the other words, and vice versa), but a
     page containing the phrase always ranks in the top tier. Stopwords are
-    dropped from the loose terms only — inside quotes every word counts.
+    dropped from the loose terms only - inside quotes every word counts.
     If stopword filtering removes everything, the raw tokens are kept so
     the search still does something.
     """
@@ -174,7 +174,7 @@ def _build_match_query(terms: List[str], phrases: List[List[str]]) -> str:
     Each term is quoted as a phrase (the trigram tokenizer treats a quoted
     string as a substring match) and so is every explicit query phrase, all
     OR-ed together so that a page matching any subset of the query becomes
-    a candidate — final qualification happens in Python (_score_row).
+    a candidate - final qualification happens in Python (_score_row).
     """
     indexable_phrases, _ = _phrase_strings(phrases)
     parts = [f'"{t}"' for t in terms]
@@ -201,7 +201,7 @@ async def _plan_search(
     phrase match), optionally scoped to one device; terms absent from the
     index get df=0. Weight is classic smooth IDF, ``log(1 + N / (1 + df))``,
     so rare terms ("tpm") dominate common ones ("type"). Terms occurring on
-    more than COMMON_TERM_DF_RATIO of pages are zeroed out entirely — they
+    more than COMMON_TERM_DF_RATIO of pages are zeroed out entirely - they
     are filler and must not qualify a page by themselves. Terms occurring on
     at most RARE_DF_RATIO of pages are marked *rare*: one rare-term hit
     qualifies a page even when the rest of the query is long-tail noise,
@@ -234,7 +234,7 @@ async def _plan_search(
             sql = "SELECT COUNT(*) FROM pdf_index WHERE pdf_index MATCH ?"
             params: list = [f'"{term}"']
         else:
-            # Too short for the trigram index — count LIKE matches instead,
+            # Too short for the trigram index - count LIKE matches instead,
             # otherwise every short term would look absent (df=0).
             sql = "SELECT COUNT(*) FROM pdf_index WHERE lower(content) LIKE ?"
             params = [f"%{term}%"]
@@ -362,7 +362,7 @@ def _score_row(
     """Rank key for a candidate row; lower sorts first. ``None`` = drop it.
 
     Explicit quoted phrases (``phrases``) dominate: a row containing one
-    qualifies outright and lands in the top tier — like mainstream search
+    qualifies outright and lands in the top tier - like mainstream search
     engines, the phrase group is OR-ed with the loose terms, so a page with
     only the loose words can still surface (lower-ranked). Without an
     explicit-phrase hit the row must qualify through the loose terms:
@@ -372,8 +372,8 @@ def _score_row(
     containing only filler-weight terms ("type", "the") satisfies neither
     and is dropped.
 
-    Tiers (see module docstring): 0 = explicit phrase hit, or — when the
-    query has none — all terms adjacent as an exact phrase; 1 = all terms
+    Tiers (see module docstring): 0 = explicit phrase hit, or - when the
+    query has none - all terms adjacent as an exact phrase; 1 = all terms
     as whole words within a proximity window; 2 = weighted partial
     coverage. Within each tier, higher weight coverage sorts first, then
     hit density and bm25 break ties.
@@ -407,7 +407,7 @@ def _score_row(
         rare_hit = any(t in plan.rare for t in by_term if t in weight_terms)
         # OR semantics (explicit-phrase group | rest of words): a page
         # holding only loose words still qualifies, but at least one
-        # matched term must carry real IDF weight — pages matching *only*
+        # matched term must carry real IDF weight - pages matching *only*
         # filler or absent words are noise, not results.
         if not rare_hit and (matched_weight <= 0 or coverage < MIN_WEIGHT_COVERAGE):
             return None
@@ -537,7 +537,7 @@ async def _fetch_candidates(
     SQLite forbids combining ``MATCH`` and ``LIKE`` with OR inside a single
     WHERE clause, so short-term matches come from separate queries whose
     rows are merged (by rowid) into the trigram candidates. bm25 order is
-    only a rough pre-filter — final ordering happens in Python — so each
+    only a rough pre-filter - final ordering happens in Python - so each
     query pulls up to CANDIDATE_LIMIT rows.
 
     Returns:
@@ -587,7 +587,7 @@ async def _fetch_device_entries(db, device_id: Optional[int] = None) -> List[dic
     """Build one searchable document per device from its own record.
 
     A device's name, brand, model, description, serial/product numbers and
-    custom attributes are joined into a single text — the same fields the
+    custom attributes are joined into a single text - the same fields the
     chat UI already exposes as the "device entry". Users type real specs
     into these fields (e.g. an attribute "RAM: 64GB max"), so when no
     device filter is set they must be searchable alongside the manuals:
@@ -642,7 +642,7 @@ def _entry_result(entry: dict, rank_key: tuple) -> SearchResult:
     ``manual_id=0`` / ``page_number=0`` mark it as a device (not manual page)
     hit; the frontend renders those as a device card instead of a PDF link.
     The score uses the same formula as manual rows, offset by -50 so an
-    equally-good device entry reports slightly below a manual page — manuals
+    equally-good device entry reports slightly below a manual page - manuals
     are the authoritative source, but an exact spec in the user's own entry
     still beats a weak partial match (tier dominates the offset).
     """

@@ -370,7 +370,7 @@ def download_manuals_for_device(
         if failed:
             error_detail = (
                 f"Found {len(candidates)} manual(s) but none could be downloaded. "
-                "The links may be broken or blocked — try again or use different search terms."
+                "The links may be broken or blocked - try again or use different search terms."
             )
         else:
             error_detail = "No downloadable manuals were found for this brand/model."

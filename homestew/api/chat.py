@@ -81,7 +81,7 @@ async def resolve_device_filter(device_id: Optional[int]) -> Optional[Dict[str, 
 
 
 async def list_all_device_ids() -> List[int]:
-    """Every registered device id — used to validate LLM-supplied filters."""
+    """Every registered device id - used to validate LLM-supplied filters."""
     async with get_db_context() as db:
         cursor = await db.execute("SELECT id FROM devices")
         return [row["id"] for row in await cursor.fetchall()]
@@ -92,7 +92,7 @@ async def device_roster_note() -> str:
 
     Without this the model invents plausible-looking device ids (it called
     search with device_id=202 for a laptop whose real id is 1), and every
-    search scoped to a nonexistent id returns nothing — which the model then
+    search scoped to a nonexistent id returns nothing - which the model then
     (correctly!) reports as "the manuals do not cover this".
     """
     async with get_db_context() as db:
@@ -107,7 +107,7 @@ async def device_roster_note() -> str:
     lines = [f"- device_id={r['id']}: {r['name']} ({r['brand']} {r['model']})" for r in rows]
     return (
         "\n\nThe user's registered devices (these are the ONLY valid "
-        "device_id values — never invent or guess an id):\n" + "\n".join(lines)
+        "device_id values - never invent or guess an id):\n" + "\n".join(lines)
     )
 
 
@@ -116,7 +116,7 @@ def current_date_note() -> str:
 
     The manage_calendar tool needs absolute ISO dates, but users speak in
     relative ones ("tomorrow", "next Friday"). Without the real date in the
-    prompt the model cannot resolve them — it either asks the user or invents
+    prompt the model cannot resolve them - it either asks the user or invents
     a wrong anchor. The weekday is included so "next Friday" resolves without
     arithmetic.
     """
@@ -136,7 +136,7 @@ async def calendar_reminders_note(
     When the chat is scoped to a device only that device's (and unassigned)
     events are listed; otherwise every event in the window is included so the
     model can proactively nudge about upcoming upkeep. The data is computed
-    server-side and injected directly — small local models reliably mention it
+    server-side and injected directly - small local models reliably mention it
     without needing an extra tool call.
     """
     # Device-scoped chats still see unassigned events (they may concern the
@@ -161,7 +161,7 @@ async def calendar_reminders_note(
             else " (no device)"
         )
         lines.append(
-            f'- id={e["id"]}: "{e["title"]}" — {status_word}, repeats: '
+            f'- id={e["id"]}: "{e["title"]}" - {status_word}, repeats: '
             f"{e['recurrence_label']}{device_part}"
         )
 
@@ -171,8 +171,8 @@ async def calendar_reminders_note(
         + "\n".join(lines)
         + "\nThe id= values are for the manage_calendar tool: use them to "
         "update, delete or complete these events without listing again. If a "
-        "question concerns a device with one of these events — or the topic "
-        "matches one (filters, cleaning, maintenance) — briefly remind the "
+        "question concerns a device with one of these events - or the topic "
+        "matches one (filters, cleaning, maintenance) - briefly remind the "
         "user about it after answering. Never invent calendar events that "
         "are not listed here."
     )
@@ -219,8 +219,8 @@ def scoped_search_func(
 
     A device id coming from the LLM that does not exist (small local models
     happily invent them) would silently scope the search to zero documents;
-    instead of returning an empty result set — which the model reads as "the
-    manuals say nothing" — the bogus filter is dropped and the note explains
+    instead of returning an empty result set - which the model reads as "the
+    manuals say nothing" - the bogus filter is dropped and the note explains
     what happened so the model can retry with a real id.
 
     Returns either a plain result list or a (results, note) tuple.
@@ -254,7 +254,7 @@ def scoped_calendar_func(device_id: Optional[int]):
     """Calendar-tool callback with the chat's device filter applied.
 
     The same rule as search: in a device-filtered conversation the model can
-    only see (and touch) that device's events plus unassigned ones — the
+    only see (and touch) that device's events plus unassigned ones - the
     filter overrides any device_id from the tool call and _load_scoped_event
     rejects foreign event ids. See calendar_tool for the action semantics.
     """

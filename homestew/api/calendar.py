@@ -1,4 +1,4 @@
-"""Calendar event API endpoints — device maintenance reminders."""
+"""Calendar event API endpoints - device maintenance reminders."""
 import logging
 from datetime import date, datetime, timezone
 from typing import List, Optional
@@ -77,7 +77,7 @@ async def list_events(
 
 @router.get("/upcoming", response_model=UpcomingEventsResponse)
 async def upcoming_events(days: int = Query(7, ge=1, le=90)):
-    """Events due within the next N days (overdue included) — sidebar feed."""
+    """Events due within the next N days (overdue included) - sidebar feed."""
     events = await calendar_service.list_events(within_days=days)
     return UpcomingEventsResponse(days=days, events=[CalendarEventResponse(**e) for e in events])
 

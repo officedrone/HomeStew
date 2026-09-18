@@ -17,7 +17,7 @@ env/
 # Docker
 docker-compose.override.yml
 
-# Secrets: master key for settings.json encryption — never commit
+# Secrets: master key for settings.json encryption - never commit
 secrets/
 
 # Data (optional - uncomment if you don't want to commit data)

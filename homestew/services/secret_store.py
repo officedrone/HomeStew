@@ -1,16 +1,16 @@
 """Encryption for persisted secret settings (API keys, webhook tokens).
 
 Secrets saved through the Settings UI are stored in ``/data/settings.json``.
-To keep them unreadable at rest — in backups, volume copies or accidental
-git commits — each secret value is encrypted with AES-256-GCM before it is
+To keep them unreadable at rest - in backups, volume copies or accidental
+git commits - each secret value is encrypted with AES-256-GCM before it is
 written to disk. The master key lives outside the settings file and is
 resolved at boot (see :func:`get_secret_store`):
 
 1. an explicit key mounted at ``SECRETS_KEY_FILE`` (by default the Docker
-   secret ``/run/secrets/homestew_secret_key``) — wins when present, for
+   secret ``/run/secrets/homestew_secret_key``) - wins when present, for
    setups that keep the key outside the data volume;
 2. otherwise a HomeStew-managed 32-byte key at ``<DATA_DIR>/.secrets_key``
-   (mode 0600), i.e. inside the Docker named volume — created **once** via
+   (mode 0600), i.e. inside the Docker named volume - created **once** via
    :func:`create_generated_master_key` (the first-run wizard or Settings >
    Advanced), never silently at boot, and survives rebuilds afterwards;
 3. when neither exists no key is available: secrets fall back to plaintext,
@@ -21,7 +21,7 @@ Stored value format (a single string, so settings.json keeps its shape)::
 
     enc:v1:<kid>:<nonce_b64url>:<ciphertext_b64url>
 
-* ``kid`` — key fingerprint: the first 8 bytes of SHA-256 over the derived
+* ``kid`` - key fingerprint: the first 8 bytes of SHA-256 over the derived
   AES key (the master key itself is never stored). Lets a wrong key file be
   reported precisely instead of failing as generic "bad data".
 * The setting name (e.g. ``LLM_API_KEY``) is used as *additional
@@ -94,7 +94,7 @@ def _read_key_file(path: Path) -> Optional[bytes]:
     """Return 32 bytes of key material from *path*, or None with a warning.
 
     The file may hold raw 32 bytes, or base64/hex of 32 bytes (whitespace,
-    newlines and a UTF-8 BOM are stripped). Never logs key material — only
+    newlines and a UTF-8 BOM are stripped). Never logs key material - only
     why loading failed, so the app can fall back to another key source with
     an actionable warning instead of crashing.
     """
@@ -148,7 +148,7 @@ def _create_key_file(path: Path) -> Optional[bytes]:
     """Create *path* with a fresh random key, or None when that failed."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # O_EXCL: two containers sharing the volume must not both generate —
+        # O_EXCL: two containers sharing the volume must not both generate -
         # whoever loses the race reads the winner's file instead.
         fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
@@ -181,7 +181,7 @@ def _create_key_file(path: Path) -> Optional[bytes]:
         pass
     logger.info(
         "Generated a new master key at %s (mode 0600). Secrets are encrypted "
-        "at rest with it — include this file in volume backups, and keep it "
+        "at rest with it - include this file in volume backups, and keep it "
         "out of git. To manage the key yourself instead, mount a key file at "
         "SECRETS_KEY_FILE (see README 'Secrets').", path,
     )
@@ -191,11 +191,11 @@ def _create_key_file(path: Path) -> Optional[bytes]:
 def ensure_master_key(
     key_file: Optional[Path], data_dir: Path
 ) -> tuple[Optional[bytes], str]:
-    """Resolve the master key to boot with — never creates one.
+    """Resolve the master key to boot with - never creates one.
 
     Returns ``(key, source)`` where *source* is ``"mounted"`` (explicit key
     file), ``"generated"`` (HomeStew-managed key already present in the data
-    volume) or ``"none"`` — no key exists yet, so the app falls back to
+    volume) or ``"none"`` - no key exists yet, so the app falls back to
     plaintext and the UI's first-run wizard offers a one-time creation.
     An explicit mount at *key_file* always wins. Boot deliberately does not
     generate a key: creating it is an explicit user action (see
@@ -288,7 +288,7 @@ def get_secret_store(app_settings: "Settings") -> SecretStore:
     """Build the boot-time SecretStore for *app_settings*.
 
     Resolves the master key via :func:`ensure_master_key` (mounted file,
-    else an existing HomeStew-managed file in DATA_DIR — never a new one)
+    else an existing HomeStew-managed file in DATA_DIR - never a new one)
     and records where it came from on the returned store as ``key_source``.
     """
     key, source = ensure_master_key(

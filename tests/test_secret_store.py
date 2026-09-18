@@ -227,7 +227,7 @@ class TestConfigSecrets:
 class TestEnsureMasterKey:
     """Boot-time key resolution: mounted file > existing managed key.
 
-    Boot never creates a key — creation is an explicit one-time action
+    Boot never creates a key - creation is an explicit one-time action
     (first-run wizard / Settings > Advanced), see the runtime tests below.
     """
 
@@ -272,7 +272,7 @@ class TestEnsureMasterKey:
         assert not (data_dir / AUTO_KEY_FILENAME).exists()
 
     def test_unreadable_managed_file_returns_none(self, tmp_path):
-        # A corrupt managed file is reported as keyless — never replaced.
+        # A corrupt managed file is reported as keyless - never replaced.
         data_dir = tmp_path / "data"
         data_dir.mkdir(parents=True)
         (data_dir / AUTO_KEY_FILENAME).write_text("garbage", encoding="ascii")
