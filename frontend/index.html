@@ -55,23 +55,23 @@
             <nav class="side-tabs">
                 <!-- New Device: opens the Add Device modal (like Settings).
                      Styled as a plain icon-btn so it matches the tab buttons. -->
-                <button type="button" id="add-device-btn" class="icon-btn add-device-btn" data-dedupe title="Add new device">
+                <button type="button" id="add-device-btn" class="icon-btn add-device-btn" data-dedupe data-tip="New Device" aria-label="New Device">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     <span class="content-only">New Device</span>
                 </button>
-                <button type="button" class="icon-btn tab-btn" data-tab="chat" title="AI Chat">
+                <button type="button" class="icon-btn tab-btn" data-tab="chat" data-tip="AI Chat" aria-label="AI Chat">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
                     <span class="content-only">AI Chat</span>
                 </button>
-                <button type="button" class="icon-btn tab-btn active" data-tab="search" title="Search">
+                <button type="button" class="icon-btn tab-btn active" data-tab="search" data-tip="Search" aria-label="Search">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                     <span class="content-only">Search</span>
                 </button>
-                <button type="button" class="icon-btn tab-btn" data-tab="devices" title="Devices">
+                <button type="button" class="icon-btn tab-btn" data-tab="devices" data-tip="Devices" aria-label="Devices">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
                     <span class="content-only">Devices</span>
                 </button>
-                <button type="button" class="icon-btn tab-btn" data-tab="calendar" title="Maintenance calendar">
+                <button type="button" class="icon-btn tab-btn" data-tab="calendar" data-tip="Maintenance calendar" aria-label="Maintenance calendar">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                     <span class="content-only">Calendar</span>
                 </button>
@@ -95,10 +95,11 @@
                 </div>
             </nav>
 
-            <!-- Settings: pinned to the very bottom of the sidebar.
+            <!-- Settings: kept at the end of the markup but flex-ordered to
+                 sit right below the main nav buttons (see .sidebar-bottom).
                  Expanded shows gear + label, collapsed shows only the gear. -->
             <div class="sidebar-bottom">
-                <button type="button" class="icon-btn" id="settings-btn" title="Settings">
+                <button type="button" class="icon-btn" id="settings-btn" data-tip="Settings" aria-label="Settings">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     <span class="content-only">Settings</span>
                 </button>
@@ -331,8 +332,8 @@
                         <div class="empty-state">No manuals</div>
                     </div>
                     <div class="manual-actions">
-                        <button type="button" class="btn btn-primary btn-small" data-dedupe onclick="downloadManuals(parseInt(document.getElementById('edit-device-id').value))">
-                            Download Manuals
+                        <button type="button" class="btn btn-primary btn-small" data-dedupe title="Search the web for this device's manuals using HomeStew's built-in fetch logic" onclick="downloadManuals(parseInt(document.getElementById('edit-device-id').value))">
+                            Fetch Manuals
                         </button>
                         <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerUploadManual(parseInt(document.getElementById('edit-device-id').value))">
                             Upload Manual
@@ -365,10 +366,10 @@
         </div>
     </div>
 
-    <!-- Download Progress Modal -->
+    <!-- Fetch Progress Modal (built-in manual fetching logic) -->
     <div id="download-progress-modal" class="modal">
         <div class="modal-content modal-medium">
-            <h2>Downloading Manuals</h2>
+            <h2>Fetching Manuals</h2>
             <div id="download-progress-steps" class="progress-steps">
                 <!-- Progress steps will be added here dynamically -->
             </div>

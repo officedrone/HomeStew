@@ -230,9 +230,12 @@ summary:focus-visible {
     flex-direction: column;
 }
 
-/* The nav (New Device + device list) takes all the remaining height so the
-   settings row is pushed to the very bottom of the sidebar. */
+/* Recent Devices / Upcoming sit below the Settings button - which lives at
+   the end of the markup but is flex-ordered up next to the main nav - and
+   absorb any leftover vertical space. */
 .nav-sections {
+    order: 2;
+    margin-top: 20px;
     flex: 1;
 }
 
@@ -272,23 +275,26 @@ body.sidebar-collapsed .content-only {
     display: none;
 }
 
-/* Settings + theme rows pinned to the bottom of the sidebar */
+/* Settings belongs visually to the main nav, so it is flex-ordered directly
+   below .side-tabs (order beats DOM position in this column flex container).
+   Works the same in the collapsed rail and the mobile drawer. */
 .sidebar-bottom {
-    margin-top: auto;
-    padding-top: 12px;
+    order: 1;
+    margin-top: 6px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     gap: 6px;
 }
 
-/* Expanded: gear + "Settings" label, stretched across the sidebar.
-   Collapsed: .content-only hides the label and the button falls back to
-   the plain square icon-btn. */
+/* Expanded: gear + "Settings" label, stretched across the sidebar with the
+   icon/label aligned left. Collapsed: .content-only hides the label and the
+   button falls back to the plain square icon-btn. */
 body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
     width: 100%;
     gap: 10px;
     font-size: 0.95rem;
+    justify-content: flex-start;
 }
 
 /* Icon buttons (gear, sidebar toggle, rail actions) */
@@ -320,10 +326,11 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
     border-color: var(--primary-color);
 }
 
-/* Icon buttons inside the dark sidebar */
+/* Icon buttons inside the dark sidebar: flat and borderless, matching the
+   rest of the sidebar's no-chrome look. */
 .sidebar .icon-btn {
     background: transparent;
-    border-color: var(--sidebar-border);
+    border: none;
     color: var(--sidebar-text);
 }
 
@@ -401,6 +408,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     width: 100%;
     gap: 10px;
     font-size: 0.95rem;
+    justify-content: flex-start;
 }
 
 /* Optional manual picker inside the Add Device modal: the label is styled as
@@ -490,23 +498,25 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 }
 
 .device-accordion {
-    background: var(--sidebar-surface);
-    /* Transparent border by default so expanding (which shows a visible
-       border) doesn't shift the layout. */
-    border: 1px solid transparent;
+    /* Flat and borderless like the sidebar nav buttons: rows are defined by
+       their hover/expanded background instead of a card outline. */
+    background: transparent;
+    border: none;
     border-radius: 8px;
     margin-bottom: 6px;
     overflow: hidden;
-    transition: background 0.2s, border-color 0.2s;
+    transition: background 0.2s;
 }
 
 .device-accordion:hover {
-    background: var(--sidebar-surface-hover);
+    background: var(--sidebar-surface);
 }
 
-/* Expanded accordion gets a visible border so the header row stands out. */
-.device-accordion.open {
-    border-color: var(--accent-color);
+/* An open accordion keeps a raised background so it stays distinct
+   (no border, matching the no-chrome sidebar style). */
+.device-accordion.open,
+.device-accordion.open:hover {
+    background: var(--sidebar-surface-hover);
 }
 
 /* Collapsed header row: caret + name + brand/model on one line */
@@ -760,15 +770,19 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-bottom: 24px;
+    /* The Settings row (order:1) follows immediately with its own small top
+       margin, so it reads as part of this button group. */
+    margin-bottom: 0;
     flex-shrink: 0;
 }
 
-/* Expanded: stretch across the sidebar with the label, like Settings. */
+/* Expanded: stretch across the sidebar with the label, like Settings,
+   icon + text aligned to the left edge. */
 body:not(.sidebar-collapsed) .side-tabs .tab-btn {
     width: 100%;
     gap: 10px;
     font-size: 0.95rem;
+    justify-content: flex-start;
 }
 
 .tab-btn.active {
@@ -782,6 +796,51 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
     background: var(--primary-hover);
     border-color: transparent;
     color: var(--on-primary);
+}
+
+/* Collapsed rail (desktop only): hovering an icon button reveals its label
+   as a flyout chip to the right of the rail. The sidebar must not clip it,
+   and .nav-sections is hidden in this mode, so losing scroll costs nothing.
+   Labels come from each button's data-tip attribute. */
+@media (min-width: 769px) {
+    body.sidebar-collapsed .sidebar {
+        overflow: visible;
+    }
+
+    body.sidebar-collapsed .side-tabs .icon-btn,
+    body.sidebar-collapsed .sidebar-bottom .icon-btn {
+        position: relative;
+    }
+
+    body.sidebar-collapsed .side-tabs .icon-btn::after,
+    body.sidebar-collapsed .sidebar-bottom .icon-btn::after {
+        content: attr(data-tip);
+        position: absolute;
+        left: calc(100% + 12px);
+        top: 50%;
+        transform: translate(-4px, -50%);
+        padding: 5px 10px;
+        border-radius: var(--radius-sm);
+        background: var(--sidebar-surface-hover);
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 600;
+        line-height: 1.3;
+        white-space: nowrap;
+        box-shadow: var(--shadow-md);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        z-index: 1200;
+    }
+
+    body.sidebar-collapsed .side-tabs .icon-btn:hover::after,
+    body.sidebar-collapsed .sidebar-bottom .icon-btn:hover::after,
+    body.sidebar-collapsed .side-tabs .icon-btn:focus-visible::after,
+    body.sidebar-collapsed .sidebar-bottom .icon-btn:focus-visible::after {
+        opacity: 1;
+        transform: translate(0, -50%);
+    }
 }
 
 /* Tab Content */
@@ -2507,6 +2566,7 @@ details.chat-input-meta {
         width: 100%;
         gap: 10px;
         font-size: 0.95rem;
+        justify-content: flex-start;
     }
 
     /* Device list can use the full drawer height on phones. */

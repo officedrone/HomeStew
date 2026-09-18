@@ -1242,8 +1242,8 @@ async function downloadManuals(deviceId) {
                     eventSource.close();
                     if (data.success) {
                         const count = data.downloaded_count ?? 0;
-                        addProgressStep(stepsContainer, `Successfully downloaded ${count} manual(s)`, 'success');
-                        finishDownload({ ok: true, headline: `Download complete! ${count} manual(s) downloaded` });
+                        addProgressStep(stepsContainer, `Successfully fetched ${count} manual(s)`, 'success');
+                        finishDownload({ ok: true, headline: `Fetch complete! ${count} manual(s) fetched` });
                         // Refresh device counts and the modal's manual list if it is open.
                         await loadDevices();
                         const editModal = document.getElementById('edit-device-modal');
@@ -1253,9 +1253,9 @@ async function downloadManuals(deviceId) {
                         }
                     } else {
                         // Backend sends a single terminal event with the real reason.
-                        const reason = data.error_detail || 'No manuals were downloaded.';
+                        const reason = data.error_detail || 'No manuals were fetched.';
                         addProgressStep(stepsContainer, reason, 'error');
-                        finishDownload({ ok: false, headline: `Download failed: ${reason}`, detail: reason });
+                        finishDownload({ ok: false, headline: `Fetch failed: ${reason}`, detail: reason });
                     }
                     break;
 
