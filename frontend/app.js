@@ -97,6 +97,9 @@ async function initializeApp() {
     // last tab persisted to localStorage) so F5 no longer dumps the user on
     // the Search tab.
     restoreActiveTab();
+    // One-time setup: when the server has no secrets master key, offer to
+    // create it instead of silently storing secrets as plaintext.
+    checkSecretsKeyWizard();
 }
 
 // ---------------------------------------------------------------------------
@@ -297,10 +300,17 @@ function setupEventListeners() {
         btn.addEventListener('click', () => restorePromptDefault(btn.dataset.restoreDefault));
     });
 
+    // Secrets master key management: Settings > Advanced create/delete, and
+    // the first-run wizard's Create/Skip buttons.
+    document.getElementById('create-key-btn').addEventListener('click', handleCreateKeyFromSettings);
+    document.getElementById('delete-key-btn').addEventListener('click', handleDeleteKeyFromSettings);
+    document.getElementById('key-wizard-create-btn').addEventListener('click', handleWizardCreateKey);
+    document.getElementById('key-wizard-skip-btn').addEventListener('click', closeKeyWizard);
+
     // Escape closes any open modal, or the mobile drawer when none is open.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        for (const id of ['settings-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
+        for (const id of ['settings-modal', 'add-device-modal', 'edit-device-modal', 'event-modal', 'key-wizard-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 modal.style.display = 'none';
@@ -2542,6 +2552,9 @@ async function openSettingsModal() {
     renderSecretField('notify_webhook_token');
     document.getElementById('webhook-test-hint').textContent = '';
 
+    // Advanced: master-key status + create/delete buttons.
+    renderAdvancedKeyPanel(settings);
+
     // Always open the modal with Advanced collapsed, on the General section.
     document.getElementById('advanced-settings-section').open = false;
     showSettingsSection('general');
@@ -2826,5 +2839,143 @@ async function handleSettingsSave(event) {
         showToast('Failed to save settings', 'error', error.message);
     } finally {
         saveBtn.disabled = false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Secrets master key management (Settings > Advanced + first-run wizard)
+// ---------------------------------------------------------------------------
+
+// Last GET /api/settings payload, kept so the Advanced panel can re-render
+// after a create/delete without another round trip.
+let lastApiSettings = null;
+
+function keyStatusText(s) {
+    if (s.secrets_key_source === 'mounted') {
+        return 'Key source: mounted key file (SECRETS_KEY_FILE). HomeStew does not manage this key — remove the container\u2019s secret mount to change it.';
+    }
+    if (s.secrets_key_source === 'generated') {
+        return 'Key source: HomeStew-managed key at /data/.secrets_key. Secrets are encrypted at rest with it.';
+    }
+    return 'No master key found. Secrets are stored as plaintext until you create one.';
+}
+
+// Paint the Advanced panel's status box + buttons from a settings payload.
+function renderAdvancedKeyPanel(s) {
+    lastApiSettings = s;
+    const statusBox = document.getElementById('advanced-key-status');
+    const createBtn = document.getElementById('create-key-btn');
+    const deleteBtn = document.getElementById('delete-key-btn');
+    const hint = document.getElementById('advanced-key-hint');
+
+    statusBox.textContent = keyStatusText(s);
+    statusBox.classList.toggle('is-ok', s.secrets_encrypted);
+    statusBox.classList.toggle('is-warn', !s.secrets_encrypted);
+
+    createBtn.hidden = !!s.secrets_encrypted;
+    deleteBtn.hidden = !s.secrets_key_deletable;
+    hint.textContent = s.secrets_encrypted
+        ? 'Deleting the key makes stored secrets unreadable until a new key is created and they are re-entered. Use it to troubleshoot or rotate the key.'
+        : 'Create one now, or mount your own key file at SECRETS_KEY_FILE (see README \u201cSecrets\u201d).';
+}
+
+// Shared POST helper for the two key endpoints: returns the JSON body on
+// success, or throws with the server's detail message.
+async function postSecretsKeyAction(endpoint) {
+    const response = await fetch(`/api/settings/${endpoint}`, { method: 'POST' });
+    let data = null;
+    try { data = await response.json(); } catch (e) { /* no body */ }
+    if (!response.ok) {
+        throw new Error((data && data.detail) || `HTTP ${response.status}`);
+    }
+    return data;
+}
+
+// Refresh the Settings modal's key UI + banner from the server after an action.
+async function refreshSettingsKeyState() {
+    try {
+        const response = await fetch('/api/settings');
+        if (!response.ok) return;
+        const s = await response.json();
+        renderAdvancedKeyPanel(s);
+        renderSecretsBanner(s);
+        // Creating/deleting the key changes which secrets are readable, so
+        // re-paint the write-only fields' placeholder/hint/Remove state.
+        // (renderSecretField never touches input values, so typing survives.)
+        secretsState.configured = {
+            llm_api_key: !!s.llm_api_key_set,
+            notify_webhook_url: !!s.notify_webhook_url_set,
+            notify_webhook_token: !!s.notify_webhook_token_set,
+        };
+        for (const name of Object.keys(SECRET_FIELDS)) renderSecretField(name);
+    } catch (e) { /* leave the panel as-is on a failed refresh */ }
+}
+
+async function handleCreateKeyFromSettings() {
+    const btn = document.getElementById('create-key-btn');
+    btn.disabled = true;
+    try {
+        await postSecretsKeyAction('secrets-key/create');
+        showToast('Master key created \u2014 secrets are encrypted at rest');
+        await refreshSettingsKeyState();
+    } catch (error) {
+        showToast('Could not create the key', 'error', error.message);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function handleDeleteKeyFromSettings() {
+    if (!confirm('Delete the secrets master key?\n\nStored secrets will become unreadable (treated as unset) until you create a new key and re-enter them. This cannot be undone.')) {
+        return;
+    }
+    const btn = document.getElementById('delete-key-btn');
+    btn.disabled = true;
+    try {
+        await postSecretsKeyAction('secrets-key/delete');
+        showToast('Master key deleted \u2014 re-enter your secrets after creating a new one', 'error');
+        await refreshSettingsKeyState();
+    } catch (error) {
+        showToast('Could not delete the key', 'error', error.message);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// First-run wizard: shown when GET /api/settings reports no master key.
+// Skippable (plaintext until created); the check runs again on every page
+// load, so skipping only defers it for this session.
+async function checkSecretsKeyWizard() {
+    try {
+        const response = await fetch('/api/settings');
+        if (!response.ok) return;
+        const s = await response.json();
+        // A mounted key file is user-managed: never nag about it, and a key
+        // that exists (mounted or managed) means nothing to set up.
+        if (s.secrets_key_source !== 'none') return;
+        renderAdvancedKeyPanel(s);
+        document.getElementById('key-wizard-error').hidden = true;
+        document.getElementById('key-wizard-modal').style.display = 'flex';
+    } catch (e) { /* offline/server starting up — no wizard this load */ }
+}
+
+function closeKeyWizard() {
+    document.getElementById('key-wizard-modal').style.display = 'none';
+}
+
+async function handleWizardCreateKey() {
+    const btn = document.getElementById('key-wizard-create-btn');
+    const errorEl = document.getElementById('key-wizard-error');
+    btn.disabled = true;
+    errorEl.hidden = true;
+    try {
+        await postSecretsKeyAction('secrets-key/create');
+        closeKeyWizard();
+        showToast('Master key created \u2014 secrets are encrypted at rest');
+    } catch (error) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+    } finally {
+        btn.disabled = false;
     }
 }

@@ -209,10 +209,37 @@ class SettingsResponse(BaseModel):
         description="False when no master key file is mounted and secrets are "
         "stored as plaintext (the UI shows a warning banner)",
     )
+    secrets_key_source: Literal["mounted", "generated", "none"] = Field(
+        "none",
+        description="Where the secrets master key comes from: 'mounted' key "
+        "file, HomeStew-managed key in the data volume, or 'none' (the UI's "
+        "first-run wizard offers a one-time creation)",
+    )
+    secrets_key_deletable: bool = Field(
+        False,
+        description="True when a HomeStew-managed key exists that Settings > "
+        "Advanced can delete (a mounted key file is not deletable)",
+    )
     unreadable_secrets: list[str] = Field(
         default_factory=list,
         description="Names of stored secrets that could not be decrypted "
         "(wrong key file or tampered data); they are treated as unset",
+    )
+
+
+class SecretsKeyActionResponse(BaseModel):
+    """Result of the create/delete master-key endpoints."""
+    ok: bool = Field(..., description="Whether the action changed anything")
+    reason: str = Field(
+        ...,
+        description="Machine-readable outcome: created | exists | mounted | "
+        "failed for create; deleted | mounted | none for delete",
+    )
+    secrets_key_source: Literal["mounted", "generated", "none"] = Field(
+        ..., description="Key source after the action"
+    )
+    secrets_encrypted: bool = Field(
+        ..., description="Secrets-at-rest state after the action"
     )
 
 

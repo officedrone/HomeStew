@@ -9,9 +9,13 @@ resolved at boot (see :func:`get_secret_store`):
 1. an explicit key mounted at ``SECRETS_KEY_FILE`` (by default the Docker
    secret ``/run/secrets/homestew_secret_key``) — wins when present, for
    setups that keep the key outside the data volume;
-2. otherwise a 32-byte key **auto-generated on first boot** and persisted at
-   ``<DATA_DIR>/.secrets_key`` (mode 0600), i.e. inside the Docker named
-   volume — no user setup step, survives rebuilds and container recreation.
+2. otherwise a HomeStew-managed 32-byte key at ``<DATA_DIR>/.secrets_key``
+   (mode 0600), i.e. inside the Docker named volume — created **once** via
+   :func:`create_generated_master_key` (the first-run wizard or Settings >
+   Advanced), never silently at boot, and survives rebuilds afterwards;
+3. when neither exists no key is available: secrets fall back to plaintext,
+   the UI shows a warning banner and a first-run wizard offers to create
+   the managed key.
 
 Stored value format (a single string, so settings.json keeps its shape)::
 
@@ -134,8 +138,9 @@ def load_master_key(key_file: Optional[Path]) -> Optional[bytes]:
     return _read_key_file(Path(key_file))
 
 
-# File name for the auto-generated key inside DATA_DIR. Leading dot keeps it
-# out of the way of the app's own data files (settings.json, *.db).
+# File name for the HomeStew-managed key inside DATA_DIR (created once via
+# the wizard / Settings > Advanced). Leading dot keeps it out of the way of
+# the app's own data files (settings.json, *.db).
 AUTO_KEY_FILENAME = ".secrets_key"
 
 
@@ -150,7 +155,7 @@ def _create_key_file(path: Path) -> Optional[bytes]:
         return None
     except OSError as exc:
         logger.error(
-            "Could not create the auto-generated secrets key at %s (%s): "
+            "Could not create the secrets master key at %s (%s): "
             "secrets will be stored UNENCRYPTED.",
             path, exc.strerror or exc.__class__.__name__,
         )
@@ -160,7 +165,7 @@ def _create_key_file(path: Path) -> Optional[bytes]:
             handle.write(AESGCM.generate_key(bit_length=256))
     except OSError as exc:
         logger.error(
-            "Could not write the auto-generated secrets key to %s (%s): "
+            "Could not write the secrets master key to %s (%s): "
             "secrets will be stored UNENCRYPTED.",
             path, exc.strerror or exc.__class__.__name__,
         )
@@ -186,26 +191,32 @@ def _create_key_file(path: Path) -> Optional[bytes]:
 def ensure_master_key(
     key_file: Optional[Path], data_dir: Path
 ) -> tuple[Optional[bytes], str]:
-    """Resolve the master key to boot with, generating one when needed.
+    """Resolve the master key to boot with — never creates one.
 
     Returns ``(key, source)`` where *source* is ``"mounted"`` (explicit key
-    file), ``"generated"`` (auto-generated key in the data volume, created on
-    first boot or reused from it) or ``"none"`` — no key available, so the
-    app falls back to plaintext and the Settings UI warns. An explicit mount
-    at *key_file* always wins.
+    file), ``"generated"`` (HomeStew-managed key already present in the data
+    volume) or ``"none"`` — no key exists yet, so the app falls back to
+    plaintext and the UI's first-run wizard offers a one-time creation.
+    An explicit mount at *key_file* always wins. Boot deliberately does not
+    generate a key: creating it is an explicit user action (see
+    :func:`create_generated_master_key`), so a fresh install asks instead of
+    silently picking a key the user may later struggle to find or rotate.
     """
     mounted = load_master_key(key_file)
     if mounted is not None:
         return mounted, "mounted"
     auto_path = Path(data_dir) / AUTO_KEY_FILENAME
     key = _read_key_file(auto_path) if auto_path.exists() else None
-    if key is None:
-        # Not there yet (or unreadable): try to create it. If another
-        # container wins the O_EXCL race, read its file instead.
-        key = _create_key_file(auto_path) or (
-            _read_key_file(auto_path) if auto_path.exists() else None
-        )
     return (key, "generated") if key is not None else (None, "none")
+
+
+def create_generated_master_key(data_dir: Path) -> Optional[bytes]:
+    """Create the HomeStew-managed key file once (wizard / Settings action).
+
+    Returns the new key, or None when the file already exists or could not
+    be created. Safe against races: an existing file is never overwritten.
+    """
+    return _create_key_file(Path(data_dir) / AUTO_KEY_FILENAME)
 
 
 class SecretStore:
@@ -277,8 +288,8 @@ def get_secret_store(app_settings: "Settings") -> SecretStore:
     """Build the boot-time SecretStore for *app_settings*.
 
     Resolves the master key via :func:`ensure_master_key` (mounted file,
-    else auto-generated in DATA_DIR) and records where it came from on the
-    returned store as ``key_source``.
+    else an existing HomeStew-managed file in DATA_DIR — never a new one)
+    and records where it came from on the returned store as ``key_source``.
     """
     key, source = ensure_master_key(
         app_settings.SECRETS_KEY_FILE, app_settings.DATA_DIR
@@ -286,10 +297,11 @@ def get_secret_store(app_settings: "Settings") -> SecretStore:
     store = SecretStore(key)
     store.key_source = source  # type: ignore[attr-defined]
     if source == "none":
-        logger.error(
-            "No secrets master key available and none could be created in %s: "
-            "secrets will be stored UNENCRYPTED. Check that the data directory "
-            "is writable, or mount a key file at SECRETS_KEY_FILE "
-            "(see README 'Secrets').", app_settings.DATA_DIR,
+        logger.warning(
+            "No secrets master key found (mounted or at %s): secrets will be "
+            "stored UNENCRYPTED until one is created. Use the first-run "
+            "wizard / Settings > Advanced 'Create Key', or mount a key file "
+            "at SECRETS_KEY_FILE (see README 'Secrets').",
+            Path(app_settings.DATA_DIR) / AUTO_KEY_FILENAME,
         )
     return store

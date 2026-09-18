@@ -12,8 +12,10 @@ from homestew.default_prompts import (
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
 from homestew.services.secret_store import (
+    AUTO_KEY_FILENAME,
     SecretError,
     SecretStore,
+    create_generated_master_key,
     get_secret_store,
     is_encrypted,
 )
@@ -114,9 +116,9 @@ class Settings(BaseSettings):
 
     # Optional master-key file for encrypting the secrets in settings.json,
     # e.g. a read-only Docker secret mount (see README "Secrets"). When the
-    # file is absent HomeStew auto-generates a key on first boot and keeps it
-    # at <DATA_DIR>/.secrets_key, so encryption works out of the box; this
-    # path only lets you manage the key yourself (kept outside the volume).
+    # file is absent HomeStew uses a managed key at <DATA_DIR>/.secrets_key,
+    # created once via the first-run wizard / Settings > Advanced; this path
+    # only lets you manage the key yourself (kept outside the volume).
     SECRETS_KEY_FILE: Optional[Path] = Path("/run/secrets/homestew_secret_key")
     
     class Config:
@@ -143,9 +145,11 @@ class Settings(BaseSettings):
 # Global settings instance
 settings = Settings()
 
-# Secret encryption for persisted settings; built once at import (this is
-# where a first-boot master key gets generated into DATA_DIR). The two
-# functions below are the only paths through which secrets reach the disk.
+# Secret encryption for persisted settings; built once at import from the
+# key resolved at boot (mounted file or an existing managed key — a fresh
+# install starts without one and creates it via the wizard / Advanced
+# settings). The two functions below are the only paths through which
+# secrets reach the disk.
 _secret_store: SecretStore = get_secret_store(settings)
 
 
@@ -274,3 +278,90 @@ def save_settings_overrides(values: dict) -> None:
 
 # Apply any persisted overrides immediately after the singleton is created.
 load_settings_overrides()
+
+
+def _reload_secrets_from_disk() -> None:
+    """Re-read settings.json with the current store after a key change.
+
+    The in-memory secret values were produced by the previous store, so a
+    create/delete must not leave them stale: re-running the load path swaps
+    in what the new key can actually read (plaintext secrets when there is
+    no key; nothing decryptable after deleting one) and refreshes the
+    ``secrets_encrypted`` / ``unreadable_secrets`` status flags the UI shows.
+    """
+    for key in SECRET_SETTINGS:
+        setattr(settings, key, "")
+    # The early-return paths of load_settings_overrides (no settings.json)
+    # keep the flags as they are, so reset them here first.
+    settings.unreadable_secrets = ()
+    load_settings_overrides()
+
+
+def create_master_key_runtime() -> tuple[bool, str]:
+    """Create the HomeStew-managed master key while running (wizard / UI).
+
+    Returns ``(ok, reason)``: ``reason`` is ``"created"`` when a fresh key
+    was written and picked up, ``"exists"`` when a usable key is already in
+    place (mounted or managed — never overwritten), ``"mounted"`` when a
+    mounted key file exists but is unreadable (fix the file, not the app),
+    or ``"failed"`` when the data directory rejected the write.
+    """
+    global _secret_store
+    if _secret_store.available:
+        return False, "exists"
+    auto_path = settings.DATA_DIR / AUTO_KEY_FILENAME
+    if auto_path.exists():
+        # A managed key file is there but unreadable/corrupt — do not touch
+        # it; deleting it is an explicit Advanced action.
+        return False, "failed"
+    if settings.SECRETS_KEY_FILE and Path(settings.SECRETS_KEY_FILE).exists():
+        # The mount exists but the content was rejected at boot: creating a
+        # second key would silently bypass the user's own key management.
+        return False, "mounted"
+    key = create_generated_master_key(settings.DATA_DIR)
+    if key is None:
+        return False, "failed"
+    _secret_store = SecretStore(key)
+    _secret_store.key_source = "generated"
+    # Secrets saved while keyless sit on disk as plaintext: the reload picks
+    # them up and load_settings_overrides() re-encrypts them with the new key.
+    _reload_secrets_from_disk()
+    logger.info("Master key created at %s; secrets are encrypted at rest.", auto_path)
+    return True, "created"
+
+
+def delete_master_key_runtime() -> tuple[bool, str]:
+    """Delete the HomeStew-managed master key while running (Advanced UI).
+
+    Troubleshooting/rotation aid: after deleting, stored ciphertext can no
+    longer be decrypted — reload treats it as unset and the Settings banner
+    reports it until a new key is created and secrets are re-entered. A
+    mounted key file (SECRETS_KEY_FILE) is outside HomeStew's management and
+    never removed here.
+
+    Returns ``(ok, reason)``: ``"deleted"``, ``"mounted"`` (a mounted key
+    file is in use — remove the mount instead), or ``"none"`` (no managed
+    key to delete).
+    """
+    global _secret_store
+    if _secret_store.key_source == "mounted":
+        return False, "mounted"
+    auto_path = settings.DATA_DIR / AUTO_KEY_FILENAME
+    if not auto_path.exists():
+        # Nothing on disk: make sure the runtime state agrees anyway.
+        if _secret_store.available:
+            _secret_store = SecretStore(None)
+            _reload_secrets_from_disk()
+        return False, "none"
+    try:
+        auto_path.unlink()
+    except OSError as exc:
+        logger.error("Could not delete the master key at %s: %s", auto_path, exc)
+        raise OSError(exc)
+    _secret_store = SecretStore(None)
+    _reload_secrets_from_disk()
+    logger.warning(
+        "Master key deleted (%s). Secrets are UNENCRYPTED and previously "
+        "stored ones are unreadable until a new key is created.", auto_path,
+    )
+    return True, "deleted"

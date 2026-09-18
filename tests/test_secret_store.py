@@ -14,6 +14,7 @@ from homestew.services.secret_store import (
     SecretStore,
     TamperedError,
     WrongKeyError,
+    create_generated_master_key,
     ensure_master_key,
     is_encrypted,
     load_master_key,
@@ -43,6 +44,32 @@ def store_a(monkeypatch):
     store = SecretStore(KEY_A)
     monkeypatch.setattr(cfg, "_secret_store", store)
     return store
+
+
+@pytest.fixture
+def runtime_key_env(tmp_path, monkeypatch):
+    """Config pointed at a temp DATA_DIR with no mounted key; full restore.
+
+    Unlike the fixtures above (which use monkeypatch for _secret_store), the
+    runtime create/delete functions reassign that module global directly,
+    so this fixture snapshots and restores it explicitly.
+    """
+    saved = {k: getattr(cfg.settings, k) for k in cfg.SECRET_SETTINGS}
+    saved["store"] = cfg._secret_store
+    saved["data_dir"] = cfg.settings.DATA_DIR
+    saved["key_file"] = cfg.settings.SECRETS_KEY_FILE
+    saved_encrypted = cfg.settings.secrets_encrypted
+    saved_unreadable = cfg.settings.unreadable_secrets
+    monkeypatch.setattr(cfg.settings, "DATA_DIR", tmp_path / "data")
+    monkeypatch.setattr(cfg.settings, "SECRETS_KEY_FILE", None)
+    yield tmp_path
+    cfg._secret_store = saved["store"]
+    for key in cfg.SECRET_SETTINGS:
+        setattr(cfg.settings, key, saved[key])
+    setattr(cfg.settings, "DATA_DIR", saved["data_dir"])
+    setattr(cfg.settings, "SECRETS_KEY_FILE", saved["key_file"])
+    cfg.settings.secrets_encrypted = saved_encrypted
+    cfg.settings.unreadable_secrets = saved_unreadable
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +225,11 @@ class TestConfigSecrets:
 
 
 class TestEnsureMasterKey:
-    """Boot-time key resolution: mounted file > auto-generated in DATA_DIR."""
+    """Boot-time key resolution: mounted file > existing managed key.
+
+    Boot never creates a key — creation is an explicit one-time action
+    (first-run wizard / Settings > Advanced), see the runtime tests below.
+    """
 
     def test_mounted_key_wins(self, tmp_path):
         mounted = tmp_path / "mounted_key"
@@ -206,38 +237,165 @@ class TestEnsureMasterKey:
         data_dir = tmp_path / "data"
         key, source = ensure_master_key(mounted, data_dir)
         assert (key, source) == (KEY_A, "mounted")
-        # The auto-generated file must not be created when a mount works.
+        # The managed file must not be created when a mount works.
         assert not (data_dir / AUTO_KEY_FILENAME).exists()
 
-    def test_generates_on_first_boot(self, tmp_path):
+    def test_fresh_boot_without_key_returns_none(self, tmp_path):
+        # No auto-generation at boot: a fresh install starts keyless so the
+        # UI can offer a one-time creation instead of hiding it in logs.
         data_dir = tmp_path / "data"
         key, source = ensure_master_key(None, data_dir)
-        assert source == "generated"
-        assert key is not None and len(key) == 32
-        auto = data_dir / AUTO_KEY_FILENAME
-        assert auto.read_bytes() == key
+        assert (key, source) == (None, "none")
+        assert not (data_dir / AUTO_KEY_FILENAME).exists()
 
     def test_reuses_existing_generated_key(self, tmp_path):
         data_dir = tmp_path / "data"
-        first, _ = ensure_master_key(None, data_dir)
-        second, source = ensure_master_key(None, data_dir)
+        created = create_generated_master_key(data_dir)
+        key, source = ensure_master_key(None, data_dir)
         assert source == "generated"
-        assert first == second  # stable across restarts
+        assert key == created  # stable across restarts
 
-    def test_mounted_unreadable_falls_back_to_generated(self, tmp_path):
+    def test_mounted_unreadable_falls_back_to_existing_managed(self, tmp_path):
         bad = tmp_path / "bad_key"
         bad.write_text("not a key", encoding="ascii")  # wrong length/content
         data_dir = tmp_path / "data"
+        created = create_generated_master_key(data_dir)
         key, source = ensure_master_key(bad, data_dir)
-        assert source == "generated" and key is not None
+        assert (key, source) == (created, "generated")
 
-    def test_no_writable_data_dir_returns_none(self, tmp_path):
-        # A file where the data dir should be makes creation fail -> "none",
-        # which puts the app in plaintext mode instead of crashing.
+    def test_mounted_unreadable_without_managed_returns_none(self, tmp_path):
+        bad = tmp_path / "bad_key"
+        bad.write_text("not a key", encoding="ascii")
+        data_dir = tmp_path / "data"
+        key, source = ensure_master_key(bad, data_dir)
+        assert (key, source) == (None, "none")
+        assert not (data_dir / AUTO_KEY_FILENAME).exists()
+
+    def test_unreadable_managed_file_returns_none(self, tmp_path):
+        # A corrupt managed file is reported as keyless — never replaced.
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True)
+        (data_dir / AUTO_KEY_FILENAME).write_text("garbage", encoding="ascii")
+        key, source = ensure_master_key(None, data_dir)
+        assert (key, source) == (None, "none")
+
+
+class TestCreateGeneratedMasterKey:
+    def test_creates_once_never_overwrites(self, tmp_path):
+        data_dir = tmp_path / "data"
+        key = create_generated_master_key(data_dir)
+        assert key is not None and len(key) == 32
+        assert (data_dir / AUTO_KEY_FILENAME).read_bytes() == key
+        # Second call must not touch the existing key.
+        assert create_generated_master_key(data_dir) is None
+        assert (data_dir / AUTO_KEY_FILENAME).read_bytes() == key
+
+    def test_unwritable_data_dir_returns_none(self, tmp_path):
         blocker = tmp_path / "blocker"
         blocker.write_text("x", encoding="ascii")
-        key, source = ensure_master_key(None, blocker / "data")
-        assert (key, source) == (None, "none")
+        assert create_generated_master_key(blocker / "data") is None
+
+
+class TestRuntimeKeyManagement:
+    """create/delete_master_key_runtime: wizard + Settings > Advanced."""
+
+    def test_create_then_boot_reads_it(self, runtime_key_env):
+        monkey_store = SecretStore(None)
+        cfg._secret_store = monkey_store
+        ok, reason = cfg.create_master_key_runtime()
+        assert (ok, reason) == (True, "created")
+        assert cfg.settings.secrets_encrypted is True
+        auto = cfg.settings.DATA_DIR / AUTO_KEY_FILENAME
+        assert auto.exists()
+        # A restart resolves the same key from disk.
+        key, source = ensure_master_key(None, cfg.settings.DATA_DIR)
+        assert (key, source) == (auto.read_bytes(), "generated")
+
+    def test_create_migrates_plaintext_secrets(self, runtime_key_env):
+        # Keyless mode stored a plaintext secret; creating the key must pick
+        # it up and re-encrypt it on disk.
+        cfg._secret_store = SecretStore(None)
+        cfg.save_settings_overrides({"LLM_API_KEY": "sk-dev"})
+        ok, _ = cfg.create_master_key_runtime()
+        assert ok is True
+        assert cfg.settings.LLM_API_KEY == "sk-dev"
+        raw = (cfg.settings.DATA_DIR / "settings.json").read_text(encoding="utf-8")
+        assert "sk-dev" not in raw and "enc:v1:" in raw
+
+    def test_create_when_key_exists_is_noop(self, runtime_key_env, monkeypatch):
+        store = SecretStore(KEY_A)
+        monkeypatch.setattr(cfg, "_secret_store", store)
+        ok, reason = cfg.create_master_key_runtime()
+        assert (ok, reason) == (False, "exists")
+        assert cfg._secret_store is store
+        assert not (cfg.settings.DATA_DIR / AUTO_KEY_FILENAME).exists()
+
+    def test_create_with_mounted_file_present_is_refused(self, runtime_key_env):
+        mounted = runtime_key_env / "mounted_key"
+        mounted.write_text("broken key file", encoding="ascii")  # unreadable
+        cfg._secret_store = SecretStore(None)
+        object.__setattr__(cfg.settings, "SECRETS_KEY_FILE", mounted)
+        ok, reason = cfg.create_master_key_runtime()
+        assert (ok, reason) == (False, "mounted")
+        assert not (cfg.settings.DATA_DIR / AUTO_KEY_FILENAME).exists()
+
+    def test_create_with_corrupt_managed_file_fails(self, runtime_key_env):
+        auto = cfg.settings.DATA_DIR / AUTO_KEY_FILENAME
+        auto.parent.mkdir(parents=True)
+        auto.write_text("garbage", encoding="ascii")
+        cfg._secret_store = SecretStore(None)
+        ok, reason = cfg.create_master_key_runtime()
+        assert (ok, reason) == (False, "failed")
+        assert auto.read_text(encoding="ascii") == "garbage"  # untouched
+
+    def test_delete_makes_secrets_unreadable(self, runtime_key_env):
+        # A managed key file on disk (holding KEY_A) + a store using it.
+        auto = cfg.settings.DATA_DIR / AUTO_KEY_FILENAME
+        auto.parent.mkdir(parents=True)
+        auto.write_bytes(KEY_A)
+        cfg._secret_store = SecretStore(KEY_A)
+        cfg.save_settings_overrides({"LLM_API_KEY": "sk-secret"})
+        # save_settings_overrides only writes the file; reload so memory holds
+        # the decrypted value, exactly as a restart would.
+        cfg.load_settings_overrides()
+        assert cfg.settings.LLM_API_KEY == "sk-secret"
+        ok, reason = cfg.delete_master_key_runtime()
+        assert (ok, reason) == (True, "deleted")
+        auto = cfg.settings.DATA_DIR / AUTO_KEY_FILENAME
+        assert not auto.exists()
+        # Ciphertext survives on disk but is unreadable without the key.
+        raw = (cfg.settings.DATA_DIR / "settings.json").read_text(encoding="utf-8")
+        assert "enc:v1:" in raw
+        assert cfg.settings.LLM_API_KEY == ""
+        assert cfg.settings.unreadable_secrets == ("LLM_API_KEY",)
+        assert cfg.settings.secrets_encrypted is False
+
+    def test_delete_mounted_key_is_refused(self, runtime_key_env, monkeypatch):
+        store = SecretStore(KEY_A)
+        store.key_source = "mounted"
+        monkeypatch.setattr(cfg, "_secret_store", store)
+        ok, reason = cfg.delete_master_key_runtime()
+        assert (ok, reason) == (False, "mounted")
+        assert cfg._secret_store is store
+
+    def test_delete_without_key_reports_none(self, runtime_key_env):
+        cfg._secret_store = SecretStore(None)
+        ok, reason = cfg.delete_master_key_runtime()
+        assert (ok, reason) == (False, "none")
+
+    def test_recreate_after_delete_keeps_new_key_usable(self, runtime_key_env):
+        cfg._secret_store = SecretStore(None)
+        ok, _ = cfg.create_master_key_runtime()
+        assert ok is True
+        cfg.save_settings_overrides({"LLM_API_KEY": "sk-one"})
+        assert cfg.delete_master_key_runtime()[0] is True
+        assert cfg.settings.LLM_API_KEY == ""  # old ciphertext unreadable
+        assert cfg.create_master_key_runtime()[0] is True
+        cfg.save_settings_overrides({"LLM_API_KEY": "sk-two"})
+        cfg.load_settings_overrides()  # memory reflects disk, as after a restart
+        assert cfg.settings.LLM_API_KEY == "sk-two"
+        raw = (cfg.settings.DATA_DIR / "settings.json").read_text(encoding="utf-8")
+        assert "sk-two" not in raw
 
 
 class TestBaseUrlPinning:

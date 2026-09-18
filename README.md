@@ -138,10 +138,14 @@ data volume. The Settings UI is *write-only* for them: their values never
 leave the server (the API reports only whether each is configured), so they
 cannot be read back through the browser.
 
-**No setup required.** On first boot HomeStew generates a random 32-byte
-master key and stores it at `/data/.secrets_key` (mode `0600`) inside the
-`homestew_data` volume, so encryption is on from the start — nothing to
-create by hand, and the key survives rebuilds and container recreation.
+**One-time setup.** On first start HomeStew shows a short wizard offering to
+generate a random 32-byte master key at `/data/.secrets_key` (mode `0600`)
+inside the `homestew_data` volume. Creating it turns encryption on for good —
+the key survives rebuilds and container recreation, and the wizard never
+appears again. *Skip* defers it: secrets are stored as plaintext meanwhile,
+and the offer returns on the next page load until you create a key (or mount
+your own). The same controls live under **Settings > Advanced**, which also
+lets you **delete** the managed key to troubleshoot or rotate it.
 
 **Back it up.** The key lives next to the ciphertext: a backup of the data
 volume covers both, but if you lose the volume (or delete `.secrets_key`)
@@ -149,11 +153,11 @@ stored secrets can no longer be decrypted — they're reported as unreadable
 and treated as unset, and you re-enter them once in the Settings UI.
 
 **What this protects against — and what it doesn't:** plaintext keys in git,
-in `settings.json`, or in container metadata. With auto-generation the key
+in `settings.json`, or in container metadata. With a HomeStew-managed key it
 sits in the same volume as the ciphertext, so anyone who can read `/data`
 (or restore a backup of it) can decrypt. To raise that bar, keep the master
 key **outside** the volume by mounting your own key file (the mounted file
-always wins over auto-generation):
+always wins over the managed one):
 
 ```bash
 # Once, from the repository root
@@ -175,15 +179,18 @@ directory is git-ignored. Even then, the `file` secret driver is still a host
 file: someone with root on the host can read both the key and the ciphertext.
 For that threat use full-disk encryption or an external secrets manager.
 
-- **No usable key at all?** (e.g. `/data` not writable) HomeStew still runs
-  but stores secrets as plaintext and shows a warning banner in Settings —
-  useful for bare `uvicorn` dev runs on a read-only checkout.
+- **No usable key at all?** (fresh install, skipped wizard, or `/data` not
+  writable) HomeStew still runs but stores secrets as plaintext and shows a
+  warning banner in Settings — useful for bare `uvicorn` dev runs on a
+  read-only checkout.
 - **Key rotated or lost?** Stored secrets can no longer be decrypted; they're
   reported as unreadable and treated as unset — re-enter them once in the
   Settings UI.
-- **Rotating deliberately:** replace the key (mounted file, or
-  `/data/.secrets_key`), restart, re-enter the secrets; old ciphertext is
-  overwritten with new on save.
+- **Rotating deliberately:** delete the managed key under Settings >
+  Advanced (or replace the mounted file), create a new one, then re-enter
+  the secrets; old ciphertext is overwritten with new on save. A *mounted*
+  key file is never deleted by the app — remove the container's secret
+  mount for that.
 
 ## Project Structure
 

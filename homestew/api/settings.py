@@ -6,7 +6,12 @@ import requests
 from fastapi import APIRouter, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
-from homestew.config import save_settings_overrides, settings
+from homestew.config import (
+    create_master_key_runtime,
+    delete_master_key_runtime,
+    save_settings_overrides,
+    settings,
+)
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
@@ -16,6 +21,7 @@ from homestew.models.schemas import (
     ModelListRequest,
     ModelListResponse,
     ModelStatusResponse,
+    SecretsKeyActionResponse,
     SettingsResponse,
     SettingsUpdate,
 )
@@ -83,8 +89,21 @@ def _current_settings() -> SettingsResponse:
         notify_webhook_token_set=bool(settings.NOTIFY_WEBHOOK_TOKEN),
         notify_webhook_verify_ssl=settings.NOTIFY_WEBHOOK_VERIFY_SSL,
         secrets_encrypted=settings.secrets_encrypted,
+        secrets_key_source=_secrets_key_source(),
+        secrets_key_deletable=_secrets_key_source() == "generated",
         unreadable_secrets=list(settings.unreadable_secrets),
     )
+
+
+def _secrets_key_source() -> str:
+    """Where the master key comes from: 'mounted' | 'generated' | 'none'.
+
+    Read through the config module's store attribute (not imported once) so
+    runtime create/delete of the managed key is reflected immediately.
+    """
+    from homestew import config as app_config
+
+    return getattr(app_config._secret_store, "key_source", "none")
 
 
 @router.get("", response_model=SettingsResponse)
@@ -202,6 +221,72 @@ async def update_settings(update: SettingsUpdate):
 
     logger.info("Settings updated: %s", sorted(changes.keys()))
     return _current_settings()
+
+
+@router.post("/secrets-key/create", response_model=SecretsKeyActionResponse)
+async def create_secrets_key():
+    """Create the HomeStew-managed secrets master key (one-time setup).
+
+    Called by the first-run wizard and Settings > Advanced when no key is
+    available. A mounted key file always wins — this only manages the key
+    inside the data volume, never overwrites an existing one.
+    """
+    ok, reason = create_master_key_runtime()
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "exists": "A usable master key is already in place.",
+                "mounted": "The mounted key file exists but could not be "
+                "read — fix the file at SECRETS_KEY_FILE instead of creating "
+                "a second key.",
+                "failed": "The data directory rejected the new key file. "
+                "Check that it is writable, or mount a key file at "
+                "SECRETS_KEY_FILE.",
+            }.get(reason, reason),
+        )
+    logger.info("Secrets master key created via API.")
+    return SecretsKeyActionResponse(
+        ok=True,
+        reason=reason,
+        secrets_key_source=_secrets_key_source(),
+        secrets_encrypted=settings.secrets_encrypted,
+    )
+
+
+@router.post("/secrets-key/delete", response_model=SecretsKeyActionResponse)
+async def delete_secrets_key():
+    """Delete the HomeStew-managed master key (Settings > Advanced).
+
+    Troubleshooting / rotation aid: afterwards stored secrets can no longer
+    be decrypted — they are reported as unreadable and treated as unset
+    until a new key is created and the secrets are re-entered. A mounted
+    key file is outside HomeStew's management and must be removed via the
+    container's secret mount.
+    """
+    try:
+        ok, reason = delete_master_key_runtime()
+    except OSError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The key file could not be deleted — check the data volume.",
+        )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "mounted": "The active key comes from a mounted key file. "
+                "Remove the mount (docker-compose 'secrets') to delete it.",
+                "none": "There is no HomeStew-managed key to delete.",
+            }.get(reason, reason),
+        )
+    logger.warning("Secrets master key deleted via API.")
+    return SecretsKeyActionResponse(
+        ok=True,
+        reason=reason,
+        secrets_key_source=_secrets_key_source(),
+        secrets_encrypted=settings.secrets_encrypted,
+    )
 
 
 @router.post("/models", response_model=ModelListResponse)

@@ -11,8 +11,8 @@ copy .env.example .env
 notepad .env  # Edit if needed — keep real API keys out of this file;
               # enter them in the Settings UI (stored encrypted)
 
-# 3. Build and run (encryption is on out of the box — HomeStew generates a
-#    master key in the data volume on first boot; see README "Secrets")
+# 3. Build and run (on first start a one-time wizard offers to create the
+#    secrets master key — see README "Secrets")
 docker-compose up -d --build
 
 # 4. Open browser
@@ -28,8 +28,8 @@ start http://localhost:8000
 > docker-compose cp ./data/. homestew:/data   # then remove .\data when satisfied
 > ```
 >
-> Plaintext secrets in an old `settings.json` are encrypted automatically on
-> the first boot (once the auto-generated master key exists).
+> Plaintext secrets in an old `settings.json` are encrypted automatically once
+> the master key is created (first-run wizard, or Settings > Advanced).
 
 ## 📋 Step-by-Step Instructions
 

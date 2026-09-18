@@ -1,16 +1,16 @@
 # Compose project (stack) name. Without this it defaults to the folder name
 name: homestew
 
-# Encryption of API keys/tokens in /data/settings.json works out of the
-# box: on first boot HomeStew generates a random master key and stores it at
-# /data/.secrets_key (mode 0600) inside the homestew_data volume — no setup
-# step needed. Include that file in volume backups; without it, stored
-# secrets cannot be decrypted.
+# Encryption of API keys/tokens in /data/settings.json: on first start a
+# one-time wizard offers to generate a random master key at
+# /data/.secrets_key (mode 0600) inside the homestew_data volume. Include
+# that file in volume backups; without it, stored secrets cannot be
+# decrypted. Manage or delete the key later under Settings > Advanced.
 #
 # Optional hardening: keep the master key OUTSIDE the data volume by
 # generating your own key file once and uncommenting the block below (and
 # the `secrets:` entry under the service). A mounted key file always wins
-# over auto-generation. See README "Secrets".
+# over a HomeStew-managed one. See README "Secrets".
 #   Linux/macOS:  mkdir -p secrets && openssl rand -base64 32 > secrets/homestew_secret_key
 #   PowerShell:   mkdir secrets; [IO.File]::WriteAllBytes("secrets\homestew_secret_key", (1..32 | ForEach-Object { Get-Random -Maximum 256 }))
 # secrets:
@@ -26,8 +26,8 @@ services:
       - "8000:8000"
     volumes:
       # Persistent data storage (PDFs, database, settings.json and the
-      # auto-generated master key /data/.secrets_key). A named volume keeps
-      # it out of the repo checkout — no accidental commits.
+      # secrets master key /data/.secrets_key once created). A named volume
+      # keeps it out of the repo checkout — no accidental commits.
       - homestew_data:/data
     # secrets:
     #   - homestew_secret_key  # only with the commented `secrets:` block above

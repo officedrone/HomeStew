@@ -380,7 +380,7 @@
         </div>
     </div>
 
-    <!-- Settings Modal: section nav (General / AI) + one visible panel -->
+    <!-- Settings Modal: section nav (one button per panel) + one visible panel -->
     <div id="settings-modal" class="modal">
         <div class="modal-content settings-modal-content">
             <span class="modal-close" onclick="closeSettingsModal()">&times;</span>
@@ -397,6 +397,7 @@
                         <button type="button" class="settings-nav-btn active" data-settings-section="general">General</button>
                         <button type="button" class="settings-nav-btn" data-settings-section="ai">AI</button>
                         <button type="button" class="settings-nav-btn" data-settings-section="notifications">Notifications</button>
+                        <button type="button" class="settings-nav-btn" data-settings-section="advanced">Advanced</button>
                     </nav>
 
                     <div class="settings-panels">
@@ -438,9 +439,10 @@
                                 <p class="settings-hint" id="model-list-hint"></p>
                             </div>
 
-                            <!-- Advanced (prompts): collapsed by default -->
+                            <!-- Prompt customization (collapsed by default). The
+                                 master-key tools live under the Advanced nav section. -->
                             <details id="advanced-settings-section" class="advanced-settings">
-                                <summary>Advanced</summary>
+                                <summary>Prompt Customization</summary>
                                 <p class="settings-hint advanced-settings-intro">
                                     Customize the prompts HomeStew sends to your LLM. Clear a field and save
                                     to restore its built-in default.
@@ -544,6 +546,24 @@
                                 <p class="settings-hint" id="webhook-test-hint"></p>
                             </div>
                         </section>
+
+                        <!-- Advanced: secrets master key management (create / delete). -->
+                        <section id="settings-panel-advanced" class="settings-panel" hidden>
+                            <h4 class="settings-subheading">Secrets Master Key</h4>
+                            <p class="settings-hint">
+                                HomeStew encrypts your stored credentials (API key, webhook URL
+                                and token) with a master key. Manage it here to troubleshoot or
+                                rotate the key.
+                            </p>
+                            <div id="advanced-key-status" class="key-status-box"></div>
+                            <div class="settings-field">
+                                <div class="model-row">
+                                    <button type="button" class="btn btn-secondary" id="create-key-btn" hidden>Create Key</button>
+                                    <button type="button" class="btn btn-danger" id="delete-key-btn" hidden>Delete Key</button>
+                                </div>
+                                <p class="settings-hint" id="advanced-key-hint"></p>
+                            </div>
+                        </section>
                     </div>
                 </div>
 
@@ -552,6 +572,30 @@
                     <button type="submit" class="btn btn-primary" id="settings-save-btn">Save Settings</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- First-run secrets key wizard: shown once when the server reports no
+         master key, offering a one-time creation (or skipping to plaintext). -->
+    <div id="key-wizard-modal" class="modal">
+        <div class="modal-content key-wizard-content">
+            <h2>Set up secret encryption</h2>
+            <p class="wizard-text">
+                HomeStew couldn't find a secrets master key. Without one, credentials you
+                save (API keys, webhook URLs and tokens) are stored as plaintext in the
+                data volume.
+            </p>
+            <p class="wizard-text">
+                Creating it generates a random key inside your data volume
+                (<code>/data/.secrets_key</code>). This is a one-time step &mdash; after it,
+                every saved secret is encrypted at rest. You can also manage the key later
+                under Settings &gt; Advanced.
+            </p>
+            <p class="wizard-error" id="key-wizard-error" hidden></p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="key-wizard-skip-btn">Skip for now</button>
+                <button type="button" class="btn btn-primary" id="key-wizard-create-btn">Create Key</button>
+            </div>
         </div>
     </div>
 
