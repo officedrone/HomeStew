@@ -68,12 +68,25 @@ def next_due_date(
         return start_date if start_date >= today else None
 
     ref = max(today, completed_on) if completed_on else today
-    # Recurring events that were just completed roll to the NEXT occurrence;
-    # otherwise the current one (>= today) is still pending.
+    # A completion rolls the schedule forward past the occurrence that was just
+    # ticked off - even when it happened *early*. If the pending occurrence is
+    # still in the future (the user saw the lead-time reminder and finished
+    # ahead of the date), rolling merely past "today" would re-return that same
+    # future date, so completing early would never push anything out.
     strict = completed_on is not None and completed_on >= today
 
     d = start_date
     k = 0
+    if strict:
+        # The occurrence being ticked off is the one currently shown as due:
+        # the first on/after ``ref``. Advance to it, then require the result to
+        # be strictly after *that* - so an early completion skips its date.
+        while d < ref:
+            k += 1
+            if k > 2600:
+                return None
+            d = occurrence(start_date, recurrence_type, interval, k)
+        ref = d
     # Guard against pathological anchors: bail out after ~50 years of steps so
     # a bogus interval can never spin forever.
     while True:
