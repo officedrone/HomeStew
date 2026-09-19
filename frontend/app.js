@@ -259,10 +259,9 @@ function setupEventListeners() {
     // buttons); applyTheme() mirrors it onto <html data-theme>.
     applyTheme();
 
-    // Settings modal
-    document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
-    // Section nav (General / AI): show one panel at a time.
-    document.querySelectorAll('.settings-nav-btn').forEach((btn) => {
+    // Settings page section tabs (General / AI / Notifications / Advanced):
+    // show one panel at a time. The gear itself is a .tab-btn wired above.
+    document.querySelectorAll('.settings-tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => showSettingsSection(btn.dataset.settingsSection));
     });
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
@@ -288,11 +287,11 @@ function setupEventListeners() {
         'change', updateWebhookTypeHints);
     setupModelDropdownRefresh();
 
-    // Chat model warning banner: takes the user straight to Settings.
-    document.getElementById('chat-open-settings-btn').addEventListener('click', openSettingsModal);
+    // Chat model warning banner: takes the user straight to the Settings page.
+    document.getElementById('chat-open-settings-btn').addEventListener('click', () => switchTab('settings'));
 
     // Model switcher in the chat toolbar: picking a model saves it right away
-    // (same settings the modal writes) and re-runs the availability probe.
+    // (same settings the Settings page writes) and re-runs the availability probe.
     document.getElementById('chat-model-select').addEventListener('change', handleChatModelChange);
 
     // "Restore Default" buttons in Advanced Settings repopulate the built-in
@@ -317,7 +316,7 @@ function setupEventListeners() {
         if (e.key !== 'Escape') return;
         // The setup wizard is intentionally absent: skipping/saving a step
         // must persist its resolution, so it can't be dismissed with Escape.
-        for (const id of ['settings-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
+        for (const id of ['add-device-modal', 'edit-device-modal', 'event-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 modal.style.display = 'none';
@@ -2028,10 +2027,16 @@ function switchTab(tabName) {
     if (tabName === 'calendar') {
         loadCalendarEvents();
     }
+
+    // The Settings page re-reads the saved configuration on every visit, so
+    // fields never show stale or half-typed values from a previous visit.
+    if (tabName === 'settings') {
+        loadSettingsPage();
+    }
 }
 
 // Valid tab names, in markup order - also the fallback used by restoreActiveTab.
-const TAB_NAMES = ['search', 'chat', 'devices', 'calendar'];
+const TAB_NAMES = ['search', 'chat', 'devices', 'calendar', 'settings'];
 
 // Re-activate the tab from the URL hash (set by switchTab) or, if absent,
 // the last one persisted to localStorage. Called once during startup.
@@ -2297,9 +2302,9 @@ function currentThemePref() {
     }
 }
 
-// Apply a theme preference everywhere it matters: the live document, the
-// localStorage mirror used before first paint, and the radio buttons if the
-// Settings modal happens to be open.
+// Apply a theme preference everywhere it matters: the live document and the
+// localStorage mirror used before first paint. The server-side copy is saved
+// by the Settings page.
 function setThemePref(pref) {
     if (!THEME_ORDER.includes(pref)) pref = 'auto';
     try { localStorage.setItem('theme', pref); } catch (e) { /* private mode */ }
@@ -2316,7 +2321,7 @@ function applyTheme() {
 }
 
 // ---------------------------------------------------------------------------
-// Settings modal (sections: General / AI)
+// Settings page (tabs: General / AI / Notifications / Advanced)
 // ---------------------------------------------------------------------------
 
 // Shown inside the API key field when a key is already configured. The real
@@ -2363,7 +2368,7 @@ const WEBHOOK_URL_HINTS = {
 };
 
 // What the server reports as configured (from GET /api/settings) plus what
-// the user marked for removal in the currently open modal.
+// the user marked for removal on the Settings page since it was loaded.
 const secretsState = {
     configured: { llm_api_key: false, notify_webhook_url: false, notify_webhook_token: false },
     cleared: new Set(),
@@ -2419,8 +2424,8 @@ function clearSecret(name) {
     renderSecretField(name);
 }
 
-// Warning banner at the top of the Settings modal: plaintext storage (no key
-// file mounted) and/or stored secrets that failed to decrypt.
+// Warning banner above the Settings tabs: plaintext storage (no key file
+// mounted) and/or stored secrets that failed to decrypt.
 function renderSecretsBanner(apiSettings) {
     const banner = document.getElementById('secrets-status-banner');
     const unreadable = apiSettings.unreadable_secrets || [];
@@ -2462,10 +2467,10 @@ function restorePromptDefault(settingName) {
     document.getElementById(fieldId).value = promptDefaults[settingName] || '';
 }
 
-// Show one settings panel at a time ("general" | "ai") and highlight the
-// matching sidebar button. The form itself is shared, so Save submits both.
+// Show one settings panel at a time ("general" | "ai" | ...) and highlight the
+// matching tab. The form itself is shared, so Save submits every section.
 function showSettingsSection(name) {
-    document.querySelectorAll('.settings-nav-btn').forEach((btn) => {
+    document.querySelectorAll('.settings-tab-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.settingsSection === name);
     });
     for (const panel of document.querySelectorAll('.settings-panel')) {
@@ -2473,7 +2478,9 @@ function showSettingsSection(name) {
     }
 }
 
-async function openSettingsModal() {
+// Fill the Settings page from the saved configuration. Called each time the
+// user switches to the tab, mirroring how Calendar reloads its events.
+async function loadSettingsPage() {
     let settings;
     try {
         const response = await fetch('/api/settings');
@@ -2562,15 +2569,9 @@ async function openSettingsModal() {
     // Advanced: master-key status + create/delete buttons.
     renderAdvancedKeyPanel(settings);
 
-    // Always open the modal with Advanced collapsed, on the General section.
+    // Always land on the General tab with the prompt accordion collapsed.
     document.getElementById('advanced-settings-section').open = false;
     showSettingsSection('general');
-
-    document.getElementById('settings-modal').style.display = 'flex';
-}
-
-function closeSettingsModal() {
-    document.getElementById('settings-modal').style.display = 'none';
 }
 
 // Per-type help text for the webhook fields. Synology Chat incoming webhooks
@@ -2811,7 +2812,7 @@ async function handleSettingsSave(event) {
     const webhookToken = document.getElementById('settings-notify-webhook-token').value.trim();
     if (webhookToken) payload.notify_webhook_token = webhookToken;
 
-    // Secrets marked "Remove" in this modal session; the server applies
+    // Secrets marked "Remove" since the page loaded; the server applies
     // these after the updates above.
     if (secretsState.cleared.size) payload.clear_secrets = [...secretsState.cleared];
 
@@ -2831,13 +2832,12 @@ async function handleSettingsSave(event) {
             } catch (e) { /* non-JSON error body */ }
             throw new Error(detail);
         }
-        // Apply the (possibly changed) theme immediately - before closing,
-        // so the new colors are already visible when the modal disappears.
+        // Apply the (possibly changed) theme immediately so the new colors are
+        // visible without a reload.
         setThemePref(payload.theme);
-        closeSettingsModal();
         showToast('Settings saved');
-        // If the chat tab is open behind the modal, re-probe so a fixed
-        // configuration clears its warning banner right away.
+        // Re-probe the chat in case the LLM settings were fixed here: its
+        // warning banner should clear even though it is on another tab.
         if (document.getElementById('chat-tab').classList.contains('active')) {
             checkChatModelStatus();
         }
@@ -2898,7 +2898,7 @@ async function postSecretsKeyAction(endpoint) {
     return data;
 }
 
-// Refresh the Settings modal's key UI + banner from the server after an action.
+// Refresh the Settings page's key UI + banner from the server after an action.
 async function refreshSettingsKeyState() {
     try {
         const response = await fetch('/api/settings');
@@ -3138,7 +3138,7 @@ async function fetchWizardLlmModels() {
     }
     const payload = { llm_base_url: baseUrl };
     // Only send a freshly typed key - the server never ships the stored one
-    // to a foreign URL anyway (same rule as the Settings modal probe).
+    // to a foreign URL anyway (same rule as the Settings page probe).
     const keyInput = document.getElementById('wizard-llm-api-key');
     if (keyInput.value.trim()) payload.llm_api_key = keyInput.value.trim();
 

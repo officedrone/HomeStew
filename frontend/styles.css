@@ -854,7 +854,8 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
 
 #search-tab.active,
 #devices-tab.active,
-#calendar-tab.active {
+#calendar-tab.active,
+#settings-tab.active {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -1677,34 +1678,24 @@ details.chat-input-meta {
 
 /* (Responsive rules live at the end of this file, in the drawer-mode block.) */
 
-/* Settings modal: section sidebar (General / AI) beside one panel. Wider
-   than the default modal so the two columns breathe. */
-.settings-modal-content {
-    max-width: min(760px, 100%);
-}
-
-.settings-layout {
+/* Settings page: horizontal section tabs above one visible panel. Wraps onto
+   a second row on narrow screens instead of needing a breakpoint. */
+.settings-tabs {
     display: flex;
-    align-items: stretch;
-    gap: 24px;
-}
-
-.settings-nav {
-    display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 4px;
-    flex-shrink: 0;
-    width: 130px;
-    /* Vertical rule separating the nav from the panel content */
-    border-right: 1px solid var(--border-color);
-    padding-right: 16px;
+    margin-bottom: 22px;
+    border-bottom: 1px solid var(--border-color);
 }
 
-.settings-nav-btn {
+.settings-tab-btn {
     text-align: left;
-    padding: 9px 12px;
+    padding: 9px 14px;
+    /* Squared bottom corners so the active tab meets the rule under the row. */
     border: none;
-    border-radius: var(--radius-sm);
+    border-bottom: 2px solid transparent;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    margin-bottom: -1px;
     background: transparent;
     color: var(--text-secondary);
     font-size: 0.9rem;
@@ -1712,19 +1703,30 @@ details.chat-input-meta {
     cursor: pointer;
 }
 
-.settings-nav-btn:hover {
+.settings-tab-btn:hover {
     background: var(--bg-light);
     color: var(--text-primary);
 }
 
-.settings-nav-btn.active {
+.settings-tab-btn.active {
     background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    border-bottom-color: var(--primary-color);
     color: var(--primary-color);
 }
 
+/* Panels hold plain form fields: cap the measure so long hints and textareas
+   stay readable on wide screens (matches the old modal's comfortable width). */
 .settings-panels {
-    flex: 1;
-    min-width: 0;
+    max-width: 720px;
+}
+
+/* Save row under the panels, right-aligned like a modal footer. */
+.settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 24px;
+    max-width: 720px;
 }
 
 /* Theme radio group: horizontal options on one row */
@@ -1795,7 +1797,7 @@ details.chat-input-meta {
     margin-top: 0;
 }
 
-/* Settings modal fields */
+/* Settings page fields (also used by the device/event modals) */
 .settings-field {
     margin-bottom: 16px;
 }
@@ -1815,11 +1817,10 @@ details.chat-input-meta {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     font-size: 0.95rem;
+    /* Both colours pinned: these fields also appear inside .device-form
+       modals, whose sidebar rule sets light text on a dark surface at the
+       same specificity. */
     background: var(--surface);
-    /* The settings form also carries .device-form, whose sidebar rule sets
-       light text on a dark surface. That rule matches with the same
-       specificity as this one and would leave white text on this white field,
-       so pin both colors here explicitly. */
     color: var(--text-primary);
 }
 
@@ -1836,8 +1837,8 @@ details.chat-input-meta {
     margin-top: 6px;
 }
 
-/* Secrets-at-rest warning at the top of the Settings modal (plaintext mode
-   or undecryptable stored secrets - see renderSecretsBanner in app.js). */
+/* Secrets-at-rest warning above the Settings tabs (plaintext mode or
+   undecryptable stored secrets - see renderSecretsBanner in app.js). */
 .secret-banner {
     padding: 10px 14px;
     margin-bottom: 12px;
@@ -2071,8 +2072,7 @@ details.chat-input-meta {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     line-height: 1.5;
     resize: vertical;
-    /* Same override as .settings-field input above: undo the dark
-       .device-form textarea styling so text stays readable on the surface. */
+    /* Same colour pinning as .settings-field input above. */
     background: var(--surface);
     color: var(--text-primary);
 }
@@ -2617,19 +2617,10 @@ details.chat-input-meta {
         text-align: center;
     }
 
-    /* Settings sections become a horizontal strip above the panel */
-    .settings-layout {
-        flex-direction: column;
-        gap: 14px;
-    }
-
-    .settings-nav {
-        width: auto;
-        flex-direction: row;
-        border-right: none;
-        border-bottom: 1px solid var(--border-color);
-        padding-right: 0;
-        padding-bottom: 12px;
+    /* Settings tabs fill the row and wrap; Save stays thumb-sized */
+    .settings-tab-btn {
+        flex: 1 1 auto;
+        text-align: center;
     }
 
     #chat-device-filter,

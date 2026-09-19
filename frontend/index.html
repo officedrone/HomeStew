@@ -53,7 +53,7 @@
             <!-- Tab navigation: same icon-btn pattern as the Settings row -
                  icon + label when expanded, icon only when collapsed. -->
             <nav class="side-tabs">
-                <!-- New Device: opens the Add Device modal (like Settings).
+                <!-- New Device: opens the Add Device modal, unlike the page tabs.
                      Styled as a plain icon-btn so it matches the tab buttons. -->
                 <button type="button" id="add-device-btn" class="icon-btn add-device-btn" data-dedupe data-tip="New Device" aria-label="New Device">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -97,9 +97,10 @@
 
             <!-- Settings: kept at the end of the markup but flex-ordered to
                  sit right below the main nav buttons (see .sidebar-bottom).
+                 A .tab-btn like the others: switches to the Settings page.
                  Expanded shows gear + label, collapsed shows only the gear. -->
             <div class="sidebar-bottom">
-                <button type="button" class="icon-btn" id="settings-btn" data-tip="Settings" aria-label="Settings">
+                <button type="button" class="icon-btn tab-btn" id="settings-btn" data-tab="settings" data-tip="Settings" aria-label="Settings">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     <span class="content-only">Settings</span>
                 </button>
@@ -215,6 +216,198 @@
                     </select>
                 </div>
                 <div id="calendar-list" class="calendar-list"></div>
+            </div>
+
+            <!-- Settings Tab: horizontal section tabs (General / AI /
+                 Notifications / Advanced) above one visible panel. One form
+                 wraps every panel so Save submits all sections at once. -->
+            <div id="settings-tab" class="tab-content">
+                <div class="tab-header">
+                    <h2>Settings</h2>
+                </div>
+
+                <!-- Secrets-at-rest status (plaintext warning / unreadable secrets).
+                     Hidden unless the server reports a problem. -->
+                <div id="secrets-status-banner" class="secret-banner" hidden></div>
+
+                <form id="settings-form" class="settings-page-form">
+                    <nav class="settings-tabs" aria-label="Settings sections">
+                        <button type="button" class="settings-tab-btn active" data-settings-section="general">General</button>
+                        <button type="button" class="settings-tab-btn" data-settings-section="ai">AI</button>
+                        <button type="button" class="settings-tab-btn" data-settings-section="notifications">Notifications</button>
+                        <button type="button" class="settings-tab-btn" data-settings-section="advanced">Advanced</button>
+                    </nav>
+
+                    <div class="settings-panels">
+                        <!-- General -->
+                        <section id="settings-panel-general" class="settings-panel">
+                            <div class="settings-field">
+                                <label id="settings-theme-label">Theme</label>
+                                <div class="radio-row" role="radiogroup" aria-labelledby="settings-theme-label">
+                                    <label class="radio-option"><input type="radio" name="theme" value="auto"> Auto</label>
+                                    <label class="radio-option"><input type="radio" name="theme" value="dark"> Dark</label>
+                                    <label class="radio-option"><input type="radio" name="theme" value="light"> Light</label>
+                                </div>
+                                <p class="settings-hint">Auto follows your operating system's light/dark setting.</p>
+                            </div>
+                        </section>
+
+                        <!-- AI -->
+                        <section id="settings-panel-ai" class="settings-panel" hidden>
+                            <div class="settings-field">
+                                <label for="settings-llm-base-url">LLM Base URL</label>
+                                <input type="text" id="settings-llm-base-url" placeholder="e.g., http://localhost:11434/v1" required>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-llm-api-key">LLM API Key</label>
+                                <div class="model-row">
+                                    <input type="password" id="settings-llm-api-key" autocomplete="new-password">
+                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="llm_api_key" hidden>Remove</button>
+                                </div>
+                                <p class="settings-hint" id="settings-api-key-hint"></p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-llm-model">LLM Model</label>
+                                <div class="model-row">
+                                    <!-- Plain select (no free text): the option list is
+                                         refreshed from the server whenever it is opened. -->
+                                    <select id="settings-llm-model" required></select>
+                                    <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">Models</button>
+                                </div>
+                                <p class="settings-hint" id="model-list-hint"></p>
+                            </div>
+
+                            <!-- Prompt customization (collapsed by default). The
+                                 master-key tools live under the Advanced tab. -->
+                            <details id="advanced-settings-section" class="advanced-settings">
+                                <summary>Prompt Customization</summary>
+                                <p class="settings-hint advanced-settings-intro">
+                                    Customize the prompts HomeStew sends to your LLM. Clear a field and save
+                                    to restore its built-in default.
+                                </p>
+                                <div class="settings-field">
+                                    <div class="prompt-label-row">
+                                        <label for="settings-chat-system-prompt">Chat System Prompt</label>
+                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="chat_system_prompt">Restore Default</button>
+                                    </div>
+                                    <textarea id="settings-chat-system-prompt" rows="5" spellcheck="false"></textarea>
+                                </div>
+                                <div class="settings-field">
+                                    <div class="prompt-label-row">
+                                        <label for="settings-search-tool-description">Search Tool Description</label>
+                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="search_tool_description">Restore Default</button>
+                                    </div>
+                                    <textarea id="settings-search-tool-description" rows="4" spellcheck="false"></textarea>
+                                    <p class="settings-hint">Tells the LLM when to search your manuals.</p>
+                                </div>
+                                <div class="settings-field">
+                                    <div class="prompt-label-row">
+                                        <label for="settings-calendar-tool-description">Calendar Tool Description</label>
+                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="calendar_tool_description">Restore Default</button>
+                                    </div>
+                                    <textarea id="settings-calendar-tool-description" rows="4" spellcheck="false"></textarea>
+                                    <p class="settings-hint">Tells the LLM how to manage your maintenance reminders.</p>
+                                </div>
+                            </details>
+                        </section>
+
+                        <!-- Notifications -->
+                        <section id="settings-panel-notifications" class="settings-panel" hidden>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-notify-enabled">
+                                    <input type="checkbox" id="settings-notify-enabled">
+                                    Enable notifications
+                                </label>
+                                <p class="settings-hint">HomeStew periodically checks your calendar and alerts you when a maintenance task is due or overdue.</p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-interval">Check every (minutes)</label>
+                                <input type="number" id="settings-notify-interval" min="1" max="1440" step="1">
+                                <p class="settings-hint">How often the background check runs. Changes apply without a restart.</p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-lead-value">Notify before due</label>
+                                <div class="model-row">
+                                    <input type="number" id="settings-notify-lead-value" min="1" max="365" step="1">
+                                    <select id="settings-notify-lead-unit">
+                                        <option value="hours">Hours</option>
+                                        <option value="days">Days</option>
+                                    </select>
+                                </div>
+                                <p class="settings-hint">Send an alert this far ahead of the due date. Overdue tasks are also alerted once.</p>
+                            </div>
+
+                            <h4 class="settings-subheading">Webhook</h4>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-notify-webhook-enabled">
+                                    <input type="checkbox" id="settings-notify-webhook-enabled">
+                                    Enable webhook channel
+                                </label>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-webhook-type">Webhook Type</label>
+                                <select id="settings-notify-webhook-type">
+                                    <option value="generic">Generic (JSON POST)</option>
+                                    <option value="synology">Synology Chat (incoming webhook)</option>
+                                </select>
+                                <p class="settings-hint" id="webhook-type-hint"></p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-webhook-url">Webhook URL</label>
+                                <div class="model-row">
+                                    <!-- type=password: Synology webhook URLs embed their secret token, so the field is write-only and obscured like a key. -->
+                                    <input type="password" id="settings-notify-webhook-url" autocomplete="new-password" placeholder="https://example.com/hooks/homestew">
+                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="notify_webhook_url" hidden>Remove</button>
+                                </div>
+                                <p class="settings-hint" id="webhook-url-hint"></p>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-notify-webhook-token">Bearer Token (optional)</label>
+                                <div class="model-row">
+                                    <input type="password" id="settings-notify-webhook-token" autocomplete="new-password">
+                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="notify_webhook_token" hidden>Remove</button>
+                                </div>
+                                <p class="settings-hint" id="settings-webhook-token-hint"></p>
+                            </div>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-notify-webhook-verify-ssl">
+                                    <input type="checkbox" id="settings-notify-webhook-verify-ssl">
+                                    Validate SSL
+                                </label>
+                                <p class="settings-hint">Verify the webhook server's TLS certificate. Uncheck only if your receiver uses a self-signed or internal-CA certificate (e.g. a LAN Synology NAS).</p>
+                            </div>
+                            <div class="settings-field">
+                                <div class="model-row">
+                                    <span class="settings-hint webhook-test-label">Send a sample notification to test the URL.</span>
+                                    <button type="button" class="btn btn-secondary" id="test-webhook-btn">Send Test</button>
+                                </div>
+                                <p class="settings-hint" id="webhook-test-hint"></p>
+                            </div>
+                        </section>
+
+                        <!-- Advanced: secrets master key management (create / delete). -->
+                        <section id="settings-panel-advanced" class="settings-panel" hidden>
+                            <h4 class="settings-subheading">Secrets Master Key</h4>
+                            <p class="settings-hint">
+                                HomeStew encrypts your stored credentials (API key, webhook URL
+                                and token) with a master key. Manage it here to troubleshoot or
+                                rotate the key.
+                            </p>
+                            <div id="advanced-key-status" class="key-status-box"></div>
+                            <div class="settings-field">
+                                <div class="model-row">
+                                    <button type="button" class="btn btn-secondary" id="create-key-btn" hidden>Create Key</button>
+                                    <button type="button" class="btn btn-danger" id="delete-key-btn" hidden>Delete Key</button>
+                                </div>
+                                <p class="settings-hint" id="advanced-key-hint"></p>
+                            </div>
+                        </section>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button type="submit" class="btn btn-primary" id="settings-save-btn">Save Settings</button>
+                    </div>
+                </form>
             </div>
         </main>
     </div>
@@ -378,201 +571,6 @@
                 <span id="download-current-step">Initializing...</span>
             </div>
             <button id="close-download-modal" class="btn btn-secondary" style="margin-top: 20px; display: none;" onclick="closeDownloadModal()">Close</button>
-        </div>
-    </div>
-
-    <!-- Settings Modal: section nav (one button per panel) + one visible panel -->
-    <div id="settings-modal" class="modal">
-        <div class="modal-content settings-modal-content">
-            <span class="modal-close" onclick="closeSettingsModal()">&times;</span>
-            <h2>Settings</h2>
-
-            <!-- Secrets-at-rest status (plaintext warning / unreadable secrets).
-                 Hidden unless the server reports a problem. -->
-            <div id="secrets-status-banner" class="secret-banner" hidden></div>
-
-            <!-- One form wraps both panels so Save always submits everything. -->
-            <form id="settings-form" class="device-form">
-                <div class="settings-layout">
-                    <nav class="settings-nav" aria-label="Settings sections">
-                        <button type="button" class="settings-nav-btn active" data-settings-section="general">General</button>
-                        <button type="button" class="settings-nav-btn" data-settings-section="ai">AI</button>
-                        <button type="button" class="settings-nav-btn" data-settings-section="notifications">Notifications</button>
-                        <button type="button" class="settings-nav-btn" data-settings-section="advanced">Advanced</button>
-                    </nav>
-
-                    <div class="settings-panels">
-                        <!-- General -->
-                        <section id="settings-panel-general" class="settings-panel">
-                            <div class="settings-field">
-                                <label id="settings-theme-label">Theme</label>
-                                <div class="radio-row" role="radiogroup" aria-labelledby="settings-theme-label">
-                                    <label class="radio-option"><input type="radio" name="theme" value="auto"> Auto</label>
-                                    <label class="radio-option"><input type="radio" name="theme" value="dark"> Dark</label>
-                                    <label class="radio-option"><input type="radio" name="theme" value="light"> Light</label>
-                                </div>
-                                <p class="settings-hint">Auto follows your operating system's light/dark setting.</p>
-                            </div>
-                        </section>
-
-                        <!-- AI -->
-                        <section id="settings-panel-ai" class="settings-panel" hidden>
-                            <div class="settings-field">
-                                <label for="settings-llm-base-url">LLM Base URL</label>
-                                <input type="text" id="settings-llm-base-url" placeholder="e.g., http://localhost:11434/v1" required>
-                            </div>
-                            <div class="settings-field">
-                                <label for="settings-llm-api-key">LLM API Key</label>
-                                <div class="model-row">
-                                    <input type="password" id="settings-llm-api-key" autocomplete="new-password">
-                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="llm_api_key" hidden>Remove</button>
-                                </div>
-                                <p class="settings-hint" id="settings-api-key-hint"></p>
-                            </div>
-                            <div class="settings-field">
-                                <label for="settings-llm-model">LLM Model</label>
-                                <div class="model-row">
-                                    <!-- Plain select (no free text): the option list is
-                                         refreshed from the server whenever it is opened. -->
-                                    <select id="settings-llm-model" required></select>
-                                    <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">Models</button>
-                                </div>
-                                <p class="settings-hint" id="model-list-hint"></p>
-                            </div>
-
-                            <!-- Prompt customization (collapsed by default). The
-                                 master-key tools live under the Advanced nav section. -->
-                            <details id="advanced-settings-section" class="advanced-settings">
-                                <summary>Prompt Customization</summary>
-                                <p class="settings-hint advanced-settings-intro">
-                                    Customize the prompts HomeStew sends to your LLM. Clear a field and save
-                                    to restore its built-in default.
-                                </p>
-                                <div class="settings-field">
-                                    <div class="prompt-label-row">
-                                        <label for="settings-chat-system-prompt">Chat System Prompt</label>
-                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="chat_system_prompt">Restore Default</button>
-                                    </div>
-                                    <textarea id="settings-chat-system-prompt" rows="5" spellcheck="false"></textarea>
-                                </div>
-                                <div class="settings-field">
-                                    <div class="prompt-label-row">
-                                        <label for="settings-search-tool-description">Search Tool Description</label>
-                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="search_tool_description">Restore Default</button>
-                                    </div>
-                                    <textarea id="settings-search-tool-description" rows="4" spellcheck="false"></textarea>
-                                    <p class="settings-hint">Tells the LLM when to search your manuals.</p>
-                                </div>
-                                <div class="settings-field">
-                                    <div class="prompt-label-row">
-                                        <label for="settings-calendar-tool-description">Calendar Tool Description</label>
-                                        <button type="button" class="btn btn-small btn-secondary" data-restore-default="calendar_tool_description">Restore Default</button>
-                                    </div>
-                                    <textarea id="settings-calendar-tool-description" rows="4" spellcheck="false"></textarea>
-                                    <p class="settings-hint">Tells the LLM how to manage your maintenance reminders.</p>
-                                </div>
-                            </details>
-                        </section>
-
-                        <!-- Notifications -->
-                        <section id="settings-panel-notifications" class="settings-panel" hidden>
-                            <div class="settings-field">
-                                <label class="checkbox-option" for="settings-notify-enabled">
-                                    <input type="checkbox" id="settings-notify-enabled">
-                                    Enable notifications
-                                </label>
-                                <p class="settings-hint">HomeStew periodically checks your calendar and alerts you when a maintenance task is due or overdue.</p>
-                            </div>
-                            <div class="settings-field">
-                                <label for="settings-notify-interval">Check every (minutes)</label>
-                                <input type="number" id="settings-notify-interval" min="1" max="1440" step="1">
-                                <p class="settings-hint">How often the background check runs. Changes apply without a restart.</p>
-                            </div>
-                            <div class="settings-field">
-                                <label for="settings-notify-lead-value">Notify before due</label>
-                                <div class="model-row">
-                                    <input type="number" id="settings-notify-lead-value" min="1" max="365" step="1">
-                                    <select id="settings-notify-lead-unit">
-                                        <option value="hours">Hours</option>
-                                        <option value="days">Days</option>
-                                    </select>
-                                </div>
-                                <p class="settings-hint">Send an alert this far ahead of the due date. Overdue tasks are also alerted once.</p>
-                            </div>
-
-                            <h4 class="settings-subheading">Webhook</h4>
-                            <div class="settings-field">
-                                <label class="checkbox-option" for="settings-notify-webhook-enabled">
-                                    <input type="checkbox" id="settings-notify-webhook-enabled">
-                                    Enable webhook channel
-                                </label>
-                            </div>
-                            <div class="settings-field">
-                                <label for="settings-notify-webhook-type">Webhook Type</label>
-                                <select id="settings-notify-webhook-type">
-                                    <option value="generic">Generic (JSON POST)</option>
-                                    <option value="synology">Synology Chat (incoming webhook)</option>
-                                </select>
-                                <p class="settings-hint" id="webhook-type-hint"></p>
-                            </div>
-                            <div class="settings-field">
-                                <label for="settings-notify-webhook-url">Webhook URL</label>
-                                <div class="model-row">
-                                    <!-- type=password: Synology webhook URLs embed their secret token, so the field is write-only and obscured like a key. -->
-                                    <input type="password" id="settings-notify-webhook-url" autocomplete="new-password" placeholder="https://example.com/hooks/homestew">
-                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="notify_webhook_url" hidden>Remove</button>
-                                </div>
-                                <p class="settings-hint" id="webhook-url-hint"></p>
-                            </div>
-                            <div class="settings-field">
-                                <label for="settings-notify-webhook-token">Bearer Token (optional)</label>
-                                <div class="model-row">
-                                    <input type="password" id="settings-notify-webhook-token" autocomplete="new-password">
-                                    <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="notify_webhook_token" hidden>Remove</button>
-                                </div>
-                                <p class="settings-hint" id="settings-webhook-token-hint"></p>
-                            </div>
-                            <div class="settings-field">
-                                <label class="checkbox-option" for="settings-notify-webhook-verify-ssl">
-                                    <input type="checkbox" id="settings-notify-webhook-verify-ssl">
-                                    Validate SSL
-                                </label>
-                                <p class="settings-hint">Verify the webhook server's TLS certificate. Uncheck only if your receiver uses a self-signed or internal-CA certificate (e.g. a LAN Synology NAS).</p>
-                            </div>
-                            <div class="settings-field">
-                                <div class="model-row">
-                                    <span class="settings-hint webhook-test-label">Send a sample notification to test the URL.</span>
-                                    <button type="button" class="btn btn-secondary" id="test-webhook-btn">Send Test</button>
-                                </div>
-                                <p class="settings-hint" id="webhook-test-hint"></p>
-                            </div>
-                        </section>
-
-                        <!-- Advanced: secrets master key management (create / delete). -->
-                        <section id="settings-panel-advanced" class="settings-panel" hidden>
-                            <h4 class="settings-subheading">Secrets Master Key</h4>
-                            <p class="settings-hint">
-                                HomeStew encrypts your stored credentials (API key, webhook URL
-                                and token) with a master key. Manage it here to troubleshoot or
-                                rotate the key.
-                            </p>
-                            <div id="advanced-key-status" class="key-status-box"></div>
-                            <div class="settings-field">
-                                <div class="model-row">
-                                    <button type="button" class="btn btn-secondary" id="create-key-btn" hidden>Create Key</button>
-                                    <button type="button" class="btn btn-danger" id="delete-key-btn" hidden>Delete Key</button>
-                                </div>
-                                <p class="settings-hint" id="advanced-key-hint"></p>
-                            </div>
-                        </section>
-                    </div>
-                </div>
-
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeSettingsModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="settings-save-btn">Save Settings</button>
-                </div>
-            </form>
         </div>
     </div>
 
