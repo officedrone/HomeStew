@@ -12,7 +12,11 @@ async def get_db():
     db_path = settings.DATA_DIR / "homestew.db"
     db = await aiosqlite.connect(db_path)
     db.row_factory = aiosqlite.Row
-    
+    # SQLite has one writer at a time; without this, a second concurrent write
+    # (e.g. indexing a manual while another request updates a row) fails
+    # instantly with "database is locked" instead of waiting briefly.
+    await db.execute("PRAGMA busy_timeout = 5000")
+
     try:
         yield db
     finally:

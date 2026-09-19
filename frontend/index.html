@@ -318,8 +318,9 @@
                                     <input type="checkbox" id="settings-notify-enabled">
                                     Enable notifications
                                 </label>
-                                <p class="settings-hint">HomeStew periodically checks your calendar and alerts you when a maintenance task is due or overdue.</p>
+                                <p class="settings-hint">Enable background notifications for maintenance tasks.</p>
                             </div>
+                            <h4 class="settings-subheading">Calendar Event Notifications</h4>
                             <div class="settings-field">
                                 <label for="settings-notify-interval">Check every (minutes)</label>
                                 <input type="number" id="settings-notify-interval" min="1" max="1440" step="1">
@@ -390,8 +391,7 @@
                             <h4 class="settings-subheading">Secrets Master Key</h4>
                             <p class="settings-hint">
                                 HomeStew encrypts your stored credentials (API key, webhook URL
-                                and token) with a master key. Manage it here to troubleshoot or
-                                rotate the key.
+                                and token) with a master key.
                             </p>
                             <div id="advanced-key-status" class="key-status-box"></div>
                             <div class="settings-field">

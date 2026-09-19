@@ -21,9 +21,15 @@ pypdf==6.16.2
 # HTTP client
 requests==2.34.2
 
-# Web scraping (optional but recommended)
-duckduckgo-search==7.5.0
-beautifulsoup4==4.12.3
+# Web search for manual discovery. `ddgs` is the maintained successor of
+# duckduckgo-search (same author, MIT licensed) and aggregates several
+# engines (bing/brave/duckduckgo/mojeek/startpage/...), so one blocked engine
+# no longer kills a search. `primp` is its HTTP client: pin it as a *range*
+# because an unpinned transitive bump silently broke manual fetching in
+# Sep 2026 (primp 2.x dropped the browser profiles that the old
+# duckduckgo_search release hardcoded -> "Invalid impersonate" on every query).
+ddgs~=9.16
+primp>=2.0.1,<3
 
 # LLM integration
 openai==3.7.0

@@ -2882,7 +2882,7 @@ function renderAdvancedKeyPanel(s) {
     createBtn.hidden = !!s.secrets_encrypted;
     deleteBtn.hidden = !s.secrets_key_deletable;
     hint.textContent = s.secrets_encrypted
-        ? 'Deleting the key makes stored secrets unreadable until a new key is created and they are re-entered. Use it to troubleshoot or rotate the key.'
+        ? 'Deleting the key makes stored secrets unreadable until a new key is created and they are re-entered.'
         : 'Create one now, or mount your own key file at SECRETS_KEY_FILE (see README \u201cSecrets\u201d).';
 }
 

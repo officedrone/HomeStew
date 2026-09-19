@@ -1,327 +1,215 @@
-"""Manual downloader using DuckDuckGo search."""
+"""Manual fetching: web search (via manual_finder/web_search) + PDF download.
+
+This module is deliberately I/O-only: candidate discovery lives in
+``manual_finder`` and the engine-agnostic search in ``web_search``, so a
+future LLM tool can reuse those layers without pulling in downloads or disk.
+
+Public contract kept stable for ``homestew/api/downloads.py`` (both the
+legacy /trigger endpoint and the SSE stream):
+- ``search_for_manuals(brand, model) -> (list_of_dicts, error_or_None)``
+- ``download_pdf(url, save_path) -> bool``  (reason via ``download_pdf_detail``)
+- ``download_manuals_for_device(...) -> (count, filenames, error_or_None)``
+  with dict progress payloads ``{"type": "step", "message", "status"}``.
+"""
 import logging
 import time
 from pathlib import Path
-from typing import Optional, List, Callable, Any
+from typing import Callable, List, Optional
+
 import requests
-from functools import lru_cache
-import asyncio
 
 logger = logging.getLogger(__name__)
 
 
 def _friendly_error(exc: Exception) -> str:
     """Turn a raw search-library exception into a human-readable message."""
-    text = str(exc)
-    lowered = text.lower()
-    if "ratelimit" in lowered or ("202" in text and "limit" in lowered):
-        return (
-            "DuckDuckGo is rate-limiting requests (HTTP 202). "
-            "Wait a minute or two and try again."
-        )
-    if "timeout" in lowered or "timed out" in lowered:
-        return "Search request timed out. Check your internet connection and try again."
-    if "connection" in lowered or "network" in lowered:
-        return "Network error while searching. Check your internet connection and try again."
-    return f"Search backend error: {text}"
+    from homestew.services.web_search import friendly_search_error
+
+    return friendly_search_error(exc)
 
 
-@lru_cache(maxsize=128)
-def _cached_search(query: str, max_results: int) -> tuple[List[dict], Optional[str]]:
-    """Cached search to avoid repeated identical searches.
+class _TooLarge(Exception):
+    """Internal: streamed body exceeded the configured size cap."""
 
-    Returns (results, error_message_or_None). The error message is cached too
-    so the UI can show *why* a search failed instead of a generic 'not found'.
-    """
-    return _perform_search(query, max_results)
+    def __init__(self, max_mb: int):
+        super().__init__(f"exceeds {max_mb} MB")
+        self.max_mb = max_mb
 
 
-def _perform_search(query: str, max_results: int) -> tuple[List[dict], Optional[str]]:
-    """Perform actual DuckDuckGo search with multiple fallback strategies.
+def search_for_manuals(brand: str, model: str, max_results: Optional[int] = None) -> tuple[List[dict], Optional[str]]:
+    """Search the web for device manual PDFs.
 
-    Returns (results, error_message_or_None). When every strategy fails the
-    collected per-strategy errors are returned so callers can surface them.
-    """
-    from duckduckgo_search import DDGS
-    
-    strategy_errors = []
-    
-    # Strategy 1: Use HTML backend (more reliable than lite)
-    try:
-        logger.info(f"Attempting search with HTML backend: {query}")
-        results = []
-        
-        with DDGS() as ddgs:
-            # Specify backend to avoid lite backend rate limiting
-            file_results = list(ddgs.text(
-                query, 
-                max_results=max_results,
-                backend="html"  # Use HTML backend instead of default lite
-            ))
-            
-            for result in file_results:
-                url = result.get('href', '') or result.get('url', '')
-                title = result.get('title', '')
-                
-                # Filter for PDF links
-                if '.pdf' in url.lower() or 'pdf' in title.lower():
-                    results.append({
-                        'title': title,
-                        'url': url,
-                        'source': 'duckduckgo'
-                    })
-        
-        if results:
-            logger.info(f"HTML backend found {len(results)} potential manuals")
-            return results, None
-            
-    except Exception as e:
-        logger.warning(f"HTML backend failed: {e}")
-        strategy_errors.append(_friendly_error(e))
-    
-    # Strategy 2: Fallback to API backend with delays
-    try:
-        logger.info("Falling back to API backend with rate limiting protection")
-        results = []
-        
-        with DDGS() as ddgs:
-            # Add small delay between requests to avoid rate limiting
-            time.sleep(1)  # Be polite to the service
-            file_results = list(ddgs.text(
-                query,
-                max_results=max_results,
-                backend="api"  # Try API backend
-            ))
-            
-            for result in file_results:
-                url = result.get('href', '') or result.get('url', '')
-                title = result.get('title', '')
-                
-                if '.pdf' in url.lower() or 'pdf' in title.lower():
-                    results.append({
-                        'title': title,
-                        'url': url,
-                        'source': 'duckduckgo'
-                    })
-        
-        if results:
-            logger.info(f"API backend found {len(results)} potential manuals")
-            return results, None
-            
-    except Exception as e:
-        logger.warning(f"API backend failed: {e}")
-        strategy_errors.append(_friendly_error(e))
-    
-    # Strategy 3: Direct requests with proper headers
-    logger.info("Using direct HTTP requests as final fallback")
-    return _direct_duckduckgo_search(query, max_results, strategy_errors)
-
-
-def search_for_manuals(brand: str, model: str, max_results: int = 10) -> tuple[List[dict], str | None]:
-    """
-    Search for device manuals using DuckDuckGo with multiple fallback strategies.
-    
     Args:
-        brand: Device brand (e.g., "Samsung")
-        model: Device model (e.g., "QN90A")
-        max_results: Maximum number of results to return
-        
+        brand: Device brand (e.g., "Nespresso")
+        model: Device model (e.g., "PIXIE C62")
+        max_results: Maximum number of candidates (settings default when None)
+
     Returns:
-        Tuple of (List of search result dictionaries, error_message or None)
+        Tuple of (list of {"title", "url", "source"} dicts, error_message or None).
+        Empty list without an error means the search worked but nothing
+        plausible was found; empty list WITH an error explains why.
     """
-    try:
-        query = f"{brand} {model} manual pdf"
-        logger.info(f"Searching for manuals: {query}")
-        
-        # Use cached search to avoid repeated identical queries. The cache also
-        # stores the error message so a transient failure (e.g. rate limiting)
-        # can be reported accurately instead of as "no results".
-        results, error = _cached_search(query, max_results)
-        
-        if not results and error:
-            # Clear cache and retry once in case the failure was transient.
-            _cached_search.cache_clear()
-            results, error = _cached_search(query, max_results)
-        
-        logger.info(f"Found {len(results)} potential manuals")
-        
-        if not results:
-            if error:
-                return [], error
-            return [], "No manuals found. Try a different brand/model or search terms."
-            
-        return results, None
-        
-    except Exception as e:
-        error_detail = f"Search failed: {str(e)}. Please try again later."
-        logger.error(f"Search failed: {e}")
-        import traceback
-        logger.debug(traceback.format_exc())
-        return [], error_detail
+    from homestew.config import settings  # noqa: PLC0415 (settings singleton cycle)
+    from homestew.services.manual_finder import find_manual_links
+
+    if max_results is None:
+        max_results = settings.MANUAL_MAX_RESULTS
+    logger.info(f"Searching for manuals: {brand} {model}")
+
+    candidates, error = find_manual_links(brand, model, max_results=max_results)
+    results = [{"title": c.title, "url": c.url, "source": c.engine or "web"} for c in candidates]
+
+    if not results and error:
+        # One retry: ddgs rotates engines per call, so a single blocked or
+        # rate-limited engine may succeed on the second pass. (The old
+        # lru_cache also cached *errors*, which turned one transient failure
+        # into a sticky one until the process restarted.)
+        logger.info("Retrying search once after error: %s", error)
+        time.sleep(1)
+        candidates, error = find_manual_links(brand, model, max_results=max_results)
+        results = [{"title": c.title, "url": c.url, "source": c.engine or "web"} for c in candidates]
+
+    logger.info(f"Found {len(results)} potential manuals")
+    if not results:
+        return [], error or "No manuals found. Try a different brand/model or search terms."
+    return results, None
 
 
-def _direct_duckduckgo_search(
-    query: str,
-    max_results: int,
-    prior_errors: Optional[List[str]] = None,
-) -> tuple[List[dict], Optional[str]]:
+def download_pdf_detail(
+    url: str,
+    save_path: Path,
+    timeout: Optional[int] = None,
+    max_mb: Optional[int] = None,
+) -> tuple[bool, Optional[str]]:
+    """Download a PDF file from URL with content validation and size cap.
+
+    Returns (ok, reason). The reason is human-readable and surfaced in the UI
+    on failure ("not a PDF", "too large", network errors), instead of the old
+    bare False that left users guessing. The file is streamed to a .part
+    sibling and only renamed once it is proven to be a real PDF, so a failed
+    download never leaves a corrupt manual behind.
     """
-    Direct DuckDuckGo search using HTTP requests with proper headers.
-    
-    This is the most reliable fallback when the library fails. If this also
-    fails, ``prior_errors`` (errors from earlier strategies) are included so
-    the caller can surface the real reason for failure.
-    """
-    import urllib.parse
-    
-    prior_errors = [e for e in (prior_errors or []) if e]
-    
-    def _failure_message(detail: str) -> str:
-        # Prefer the earliest upstream error (usually the most informative,
-        # e.g. a DuckDuckGo rate-limit) but always mention this fallback too.
-        parts = []
-        if prior_errors:
-            parts.append(prior_errors[0])
-        parts.append(f"Direct search failed: {detail}")
-        return " ".join(parts)
-    
-    encoded_query = urllib.parse.quote(query)
-    url = f"https://duckduckgo.com/html/?q={encoded_query}"
-    
-    # Mimic a real browser to avoid blocking
+    from homestew.config import settings  # noqa: PLC0415
+
+    if timeout is None:
+        timeout = settings.MANUAL_DOWNLOAD_TIMEOUT
+    if max_mb is None:
+        max_mb = settings.MANUAL_MAX_PDF_MB
+    max_bytes = max(1, int(max_mb)) * 1024 * 1024
+
+    logger.info(f"Downloading PDF from {url}")
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Connection": "keep-alive",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
     }
-    
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        
-        # Simple HTML parsing for PDF links
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        results = []
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            # Skip internal DuckDuckGo links
-            if href.startswith('/') or href.startswith('#'):
-                continue
-                
-            title = link.get_text(strip=True)
-            
-            # Look for PDF links or pages mentioning PDF
-            if '.pdf' in href.lower() or 'pdf' in title.lower():
-                results.append({
-                    'title': title[:100],
-                    'url': href,
-                    'source': 'duckduckgo-direct'
-                })
-                
-                if len(results) >= max_results:
-                    break
-        
-        # Add delay to be respectful
-        time.sleep(2)
-        
-        logger.info(f"Direct search found {len(results)} results")
-        if results:
-            return results, None
-        # No PDFs found directly; report the earlier backend errors if any.
-        if prior_errors:
-            return [], prior_errors[0]
-        return [], "No manuals found. Try a different brand/model or search terms."
-        
-    except Exception as e:
-        logger.error(f"Direct search failed: {e}")
-        return [], _failure_message(str(e))
 
+    tmp_path = save_path.with_suffix(save_path.suffix + ".part")
 
-def download_pdf(url: str, save_path: Path, timeout: int = 30) -> bool:
-    """
-    Download a PDF file from URL.
-    
-    Args:
-        url: PDF download URL
-        save_path: Local path to save the PDF
-        timeout: Request timeout in seconds
-        
-    Returns:
-        True if download successful, False otherwise
-    """
+    def _cleanup() -> None:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
     try:
-        logger.info(f"Downloading PDF from {url}")
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        response = requests.get(url, headers=headers, stream=True, timeout=timeout)
-        response.raise_for_status()
-        
-        # Check if it's actually a PDF
-        content_type = response.headers.get('content-type', '')
-        if 'pdf' not in content_type.lower():
-            # Try to check file extension
-            if not url.lower().endswith('.pdf'):
-                logger.warning(f"Content may not be a PDF: {url}")
-        
-        # Save with streaming for large files
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(save_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
+        with requests.get(url, headers=headers, stream=True, timeout=timeout) as response:
+            response.raise_for_status()
+
+            # Cheap pre-checks before touching the disk. Some servers label
+            # PDFs text/html or octet-stream, so a mismatch only demotes us to
+            # the magic-byte check below - it is not an outright rejection.
+            content_type = response.headers.get("content-type", "").lower()
+
+            declared = response.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > max_bytes:
+                return False, f"file is too large ({int(declared) // (1024 * 1024)} MB, cap {max_mb} MB)"
+
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            written = 0
+            with open(tmp_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise _TooLarge(max_mb)
                     f.write(chunk)
-        
-        file_size = save_path.stat().st_size
-        logger.info(f"Downloaded {file_size} bytes to {save_path}")
-        
-        # Validate it's a valid PDF
-        with open(save_path, 'rb') as f:
-            header = f.read(8)
-            if not header.startswith(b'%PDF'):
-                logger.warning(f"File may not be a valid PDF: {save_path}")
-                return False
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Download failed for {url}: {e}")
-        # Clean up partial file
-        if save_path.exists():
-            save_path.unlink()
-        return False
+
+        if written < 1024:
+            _cleanup()
+            return False, "file is empty or too small to be a manual"
+
+        # Authoritative check: real PDFs start with %PDF. This catches HTML
+        # error/login pages served under a .pdf URL just as well as a wrong
+        # Content-Type header. (Windows cannot unlink an open file, so the
+        # cleanup must happen after the read handle is closed.)
+        with open(tmp_path, "rb") as f:
+            is_pdf = f.read(8).startswith(b"%PDF")
+        if not is_pdf:
+            _cleanup()
+            detail = f" (content-type: {content_type})" if content_type else ""
+            return False, f"not a valid PDF{detail} - the link may point to a web page"
+
+        tmp_path.replace(save_path)
+        logger.info(f"Downloaded {written} bytes to {save_path}")
+        return True, None
+
+    except _TooLarge as exc:
+        _cleanup()
+        return False, f"file exceeds the size cap ({exc.max_mb} MB)"
+    except requests.exceptions.Timeout:
+        _cleanup()
+        return False, "download timed out"
+    except requests.exceptions.RequestException as exc:
+        _cleanup()
+        logger.error(f"Download failed for {url}: {exc}")
+        return False, f"network error: {exc.__class__.__name__}"
+    except OSError as exc:
+        _cleanup()
+        logger.error(f"Failed writing {save_path}: {exc}")
+        return False, "could not write the file to disk"
+
+
+def download_pdf(url: str, save_path: Path, timeout: Optional[int] = None) -> bool:
+    """Download a PDF from URL. True on success (reason via download_pdf_detail)."""
+    ok, _ = download_pdf_detail(url, save_path, timeout=timeout)
+    return ok
 
 
 def download_manuals_for_device(
-    brand: str, 
-    model: str, 
+    brand: str,
+    model: str,
     device_dir: Path,
-    max_downloads: int = 5,
-    progress_callback: Optional[Callable[[str], None]] = None
-) -> tuple[int, List[str], str | None]:
-    """
-    Download manuals for a specific device.
-    
+    max_downloads: Optional[int] = None,
+    progress_callback: Optional[Callable[[dict], None]] = None,
+) -> tuple[int, List[str], Optional[str]]:
+    """Search and download manuals for a specific device.
+
     Args:
         brand: Device brand
         model: Device model
         device_dir: Directory to save PDFs
-        max_downloads: Maximum number of PDFs to download
-        progress_callback: Optional callback function that receives progress messages
-        
-    Returns:
-        Tuple of (downloaded_count, list_of_filenames, error_message or None)
+        max_downloads: Maximum number of PDFs to download (settings default)
+        progress_callback: Receives ``{"type": "step", "message", "status"}`` dicts
 
-    ``progress_callback`` (when provided) receives a dict describing each step,
-    e.g. ``{"type": "step", "message": ..., "status": ...}``. Keeping the payload
-    structured lets the streaming endpoint forward real progress to the UI and
-    avoids emitting raw strings that the browser silently drops.
+    Returns:
+        Tuple of (downloaded_count, list_of_filenames, error_message or None).
+        The error message distinguishes the failure modes - search backend
+        broken vs nothing found vs links that would not download - so the UI
+        never shows a generic "not found" for an environment problem.
+
+    ``progress_callback`` payloads stay dicts on purpose: the SSE endpoint in
+    api/downloads.py normalizes them into frames, and raw pre-formatted SSE
+    strings (as an older helper emitted) would be double-wrapped.
     """
+    from homestew.config import settings  # noqa: PLC0415
+
+    if max_downloads is None:
+        max_downloads = settings.MANUAL_MAX_DOWNLOADS
+
     def _emit(message: str, status: str) -> None:
         if progress_callback:
             try:
@@ -330,161 +218,50 @@ def download_manuals_for_device(
                 logger.debug(f"progress_callback failed: {exc}")
 
     device_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Search for manuals (returns tuple of results, error)
-    _emit(f"Searching DuckDuckGo for: {brand} {model} manual pdf", "searching")
-    
-    results, search_error = search_for_manuals(brand, model, max_results=15)
-    
+
+    _emit(f"Searching web engines for: {brand} {model} manual filetype:pdf", "searching")
+
+    results, search_error = search_for_manuals(brand, model)
+
     if not results:
         error_detail = search_error or f"No manuals found for {brand} {model}"
         logger.info(f"No manuals found for {brand} {model}: {error_detail}")
         return 0, [], error_detail
-    
+
     _emit(f"Found {len(results)} potential manual(s)", "found")
-    
-    downloaded = []
-    failed = []
-    
-    # Download up to max_downloads PDFs
+
+    downloaded: List[str] = []
+    failures: List[tuple[str, str]] = []
+
     candidates = results[:max_downloads]
     for i, result in enumerate(candidates):
-        filename = f"{brand}_{model}_manual_{i+1}.pdf"
+        filename = f"{brand}_{model}_manual_{i + 1}.pdf"
         save_path = device_dir / filename
-        
+
         _emit(f"Downloading: {result.get('title', 'Unknown')} ({i + 1}/{len(candidates)})", "downloading")
-        
-        if download_pdf(result['url'], save_path):
+
+        ok, reason = download_pdf_detail(result["url"], save_path)
+        if ok:
             downloaded.append(filename)
             _emit(f"Downloaded: {filename}", "success")
         else:
-            failed.append(filename)
-            _emit(f"Failed to download: {result.get('title', filename)}", "error")
-    
-    logger.info(f"Downloaded {len(downloaded)} manuals, failed {len(failed)}")
+            failures.append((result.get("title", filename), reason or "unknown error"))
+            _emit(f"Failed to download: {result.get('title', filename)} ({reason})", "error")
+
+    logger.info(f"Downloaded {len(downloaded)} manuals, failed {len(failures)}")
 
     # If nothing was downloaded but the search itself succeeded, explain why so
     # the UI can show a real reason instead of a generic "no manuals found".
     error_detail = None
     if not downloaded:
-        if failed:
+        if failures:
+            first_reason = failures[0][1]
             error_detail = (
-                f"Found {len(candidates)} manual(s) but none could be downloaded. "
-                "The links may be broken or blocked - try again or use different search terms."
+                f"Found {len(candidates)} manual link(s) but none could be downloaded "
+                f"(first failure: {first_reason}). The links may be broken or blocked - "
+                "try again or use different search terms."
             )
         else:
             error_detail = "No downloadable manuals were found for this brand/model."
 
     return len(downloaded), downloaded, error_detail
-
-
-
-async def download_manuals_for_device_with_progress(
-    brand: str, 
-    model: str, 
-    device_dir: Path,
-    max_downloads: int = 5
-) -> tuple[int, List[str], str | None]:
-    """
-    Async version of download with progress updates.
-    This wraps the sync version and adds async support for streaming.
-    
-    Args:
-        brand: Device brand
-        model: Device model
-        device_dir: Directory to save PDFs
-        max_downloads: Maximum number of PDFs to download
-        
-    Returns:
-        Tuple of (downloaded_count, list_of_filenames, error_message or None)
-    """
-    # Run in executor to avoid blocking
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        None,
-        lambda: download_manuals_for_device(brand, model, device_dir, max_downloads)
-    )
-    return result
-
-
-async def download_manuals_for_device_with_callbacks(
-    brand: str, 
-    model: str, 
-    device_dir: Path,
-    max_downloads: int = 5,
-    progress_callback: Optional[Callable[[str], None]] = None
-) -> tuple[int, List[str], str | None]:
-    """
-    Download manuals with progress callbacks for streaming.
-    
-    Args:
-        brand: Device brand
-        model: Device model
-        device_dir: Directory to save PDFs
-        max_downloads: Maximum number of PDFs to download
-        progress_callback: Callback function that receives progress messages
-        
-    Returns:
-        Tuple of (downloaded_count, list_of_filenames, error_message or None)
-    """
-    device_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Send search start message
-    if progress_callback:
-        try:
-            progress_callback('data: {"type": "step", "message": "Searching for ' + brand + ' ' + model + ' manuals on DuckDuckGo...", "status": "searching"}\n\n')
-        except:
-            pass
-    
-    # Search for manuals
-    results, search_error = search_for_manuals(brand, model, max_results=15)
-    
-    if not results:
-        error_detail = search_error or f"No manuals found for {brand} {model}"
-        logger.info(f"No manuals found for {brand} {model}")
-        if progress_callback:
-            try:
-                progress_callback('data: {"type": "step", "message": "No manuals found: ' + error_detail + '", "status": "error"}\n\n')
-            except:
-                pass
-        return 0, [], error_detail
-    
-    # Send found message
-    if progress_callback:
-        try:
-            progress_callback('data: {"type": "step", "message": "Found ' + str(len(results)) + ' potential manuals", "status": "found"}\n\n')
-        except:
-            pass
-    
-    downloaded = []
-    failed = []
-    
-    # Download up to max_downloads PDFs
-    for i, result in enumerate(results[:max_downloads]):
-        filename = f"{brand}_{model}_manual_{i+1}.pdf"
-        save_path = device_dir / filename
-        
-        title = result.get('title', 'Unknown')
-        if progress_callback:
-            try:
-                progress_callback('data: {"type": "step", "message": "Downloading: ' + title + ' (' + str(i+1) + '/' + str(len(results[:max_downloads])) + ')", "status": "downloading"}\n\n')
-            except:
-                pass
-        
-        if download_pdf(result['url'], save_path):
-            downloaded.append(filename)
-            if progress_callback:
-                try:
-                    progress_callback('data: {"type": "step", "message": "Downloaded: ' + filename + '", "status": "success"}\n\n')
-                except:
-                    pass
-        else:
-            failed.append(filename)
-            if progress_callback:
-                try:
-                    progress_callback('data: {"type": "step", "message": "Failed to download: ' + filename + '", "status": "error"}\n\n')
-                except:
-                    pass
-    
-    logger.info(f"Downloaded {len(downloaded)} manuals, failed {len(failed)}")
-    return len(downloaded), downloaded

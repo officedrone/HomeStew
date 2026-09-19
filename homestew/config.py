@@ -120,6 +120,23 @@ class Settings(BaseSettings):
     # yet, and steps whose condition still applies are offered again.
     SETUP_STEPS: dict = {}
     
+    # Manual fetching (services/manual_finder.py + manual_downloader.py).
+    # Env-only knobs (not UI-editable): MANUAL_SEARCH_BACKENDS is a comma-list
+    # of ddgs engines ("auto" when empty - the library picks and rotates, so a
+    # single blocked engine no longer fails the search); MANUAL_SEARCH_REGION
+    # e.g. "us-en"/"de-de" (library default when empty); caps for results,
+    # downloads and per-file size (the container is memory-limited).
+    MANUAL_SEARCH_BACKENDS: str = ""
+    MANUAL_SEARCH_REGION: str = ""
+    MANUAL_MAX_RESULTS: int = 15
+    MANUAL_MAX_DOWNLOADS: int = 5
+    MANUAL_SEARCH_TIMEOUT: int = 10
+    MANUAL_DOWNLOAD_TIMEOUT: int = 30
+    MANUAL_MAX_PDF_MB: int = 25
+    # Optional http/socks5 proxy for search + PDF downloads, e.g.
+    # "http://user:pass@example.com:3128" or the ddgs alias "tb" (Tor).
+    MANUAL_PROXY: str = ""
+
     # Data directories
     DATA_DIR: Path = Path("/data")
     DEVICES_DIR: Optional[Path] = None

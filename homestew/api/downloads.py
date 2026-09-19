@@ -11,7 +11,6 @@ import asyncio
 from homestew.config import settings
 from homestew.db import get_db_context
 from homestew.models.schemas import DownloadStatus, Manual, DownloadTriggerRequest
-from homestew.services.manual_downloader import download_manuals_for_device_with_progress
 from homestew.services.indexer import index_manual
 
 logger = logging.getLogger(__name__)
@@ -26,9 +25,12 @@ async def _register_and_index_manuals(
 ) -> int:
     """Insert downloaded PDFs into the manuals table and index them for search.
 
-    Returns the number of successfully indexed manuals.
+    Returns the number of successfully indexed manuals. The inserts are
+    committed (and their connection closed) BEFORE indexing: index_manual
+    opens its own connection, and SQLite rejects a second writer while this
+    transaction is still open ("database is locked").
     """
-    indexed_count = 0
+    registered = []
     async with get_db_context() as db:
         for filename in filenames:
             filepath = str(device_dir / filename)
@@ -42,19 +44,21 @@ async def _register_and_index_manuals(
                 (device_id, filename, filepath)
             )
             row = await cursor.fetchone()
-            manual_id = row['id'] if row else None
-
-            if manual_id:
-                success = await index_manual(
-                    manual_id=manual_id,
-                    device_id=device_id,
-                    pdf_path=filepath,
-                    filename=filename
-                )
-                if success:
-                    indexed_count += 1
+            if row:
+                registered.append((row['id'], filepath, filename))
 
         await db.commit()
+
+    indexed_count = 0
+    for manual_id, filepath, filename in registered:
+        success = await index_manual(
+            manual_id=manual_id,
+            device_id=device_id,
+            pdf_path=filepath,
+            filename=filename
+        )
+        if success:
+            indexed_count += 1
 
     return indexed_count
 
@@ -85,7 +89,7 @@ async def trigger_manual_download(request: DownloadTriggerRequest):
         brand=device['brand'],
         model=device['model'],
         device_dir=device_dir,
-        max_downloads=5
+        max_downloads=settings.MANUAL_MAX_DOWNLOADS
     )
     
     if downloaded_count == 0:
@@ -98,8 +102,9 @@ async def trigger_manual_download(request: DownloadTriggerRequest):
             error_detail=error_detail
         )
     
-    # Index downloaded PDFs
-    indexed_count = 0
+    # Register the downloaded PDFs, committing before indexing (index_manual
+    # writes on its own connection; see _register_and_index_manuals).
+    registered = []
     async with get_db_context() as db:
         for filename in filenames:
             filepath = str(device_dir / filename)
@@ -114,21 +119,20 @@ async def trigger_manual_download(request: DownloadTriggerRequest):
                 (request.device_id, filename, filepath)
             )
             row = await cursor.fetchone()
-            manual_id = row['id'] if row else None
-            
-            if manual_id:
-                # Index the PDF
-                success = await index_manual(
-                    manual_id=manual_id,
-                    device_id=request.device_id,
-                    pdf_path=filepath,
-                    filename=filename
-                )
-                
-                if success:
-                    indexed_count += 1
+            if row:
+                registered.append((row['id'], filepath, filename))
         
         await db.commit()
+    
+    indexed_count = 0
+    for manual_id, filepath, filename in registered:
+        if await index_manual(
+            manual_id=manual_id,
+            device_id=request.device_id,
+            pdf_path=filepath,
+            filename=filename
+        ):
+            indexed_count += 1
     
     return DownloadStatus(
         success=True,
@@ -193,7 +197,7 @@ async def stream_download_progress(device_id: int):
                     brand=device['brand'],
                     model=device['model'],
                     device_dir=device_dir,
-                    max_downloads=5,
+                    max_downloads=settings.MANUAL_MAX_DOWNLOADS,
                     progress_callback=progress_callback
                 )
 

@@ -70,8 +70,8 @@ Click "Add New Device" in the sidebar:
 
 Click "Download Manuals" on any device:
 
-- HomeStew searches DuckDuckGo for PDF manuals
-- Downloads up to 5 relevant PDFs
+- HomeStew searches several web engines (Bing, Brave, DuckDuckGo, Mojeek...) for PDF manuals
+- Downloads up to 5 relevant PDFs (validated: real `%PDF` files only, size-capped)
 - Automatically indexes all text content
 
 ### 3. Search Manuals
@@ -209,7 +209,9 @@ HomeStew/
 │   │   └── chat.py            # Chat with LLM
 │   ├── services/              # Business logic
 │   │   ├── pdf_extractor.py   # PDF text extraction (pypdf)
-│   │   ├── manual_downloader.py  # DuckDuckGo scraper
+│   │   ├── web_search.py         # ddgs wrapper (engine-agnostic web search)
+│   │   ├── manual_finder.py      # query building + PDF candidate ranking
+│   │   ├── manual_downloader.py  # PDF download + validation
 │   │   ├── indexer.py         # SQLite FTS5 indexing
 │   │   ├── search_engine.py   # Full-text search
 │   │   └── llm_client.py      # OpenAI-compatible client
@@ -235,7 +237,7 @@ HomeStew/
 - **Backend**: FastAPI (Python 3.12)
 - **Database**: SQLite with FTS5 (full-text search, zero deps)
 - **PDF Processing**: pypdf (pure Python, ~200KB)
-- **Web Scraping**: duckduckgo-search + requests
+- **Web Search**: ddgs (metasearch over bing/brave/duckduckgo/...) + requests
 - **LLM Integration**: openai library (works with any OpenAI-compatible API)
 - **Frontend**: HTMX + vanilla JavaScript (no build process)
 - **Deployment**: Docker multi-stage build (~60MB image)
@@ -309,7 +311,17 @@ pytest tests/
 ### Manuals not downloading?
 
 - Check internet connectivity from container
-- Verify DuckDuckGo search works: `docker exec homestew python -c "from duckduckgo_search import DDGS; print(list(DDGS().files('test pdf', max_results=3)))"`
+- Verify web search works: `docker exec homestew python -c "from ddgs import DDGS; print(DDGS().text('nespresso manual filetype:pdf', max_results=3))"`
+- **`Invalid impersonate: "..."` in the log?** That is a dependency mismatch inside the
+  image (the search library and its HTTP client `primp` disagree on browser profiles),
+  not a network problem. Rebuild with fresh layers:
+  `docker-compose build --no-cache && docker-compose up -d`
+- Tunables are env vars (see `homestew/config.py`): `MANUAL_SEARCH_BACKENDS`
+  (comma-list of engines, empty = auto), `MANUAL_SEARCH_REGION`, `MANUAL_MAX_DOWNLOADS`,
+  `MANUAL_MAX_PDF_MB`, `MANUAL_PROXY`
+- Dependencies in `requirements.txt` are range-pinned on purpose: an unpinned
+  transitive bump silently broke manual fetching once (primp 2.x dropping browser
+  profiles the old search library hardcoded). Keep upper bounds when updating.
 
 ### LLM not responding?
 
@@ -327,7 +339,7 @@ pytest tests/
 
 Potential additions if needed:
 
-- Manual PDF upload (if auto-download fails)
+- More notification channels (email, MQTT)
 - Support for ZIP archives with multiple manuals
 - Scheduled re-indexing
 - Export/import device configurations

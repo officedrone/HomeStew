@@ -113,7 +113,8 @@ docker-compose build --no-cache --verbose
 
 - Check internet connectivity from container
 - Try different brand/model names
-- Manually verify DuckDuckGo search works for your device
+- Verify web search works: `docker exec homestew python -c "from ddgs import DDGS; print(DDGS().text('nespresso manual filetype:pdf', max_results=3))"`
+- If the log shows `Invalid impersonate`, rebuild the image (`docker-compose build --no-cache`) - it is a dependency mismatch, not your network
 
 ## 📊 View Logs & Monitor
 
@@ -136,7 +137,7 @@ docker-compose down -v
 - **Data persistence**: All PDFs and database are in `./data/` folder
 - **Backup**: Just copy the `data/` directory
 - **Multiple devices**: Add as many devices as you want
-- **Manual uploads**: (Future feature) - for now, rely on auto-download
+- **Manual uploads**: use the "Upload" button on a device to add your own PDFs
 
 ## 🎯 Next Steps
 
