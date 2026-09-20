@@ -314,6 +314,13 @@ function setupEventListeners() {
     // Escape closes any open modal, or the mobile drawer when none is open.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
+        // The fetch dialog needs its close function (releases the op lock),
+        // so it is handled before the generic display:none loop below.
+        const fetchModal = document.getElementById('fetch-manuals-modal');
+        if (fetchModal.style.display === 'flex') {
+            closeFetchManualsModal();
+            return;
+        }
         // The setup wizard is intentionally absent: skipping/saving a step
         // must persist its resolution, so it can't be dismissed with Escape.
         for (const id of ['add-device-modal', 'edit-device-modal', 'event-modal']) {
@@ -464,7 +471,8 @@ function onDeviceBodyClick(event, deviceId) {
 const CARD_ACTION_ICONS = {
     edit: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>',
     trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>',
-    check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>'
+    check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>',
+    download: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>'
 };
 
 // Devices tab: card grid with the full device details and actions.
@@ -1178,142 +1186,278 @@ function closeEditModal() {
     document.getElementById('edit-device-modal').style.display = 'none';
 }
 
-async function downloadManuals(deviceId) {
-    // One download per device at a time: a double-click must not open two
-    // SSE streams / progress modals for the same device.
-    if (!beginOp(`download-manuals-${deviceId}`)) return;
+// ---------------------------------------------------------------------------
+// Fetch Manuals: search first, download only what the user approves.
+// The dialog lists every PDF found as a Manual | Source | Store Manual table.
+// Nothing downloads automatically; rows whose URL is already stored are
+// highlighted and skipped by "Download All". Re-fetching a stored manual
+// requires an explicit replace confirmation (server also refuses with 409).
+// ---------------------------------------------------------------------------
 
-    // Show progress modal
-    const modal = document.getElementById('download-progress-modal');
-    const stepsContainer = document.getElementById('download-progress-steps');
-    const statusBox = document.getElementById('download-progress-status');
-    const spinner = document.getElementById('download-spinner');
-    const statusText = document.getElementById('download-current-step');
-    const closeBtn = document.getElementById('close-download-modal');
+let fetchManualsDeviceId = null;
+let fetchCandidates = [];
+
+async function openFetchManuals(deviceId) {
+    // One fetch dialog at a time: a double-click must not start two searches.
+    if (!beginOp('fetch-manuals')) return;
+    fetchManualsDeviceId = deviceId;
+    fetchCandidates = [];
+
+    const modal = document.getElementById('fetch-manuals-modal');
+    const statusBox = document.getElementById('fetch-manuals-status');
+    const spinner = document.getElementById('fetch-manuals-spinner');
+    const message = document.getElementById('fetch-manuals-message');
+    const results = document.getElementById('fetch-manuals-results');
+    const downloadAllBtn = document.getElementById('download-all-btn');
 
     modal.style.display = 'flex';
-    stepsContainer.innerHTML = '';
-    closeBtn.style.display = 'none';
-    // Reset the status row to its "in progress" look (spinner visible, neutral).
     statusBox.classList.remove('done-success', 'done-error');
-    if (spinner) spinner.style.display = '';
-    statusText.textContent = 'Initializing...';
-
-    // Guard so a terminal event is only handled once and late messages are ignored.
-    let finished = false;
-
-    // Stop the spinner and turn the status row into a clear success/error state.
-    function finishDownload({ ok, headline, detail }) {
-        endOp(`download-manuals-${deviceId}`);
-        if (spinner) spinner.style.display = 'none';
-        statusBox.classList.add(ok ? 'done-success' : 'done-error');
-        statusText.textContent = headline;
-        closeBtn.style.display = 'inline-block';
-        // Reuse the same expandable-detail toast as the device-added popup so the
-        // real reason (e.g. a DuckDuckGo rate-limit) is visible here too.
-        showToast(headline, ok ? 'success' : 'error', detail || null);
-    }
+    spinner.style.display = '';
+    const device = devices.find(d => d.id === deviceId);
+    const label = device ? `"${device.brand} ${device.model}"` : 'this device';
+    message.textContent = `Searching the web for ${label} manuals...`;
+    results.innerHTML = '';
+    results.hidden = true;
+    downloadAllBtn.style.display = 'none';
 
     try {
-        // Use EventSource for Server-Sent Events streaming
-        const eventSource = new EventSource(`/api/downloads/stream/${deviceId}`);
-
-        eventSource.onmessage = async function(event) {
-            let data;
-            try {
-                data = JSON.parse(event.data);
-            } catch (e) {
-                console.error('Failed to parse progress message:', event.data, e);
-                return;
-            }
-
-            switch(data.type) {
-                case 'step':
-                    // Intermediate progress only - ignore once finished.
-                    if (finished) break;
-                    addProgressStep(stepsContainer, data.message, data.status || 'searching');
-                    statusText.textContent = data.message;
-                    break;
-
-                case 'complete':
-                    if (finished) break;
-                    finished = true;
-                    eventSource.close();
-                    if (data.success) {
-                        const count = data.downloaded_count ?? 0;
-                        addProgressStep(stepsContainer, `Successfully fetched ${count} manual(s)`, 'success');
-                        finishDownload({ ok: true, headline: `Fetch complete! ${count} manual(s) fetched` });
-                        // Refresh device counts and the modal's manual list if it is open.
-                        await loadDevices();
-                        const editModal = document.getElementById('edit-device-modal');
-                        if (editModal.style.display === 'flex' &&
-                            parseInt(document.getElementById('edit-device-id').value) === deviceId) {
-                            await loadManuals(deviceId);
-                        }
-                    } else {
-                        // Backend sends a single terminal event with the real reason.
-                        const reason = data.error_detail || 'No manuals were fetched.';
-                        addProgressStep(stepsContainer, reason, 'error');
-                        finishDownload({ ok: false, headline: `Fetch failed: ${reason}`, detail: reason });
-                    }
-                    break;
-
-                case 'error':
-                    if (finished) break;
-                    finished = true;
-                    eventSource.close();
-                    const message = data.message || 'An unexpected error occurred.';
-                    addProgressStep(stepsContainer, message, 'error');
-                    finishDownload({ ok: false, headline: `Error: ${message}`, detail: message });
-                    break;
-            }
-        };
-
-        eventSource.onerror = function(error) {
-            if (finished) return;
-            finished = true;
-            console.error('EventSource failed:', error);
-            eventSource.close();
-            const reason = 'Connection to the server was lost while downloading.';
-            addProgressStep(stepsContainer, reason, 'error');
-            finishDownload({ ok: false, headline: `Connection error: ${reason}`, detail: reason });
-        };
-
+        const response = await fetch(`/api/downloads/${deviceId}/search`);
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Manual search failed.'));
+        const data = await response.json();
+        fetchCandidates = data.candidates || [];
+        renderFetchResults(data.error_detail);
     } catch (error) {
-        if (finished) return;
-        finished = true;
-        console.error('Failed to start download:', error);
-        const reason = error.message || 'Could not start the download.';
-        addProgressStep(stepsContainer, `Failed to start: ${reason}`, 'error');
-        finishDownload({ ok: false, headline: `Error: ${reason}`, detail: reason });
+        console.error('Failed to search manuals:', error);
+        spinner.style.display = 'none';
+        statusBox.classList.add('done-error');
+        message.textContent = error.message || 'Manual search failed.';
     }
 }
 
-function addProgressStep(container, message, type = 'searching') {
-    const step = document.createElement('div');
-    step.className = `progress-step ${type}`;
-    
-    let icon = '⟳';
-    if (type === 'searching') icon = '⌕';
-    else if (type === 'found') icon = '✓';
-    else if (type === 'downloading') icon = '↓';
-    else if (type === 'success') icon = '★';
-    else if (type === 'error') icon = '✗';
-    
-    step.innerHTML = `
-        <div class="step-icon">${icon}</div>
-        <div class="step-content">
-            <div class="step-title">${escapeHtml(message)}</div>
-        </div>
-    `;
-    
-    container.appendChild(step);
-    container.scrollTop = container.scrollHeight;
+// Pull FastAPI's {detail} body into a readable string; detail may be a plain
+// string or, for the 409 replace flow, an object with reason/filename.
+async function errorDetailFrom(response, fallback) {
+    try {
+        const err = await response.json();
+        if (typeof err.detail === 'string') return err.detail;
+        if (err.detail && err.detail.message) return err.detail.message;
+        if (err.detail) return JSON.stringify(err.detail);
+    } catch (e) { /* non-JSON error body */ }
+    return fallback;
 }
 
-function closeDownloadModal() {
-    document.getElementById('download-progress-modal').style.display = 'none';
+function renderFetchResults(errorDetail) {
+    const statusBox = document.getElementById('fetch-manuals-status');
+    const spinner = document.getElementById('fetch-manuals-spinner');
+    const message = document.getElementById('fetch-manuals-message');
+    const results = document.getElementById('fetch-manuals-results');
+    const downloadAllBtn = document.getElementById('download-all-btn');
+
+    spinner.style.display = 'none';
+
+    if (fetchCandidates.length === 0) {
+        statusBox.classList.add('done-error');
+        message.textContent = errorDetail || 'No manuals found for this device.';
+        results.hidden = true;
+        downloadAllBtn.style.display = 'none';
+        return;
+    }
+
+    const freshCount = fetchCandidates.filter(c => !c.already_downloaded).length;
+    message.textContent = freshCount === 0
+        ? `Found ${fetchCandidates.length} manual(s) - all are already stored.`
+        : `Found ${fetchCandidates.length} manual(s). Approve each download below, or use Download All (${freshCount} new).`;
+
+    results.innerHTML = `
+        <table class="fetch-table">
+            <thead>
+                <tr><th>Manual</th><th>Source</th><th>Store Manual</th></tr>
+            </thead>
+            <tbody>
+                ${fetchCandidates.map((c, i) => fetchRowHtml(c, i)).join('')}
+            </tbody>
+        </table>`;
+    results.hidden = false;
+
+    // Download All only makes sense while something new is left to fetch.
+    downloadAllBtn.style.display = freshCount > 0 ? 'inline-block' : 'none';
 }
+
+function fetchRowHtml(candidate, index) {
+    // The name doubles as a preview link so the user can open the PDF in a
+    // new tab and check it is the right manual BEFORE approving the download.
+    const href = safePreviewHref(candidate.url);
+    const nameCell = href
+        ? `<a class="fetch-manual-name fetch-preview-link" href="${href}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(candidate.title || candidate.url)} in a new tab">${escapeHtml(candidate.name)}</a>`
+        : `<span class="fetch-manual-name" title="${escapeHtml(candidate.title || candidate.url)}">${escapeHtml(candidate.name)}</span>`;
+    // Stored rows stay downloadable on purpose (replace), but only after an
+    // explicit confirm - hence the different tooltip.
+    const actionTitle = candidate.already_downloaded
+        ? 'Replace the stored manual with a fresh copy'
+        : 'Download and store this manual';
+    return `
+        <tr id="fetch-row-${index}" class="${candidate.already_downloaded ? 'existing' : ''}">
+            <td>${nameCell}</td>
+            <td class="fetch-source">${escapeHtml(candidate.domain)}</td>
+            <td class="fetch-action">
+                ${candidate.already_downloaded ? '<span class="stored-chip">Stored</span>' : ''}
+                <button type="button" class="card-icon-btn" title="${actionTitle}" aria-label="${actionTitle}" data-dedupe
+                        onclick="storeManual(${index}, this)">${CARD_ACTION_ICONS.download}</button>
+            </td>
+        </tr>`;
+}
+
+// Per-row Store button. Never overwrites silently: an already-stored manual
+// asks for confirmation first, then sends replace=true to the server.
+async function storeManual(index, btn) {
+    const candidate = fetchCandidates[index];
+    if (!candidate || candidate._done) return;
+
+    let replace = false;
+    if (candidate.already_downloaded) {
+        replace = confirm(`"${candidate.name}" is already downloaded. Replace the existing manual?`);
+        if (!replace) return;
+    }
+
+    const ok = await _storeOne(index, btn, replace, fetchManualsDeviceId);
+    if (ok) {
+        showToast(`Stored "${fetchCandidates[index].name}"`, 'success');
+        await refreshAfterManualStored();
+    }
+}
+
+// Download one approved candidate and flip its row to the stored state.
+// Shared by the per-row button and Download All; returns true on success.
+// A 409 means the URL got stored meanwhile (e.g. another tab): ask to replace.
+async function _storeOne(index, btn, replace, deviceId) {
+    const candidate = fetchCandidates[index];
+    if (!candidate || candidate._done) return false;
+
+    const originalIcon = btn ? btn.innerHTML : null;
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-spinner"></span>'; }
+
+    const body = JSON.stringify({ device_id: deviceId, url: candidate.url, title: candidate.title || null, replace });
+    try {
+        let response = await fetch('/api/downloads/store', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body
+        });
+
+        if (response.status === 409 && !replace) {
+            const detail = await response.json().catch(() => null);
+            const filename = (detail && detail.detail && detail.detail.filename) || candidate.name;
+            if (!confirm(`"${filename}" is already downloaded. Replace the existing manual?`)) {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalIcon; }
+                return false;
+            }
+            response = await fetch('/api/downloads/store', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device_id: deviceId, url: candidate.url, title: candidate.title || null, replace: true })
+            });
+        }
+
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Download failed.'));
+
+        await response.json();
+        candidate._done = true;
+        candidate.already_downloaded = true;
+        _markRowStored(index);
+        return true;
+    } catch (error) {
+        console.error('Failed to store manual:', error);
+        _markRowError(index, btn, originalIcon, error.message || 'Download failed.');
+        showToast(error.message || 'Download failed.', 'error');
+        return false;
+    }
+}
+
+function _markRowStored(index) {
+    const row = document.getElementById(`fetch-row-${index}`);
+    if (!row) return; // dialog was closed / re-opened for another device
+    row.classList.add('existing');
+    row.classList.remove('failed');
+    const actionCell = row.querySelector('.fetch-action');
+    if (actionCell) actionCell.innerHTML = '<span class="stored-chip">Stored</span>';
+}
+
+function _markRowError(index, btn, originalIcon, reason) {
+    const row = document.getElementById(`fetch-row-${index}`);
+    if (row) row.classList.add('failed');
+    if (btn && document.contains(btn)) {
+        btn.disabled = false;
+        btn.innerHTML = originalIcon ?? CARD_ACTION_ICONS.download;
+        btn.title = reason;
+    }
+}
+
+// Keep manual counts and the edit dialog's stored-manual list in sync after
+// a successful store.
+async function refreshAfterManualStored() {
+    await loadDevices();
+    const editModal = document.getElementById('edit-device-modal');
+    if (editModal.style.display === 'flex' &&
+        parseInt(document.getElementById('edit-device-id').value) === fetchManualsDeviceId) {
+        await loadManuals(fetchManualsDeviceId);
+    }
+}
+
+// Sequentially store every candidate that is not already on file. Stored
+// manuals are deliberately skipped - replacing one is a per-row, confirmed
+// action only.
+async function downloadAllManuals() {
+    if (!beginOp('download-all-manuals')) return;
+    const btn = document.getElementById('download-all-btn');
+    const deviceId = fetchManualsDeviceId;
+    const targets = fetchCandidates
+        .map((c, i) => ({ c, i }))
+        .filter(x => !x.c.already_downloaded && !x.c._done);
+
+    btn.disabled = true;
+    let okCount = 0;
+    for (let n = 0; n < targets.length; n++) {
+        // Bail out if the dialog was closed or re-opened for another device.
+        const modalOpen = document.getElementById('fetch-manuals-modal').style.display === 'flex';
+        if (!modalOpen || fetchManualsDeviceId !== deviceId) break;
+
+        btn.textContent = `Downloading ${n + 1}/${targets.length}...`;
+        const rowBtn = document.querySelector(`#fetch-row-${targets[n].i} .card-icon-btn`);
+        if (await _storeOne(targets[n].i, rowBtn, false, deviceId)) okCount++;
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Download All';
+    endOp('download-all-manuals');
+
+    if (okCount > 0) {
+        showToast(`Stored ${okCount} manual${okCount !== 1 ? 's' : ''}`, 'success');
+        await refreshAfterManualStored();
+    }
+    if (!fetchCandidates.some(c => !c.already_downloaded)) {
+        btn.style.display = 'none';
+        const message = document.getElementById('fetch-manuals-message');
+        if (message) message.textContent = 'All found manuals are stored.';
+    }
+}
+
+function closeFetchManualsModal() {
+    document.getElementById('fetch-manuals-modal').style.display = 'none';
+    endOp('fetch-manuals');
+}
+
+// Candidate URLs come from web search results, so only http(s) may become a
+// clickable href - anything else (javascript:, data:) renders as plain text.
+function safePreviewHref(url) {
+    try {
+        const parsed = new URL(String(url || ''), window.location.origin);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : '';
+    } catch (e) {
+        return '';
+    }
+}
+
+
 
 // Open the file picker for a specific device's manual upload.
 function triggerUploadManual(deviceId) {

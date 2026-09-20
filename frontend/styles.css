@@ -2348,69 +2348,6 @@ details.chat-input-meta {
     }
 }
 
-.progress-steps {
-    margin: 20px 0;
-    max-height: 300px;
-    overflow-y: auto;
-    padding: 10px;
-    background: var(--bg-light);
-    border-radius: 8px;
-}
-
-.progress-step {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px;
-    margin-bottom: 8px;
-    background: var(--surface);
-    border-radius: var(--radius-sm);
-    border-left: 4px solid var(--text-secondary);
-    transition: all 0.3s;
-}
-
-.progress-step.searching {
-    border-left-color: #f59e0b;
-}
-
-.progress-step.found {
-    border-left-color: var(--success);
-}
-
-.progress-step.downloading {
-    border-left-color: var(--accent-color);
-}
-
-.progress-step.success {
-    border-left-color: var(--success);
-    background: color-mix(in srgb, var(--success) 14%, var(--surface));
-}
-
-.progress-step.error {
-    border-left-color: var(--error);
-    background: color-mix(in srgb, var(--error) 12%, var(--surface));
-}
-
-.step-icon {
-    font-size: 1.2rem;
-    min-width: 24px;
-}
-
-.step-content {
-    flex: 1;
-}
-
-.step-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 2px;
-}
-
-.step-detail {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-}
-
 .progress-status {
     display: flex;
     align-items: center;
@@ -2444,9 +2381,109 @@ details.chat-input-meta {
     to { transform: rotate(360deg); }
 }
 
-#download-current-step {
+#fetch-manuals-message {
     font-weight: 600;
     color: var(--text-primary);
+}
+
+/* Fetch Manuals dialog: the Manual | Source | Store Manual table. */
+.fetch-results {
+    margin-top: 16px;
+    max-height: 340px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+
+.fetch-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.fetch-table th,
+.fetch-table td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.fetch-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-weight: 600;
+    z-index: 1;
+}
+
+.fetch-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Rows already on file are tinted so they read as "done" at a glance. */
+.fetch-table tbody tr.existing {
+    background: color-mix(in srgb, var(--success) 10%, var(--surface));
+}
+
+.fetch-table tbody tr.failed {
+    background: color-mix(in srgb, var(--error) 8%, var(--surface));
+}
+
+.fetch-manual-name {
+    color: var(--text-primary);
+    display: inline-block;
+    max-width: 340px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+
+/* Manual names are preview links: open the source PDF in a new tab so the
+   user can verify it before approving the download. */
+.fetch-preview-link {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.fetch-preview-link:hover {
+    text-decoration: underline;
+}
+
+.fetch-source {
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.fetch-action {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.stored-chip {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--success);
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    border-radius: 999px;
+    padding: 3px 8px;
+}
+
+/* Inline spinner swapped into a Store button while its download runs. */
+.btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    display: inline-block;
+    animation: spin 1s linear infinite;
 }
 
 /* --------------------------------------------------------------------------

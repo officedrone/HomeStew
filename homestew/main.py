@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from homestew.config import settings
 from homestew.db import init_db
 from homestew.api.devices import router as devices_router
-from homestew.api.downloads import router as downloads_router
+from homestew.api.downloader import router as downloads_router
 from homestew.api.search import router as search_router
 from homestew.api.chat import router as chat_router
 from homestew.api.settings import router as settings_router

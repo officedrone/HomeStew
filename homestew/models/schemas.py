@@ -115,9 +115,22 @@ class SearchResponse(BaseModel):
     results: list[SearchResult]
 
 
-class DownloadTriggerRequest(BaseModel):
-    """Request model for triggering manual download."""
-    device_id: int = Field(..., description="Device ID to download manuals for")
+class ManualCandidate(BaseModel):
+    """A found PDF manual offered to the user for approval (not downloaded)."""
+    name: str = Field(..., description="PDF file name shown in the table")
+    title: str = Field("", description="Search result title (tooltip)")
+    url: str = Field(..., description="Direct URL of the PDF")
+    domain: str = Field("", description="Top-level domain the PDF comes from")
+    already_downloaded: bool = Field(
+        False,
+        description="True when this exact URL is already stored for the device",
+    )
+
+
+class ManualSearchResponse(BaseModel):
+    """Candidate list returned by the manual search endpoint."""
+    candidates: list[ManualCandidate] = []
+    error_detail: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -140,17 +153,25 @@ class ChatResponse(BaseModel):
     search_results_count: int = 0
 
 
-class DownloadRequest(BaseModel):
-    """Manual download request."""
+class StoreManualRequest(BaseModel):
+    """Ask the server to download ONE user-approved candidate manual.
+
+    ``replace`` must be set by the client only after the user confirmed that
+    an already-stored manual may be overwritten; without it a known URL is
+    rejected with 409 instead of touching disk.
+    """
     device_id: int
+    url: str = Field(..., min_length=1)
+    title: Optional[str] = None
+    replace: bool = False
 
 
-class DownloadStatus(BaseModel):
-    """Download status response."""
-    success: bool
-    message: str
-    downloaded_count: int = 0
-    error_detail: str | None = None
+class StoreManualResponse(BaseModel):
+    """Result of storing one approved manual."""
+    manual_id: int
+    filename: str
+    replaced: bool = False
+    indexed: bool = False
 
 
 class SettingsResponse(BaseModel):

@@ -95,7 +95,10 @@ async def init_db():
             """
         )
         
-        # Create manuals table
+        # Create manuals table. source_url records where a stored PDF came
+        # from: it powers the "already downloaded" highlight in the fetch
+        # dialog and lets a replace-download reuse the existing row instead
+        # of inserting a duplicate. Uploaded manuals keep it NULL.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS manuals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,10 +106,18 @@ async def init_db():
                 filename TEXT NOT NULL,
                 filepath TEXT NOT NULL,
                 page_count INTEGER,
+                source_url TEXT,
                 indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
             )
         """)
+
+        # Databases created before user-approved downloads have no source_url;
+        # SQLite has no IF NOT EXISTS for ALTER, so swallow the duplicate error.
+        try:
+            await db.execute("ALTER TABLE manuals ADD COLUMN source_url TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         
         # Create custom attributes table for user-defined fields
         await db.execute("""

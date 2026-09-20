@@ -525,7 +525,7 @@
                         <div class="empty-state">No manuals</div>
                     </div>
                     <div class="manual-actions">
-                        <button type="button" class="btn btn-primary btn-small" data-dedupe title="Search the web for this device's manuals using HomeStew's built-in fetch logic" onclick="downloadManuals(parseInt(document.getElementById('edit-device-id').value))">
+                        <button type="button" class="btn btn-primary btn-small" data-dedupe title="Search the web for this device's manuals, then approve each download" onclick="openFetchManuals(parseInt(document.getElementById('edit-device-id').value))">
                             Fetch Manuals
                         </button>
                         <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerUploadManual(parseInt(document.getElementById('edit-device-id').value))">
@@ -559,18 +559,21 @@
         </div>
     </div>
 
-    <!-- Fetch Progress Modal (built-in manual fetching logic) -->
-    <div id="download-progress-modal" class="modal">
+    <!-- Fetch Manuals dialog: lists found PDFs (Manual | Source | Store
+         Manual) and downloads ONLY what the user approves. Rows already on
+         file are highlighted; replacing one needs an explicit confirm. -->
+    <div id="fetch-manuals-modal" class="modal">
         <div class="modal-content modal-medium">
-            <h2>Fetching Manuals</h2>
-            <div id="download-progress-steps" class="progress-steps">
-                <!-- Progress steps will be added here dynamically -->
+            <h2>Fetch Manuals</h2>
+            <div id="fetch-manuals-status" class="progress-status">
+                <div id="fetch-manuals-spinner" class="spinner"></div>
+                <span id="fetch-manuals-message">Searching...</span>
             </div>
-            <div id="download-progress-status" class="progress-status">
-                <div id="download-spinner" class="spinner"></div>
-                <span id="download-current-step">Initializing...</span>
+            <div id="fetch-manuals-results" class="fetch-results" hidden></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeFetchManualsModal()">Close</button>
+                <button type="button" id="download-all-btn" class="btn btn-primary" data-dedupe style="display: none;" onclick="downloadAllManuals()">Download All</button>
             </div>
-            <button id="close-download-modal" class="btn btn-secondary" style="margin-top: 20px; display: none;" onclick="closeDownloadModal()">Close</button>
         </div>
     </div>
 
