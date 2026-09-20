@@ -787,6 +787,11 @@ async function handleSaveEvent(e) {
  */
 let _addDeviceAttributes = [];
 
+// Set once "Fetch Manuals" has saved the device straight from the Add Device
+// form (manuals can only be stored against an existing device). A later
+// "Add Device" click then finishes that record instead of creating a twin.
+let _addDeviceCreatedId = null;
+
 // ---------------------------------------------------------------------------
 // Warranty fields (both device modals)
 // ---------------------------------------------------------------------------
@@ -894,6 +899,7 @@ function openAddDeviceModal() {
     resetWarrantyAutoCalc('device');
     updateAddDeviceManualNames();
     _addDeviceAttributes = [];
+    _addDeviceCreatedId = null;
     renderAddDeviceAttributes();
     document.getElementById('add-device-modal').style.display = 'flex';
     setTimeout(() => document.getElementById('device-name').focus(), 50);
@@ -902,6 +908,61 @@ function openAddDeviceModal() {
 function closeAddDeviceModal() {
     document.getElementById('add-device-modal').style.display = 'none';
     _addDeviceAttributes = [];
+    _addDeviceCreatedId = null;
+}
+
+// "Fetch Manuals" inside the Add Device modal. Manuals are stored per device,
+// so this first creates (or, on a second click, updates) the device from the
+// current form values, then opens the shared search/approve dialog for it.
+async function fetchManualsForNewDevice() {
+    const name = document.getElementById('device-name').value.trim();
+    const brand = document.getElementById('device-brand').value.trim();
+    const model = document.getElementById('device-model').value.trim();
+    if (!name || !brand || !model) {
+        showToast('Enter the device name, brand and model first', 'error');
+        return;
+    }
+    if (!beginOp('add-device-fetch-manuals')) return;
+
+    const body = JSON.stringify({
+        name,
+        brand,
+        model,
+        description: document.getElementById('device-description').value,
+        serial_number: document.getElementById('device-serial-number').value || null,
+        product_number: document.getElementById('device-product-number').value || null,
+        ...readWarrantyFields('device')
+    });
+
+    try {
+        if (_addDeviceCreatedId) {
+            // Keep the record created earlier in sync with later form edits.
+            const response = await fetch(`/api/devices/${_addDeviceCreatedId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body
+            });
+            if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to update device'));
+        } else {
+            const response = await fetch('/api/devices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body
+            });
+            if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to create device'));
+            _addDeviceCreatedId = (await response.json()).id;
+            showToast('Device saved - pick the manuals to download', 'success');
+        }
+    } catch (error) {
+        console.error('Failed to save device before fetching manuals:', error);
+        showToast(error.message || 'Could not save the device first', 'error');
+        return;
+    } finally {
+        endOp('add-device-fetch-manuals');
+    }
+
+    await loadDevices(); // sidebar / grid now show the new device
+    openFetchManuals(_addDeviceCreatedId);
 }
 
 // Show which PDFs were picked in the Add Device modal ("Upload Manual"
@@ -971,16 +1032,25 @@ async function handleAddDevice(e) {
     };
     
     try {
-        const response = await fetch('/api/devices', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(deviceData)
-        });
-        
-        if (!response.ok) throw new Error('Failed to add device');
-
-        // Upload any manuals picked in the form, now that we have a device id.
-        const { id: newDeviceId } = await response.json();
+        // "Fetch Manuals" may already have created this device; finish that
+        // record (with the latest form values) instead of creating a twin.
+        let newDeviceId = _addDeviceCreatedId;
+        if (newDeviceId) {
+            const putResponse = await fetch(`/api/devices/${newDeviceId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(deviceData)
+            });
+            if (!putResponse.ok) throw new Error('Failed to update device');
+        } else {
+            const response = await fetch('/api/devices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(deviceData)
+            });
+            if (!response.ok) throw new Error('Failed to add device');
+            newDeviceId = (await response.json()).id;
+        }
 
         // Create custom attributes entered in the Add Device form.
         for (const attr of _addDeviceAttributes) {
@@ -1266,7 +1336,7 @@ function renderFetchResults(errorDetail) {
     const freshCount = fetchCandidates.filter(c => !c.already_downloaded).length;
     message.textContent = freshCount === 0
         ? `Found ${fetchCandidates.length} manual(s) - all are already stored.`
-        : `Found ${fetchCandidates.length} manual(s). Approve each download below, or use Download All (${freshCount} new).`;
+        : `Found ${fetchCandidates.length} manual(s). Review manuals by clicking on them and download the correct manual by clicking the download button next to it. There are(${freshCount} manuals not stored yet).`;
 
     results.innerHTML = `
         <table class="fetch-table">

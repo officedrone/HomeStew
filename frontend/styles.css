@@ -420,6 +420,18 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     margin-bottom: 10px;
 }
 
+/* The "Upload Manual" control is a <label> styled as a button, and labels
+   inherit the body's 1.6 line-height while real <button>s render with their
+   own tighter metrics - which made the label visibly taller than the Fetch
+   Manuals button beside it (the Edit Device modal uses two real buttons).
+   Normalise both to identical box metrics so the pair always matches. */
+.upload-row .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: normal;
+}
+
 .manual-file-names {
     font-size: 0.8rem;
     color: var(--text-secondary);
@@ -1395,12 +1407,13 @@ details.chat-input-meta {
     display: none;
 }
 
-/* Toast Notifications */
+/* Toast Notifications - must sit above every modal (z-index 2000) and its
+   blurred backdrop so toasts fired from a modal stay visible. */
 .toast-container {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    z-index: 1000;
+    z-index: 3000;
 }
 
 .toast {
@@ -1646,6 +1659,15 @@ details.chat-input-meta {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: var(--ring);
+}
+
+/* Empty manuals / attributes lists inside the device modals: the generic
+   .empty-state padding is meant for full-page placeholders and leaves a big
+   blank box here, so keep these compact. */
+.manuals-list .empty-state,
+.attributes-list .empty-state {
+    padding: 12px;
+    font-size: 0.85rem;
 }
 
 /* Read-only audit timestamps at the bottom of the edit-device modal. */
@@ -2323,6 +2345,12 @@ details.chat-input-meta {
     flex: 0 0 auto;
     width: auto;
     min-width: 90px;
+    /* Chrome sizes a <select> from the inherited 1.6 line-height, making it
+       visibly taller than the number input beside it (and the date fields in
+       the row). Tighter metrics keep the warranty row visually aligned. */
+    line-height: normal;
+    padding-top: 8px;
+    padding-bottom: 8px;
 }
 
 @media (max-width: 560px) {

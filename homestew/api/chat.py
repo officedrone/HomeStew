@@ -57,7 +57,8 @@ async def resolve_device_filter(device_id: Optional[int]) -> Optional[Dict[str, 
     async with get_db_context() as db:
         cursor = await db.execute(
             "SELECT id, name, brand, model, description, serial_number, "
-            "product_number FROM devices WHERE id = ?",
+            "product_number, purchase_date, warranty_length, warranty_unit, "
+            "warranty_end FROM devices WHERE id = ?",
             (device_id,),
         )
         row = await cursor.fetchone()
@@ -97,17 +98,42 @@ async def device_roster_note() -> str:
     """
     async with get_db_context() as db:
         cursor = await db.execute(
-            "SELECT id, name, brand, model FROM devices ORDER BY id"
+            "SELECT id, name, brand, model, purchase_date, warranty_length, "
+            "warranty_unit, warranty_end FROM devices ORDER BY id"
         )
         rows = [dict(r) for r in await cursor.fetchall()]
+        # Custom attributes belong to the device entry just as much as the
+        # columns do - without them here, an unscoped chat cannot see e.g. a
+        # warranty status the user typed into the device form.
+        attr_cursor = await db.execute(
+            "SELECT device_id, attribute_name, attribute_value "
+            "FROM device_attributes ORDER BY id"
+        )
+        attrs: Dict[int, List[str]] = {}
+        for a in await attr_cursor.fetchall():
+            attrs.setdefault(a["device_id"], []).append(
+                f"{a['attribute_name']}: {a['attribute_value']}"
+            )
 
     if not rows:
         return ""
 
-    lines = [f"- device_id={r['id']}: {r['name']} ({r['brand']} {r['model']})" for r in rows]
+    lines = []
+    for r in rows:
+        parts = [f"- device_id={r['id']}: {r['name']} ({r['brand']} {r['model']})"]
+        warranty = _warranty_phrase(r)
+        if warranty:
+            parts.append(warranty)
+        if attrs.get(r["id"]):
+            parts.append("attributes: " + "; ".join(attrs[r["id"]]))
+        lines.append(" | ".join(parts))
     return (
         "\n\nThe user's registered devices (these are the ONLY valid "
-        "device_id values - never invent or guess an id):\n" + "\n".join(lines)
+        "device_id values - never invent or guess an id). The warranty and "
+        "attributes shown here are facts the user recorded themselves: they "
+        "are authoritative and answer questions like 'is my X still under "
+        "warranty' directly - no manual search needed (a manual can never "
+        "know when this specific unit was bought):\n" + "\n".join(lines)
     )
 
 
@@ -178,6 +204,34 @@ async def calendar_reminders_note(
     )
 
 
+def _warranty_phrase(device: Dict[str, Any]) -> str:
+    """One-line warranty summary with ACTIVE/EXPIRED status for the prompt.
+
+    The status is derived server-side against today's date - small models
+    reliably report 'expired' when told so explicitly, but misjudge a bare
+    ISO date. Returns '' when nothing warranty-related is recorded.
+    """
+    parts = []
+    if device.get("purchase_date"):
+        parts.append(f"purchased {device['purchase_date']}")
+    if device.get("warranty_length") is not None and device.get("warranty_unit"):
+        parts.append(
+            f"{device['warranty_length']} {device['warranty_unit']} warranty"
+        )
+    if device.get("warranty_end"):
+        end_raw = str(device["warranty_end"])
+        try:
+            status = (
+                "ACTIVE"
+                if _date.fromisoformat(end_raw[:10]) >= _date.today()
+                else "EXPIRED"
+            )
+        except ValueError:
+            status = ""
+        parts.append(f"warranty ends {end_raw} ({status})")
+    return ("Warranty: " + ", ".join(parts)) if parts else ""
+
+
 def device_filter_note(device: Dict[str, Any]) -> str:
     """System-prompt addition with the full device entry currently in scope.
 
@@ -196,6 +250,9 @@ def device_filter_note(device: Dict[str, Any]) -> str:
         lines.append(f"- Serial number: {device['serial_number']}")
     if device.get("product_number"):
         lines.append(f"- Product number: {device['product_number']}")
+    warranty = _warranty_phrase(device)
+    if warranty:
+        lines.append(f"- {warranty}")
     for attr in device.get("attributes", []):
         lines.append(f"- {attr['attribute_name']}: {attr['attribute_value']}")
 
@@ -203,8 +260,15 @@ def device_filter_note(device: Dict[str, Any]) -> str:
         "\n\nThe user has filtered this conversation to one specific device, "
         f"device_id={device['id']}. Treat every question as being about this "
         "device and search only its manuals.\n"
-        "Device entry (facts here may be used directly; anything not listed "
-        "here still requires a manual search result):\n" + "\n".join(lines)
+        "Device entry - the custom attributes and warranty fields are facts "
+        "the user recorded themselves and are just as important as the "
+        "manuals. Check them FIRST: if one of them answers the question "
+        "(warranty status, purchase date, serial number, a spec the user "
+        "typed in), answer from it directly without searching - manuals can "
+        "never know when this specific unit was bought or what the user "
+        "noted about it. Facts here may be used directly; anything not "
+        "listed here still requires a manual search result:\n"
+        + "\n".join(lines)
     )
 
 
