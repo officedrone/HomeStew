@@ -483,6 +483,7 @@ def create_device_tool() -> Dict[str, Any]:
                     "action": {
                         "type": "string",
                         "enum": [
+                            "search_devices",
                             "create",
                             "update",
                             "list",
@@ -491,11 +492,25 @@ def create_device_tool() -> Dict[str, Any]:
                             "delete",
                         ],
                         "description": (
-                            "What to do: create a device, update an existing "
-                            "one (needs device_id), list devices (to find "
-                            "ids/details), add or remove a custom attribute, "
-                            "or delete - which is refused and returns a link "
-                            "for the user to delete it themselves."
+                            "What to do: search_devices resolves the device "
+                            "the user means from their own words (e.g. 'my "
+                            "work laptop') and returns its brand, model and "
+                            "attributes - call it FIRST for any question "
+                            "about a device named by nickname before "
+                            "searching manuals; create a device, update an "
+                            "existing one (needs device_id), list devices "
+                            "(to find ids/details), add or remove a custom "
+                            "attribute, or delete - which is refused and "
+                            "returns a link for the user to delete it "
+                            "themselves."
+                        ),
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "For action='search_devices' only: how the user "
+                            "referred to the device, e.g. 'work laptop'. Use "
+                            "their own words, minus question words."
                         ),
                     },
                     "device_id": {

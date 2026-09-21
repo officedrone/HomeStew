@@ -23,6 +23,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from homestew.db import get_db_context
 from homestew.services import calendar_service
+from homestew.services.device_tool import device_link_note
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,19 @@ def _event_line(event: Dict[str, Any]) -> str:
         f"{when}, {status_word}{_device_note(event.get('device_id'), event.get('device_name'))}"
         + (f" - {event['description']}" if event.get("description") else "")
     )
+
+
+def _device_link_for(event: Dict[str, Any]) -> str:
+    """Device-link suffix for a mutation report ('' when no device linked).
+
+    Every calendar change touching a device ends with that device's chat
+    link so the user can jump straight to it - same rule as manage_devices.
+    The event row must still carry device_id/device_name (deleted events do,
+    they are reported from the pre-delete fetch).
+    """
+    if not event.get("device_id") or not event.get("device_name"):
+        return ""
+    return device_link_note(event["device_name"], event["device_id"])
 
 
 async def _device_exists(db, device_id: int) -> bool:
@@ -156,7 +170,7 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
     created = await calendar_service.get_event(new_id)
     if not created:
         return f"Created event id={new_id}."
-    return f"Created event id={new_id}: {_event_line(created)}"
+    return f"Created event id={new_id}: {_event_line(created)}" + _device_link_for(created)
 
 
 async def _load_scoped_event(
@@ -288,7 +302,10 @@ async def _update(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
 
     updated = await calendar_service.get_event(event["id"])
     changed = ", ".join(sorted(fields.keys()))
-    return f"Updated event id={event['id']} ({changed}): {_event_line(updated)}"
+    return (
+        f"Updated event id={event['id']} ({changed}): {_event_line(updated)}"
+        + _device_link_for(updated)
+    )
 
 
 async def _delete(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
@@ -301,7 +318,7 @@ async def _delete(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
     async with get_db_context() as db:
         await db.execute("DELETE FROM calendar_events WHERE id = ?", (event["id"],))
         await db.commit()
-    return f'Deleted event "{event["title"]}" (id={event["id"]}).'
+    return f'Deleted event "{event["title"]}" (id={event["id"]}).' + _device_link_for(event)
 
 
 async def _complete(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
@@ -319,7 +336,10 @@ async def _complete(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
         await db.commit()
 
     updated = await calendar_service.get_event(event["id"])
-    return f'Marked "{updated["title"]}" (id={event["id"]}) done: {_event_line(updated)}'
+    return (
+        f'Marked "{updated["title"]}" (id={event["id"]}) done: '
+        f"{_event_line(updated)}" + _device_link_for(updated)
+    )
 
 
 async def _list(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:

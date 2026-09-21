@@ -137,7 +137,13 @@ async def device_roster_note() -> str:
         "attributes shown here are facts the user recorded themselves: they "
         "are authoritative and answer questions like 'is my X still under "
         "warranty' directly - no manual search needed (a manual can never "
-        "know when this specific unit was bought):\n" + "\n".join(lines)
+        "know when this specific unit was bought).\n"
+        "When a question refers to a device by nickname or description "
+        "('my work laptop') rather than an exact name/brand/model, you MUST "
+        "call manage_devices with action='search_devices' and the user's own "
+        "words as query BEFORE answering - never pick a device from this "
+        "list yourself and never ask the user which device they mean unless "
+        "that tool reports AMBIGUOUS:\n" + "\n".join(lines)
     )
 
 

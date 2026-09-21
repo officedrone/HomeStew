@@ -24,8 +24,9 @@ failed" message instead of something the model can explain or retry from.
 """
 import json
 import logging
+import re
 from datetime import date
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from homestew.db import get_db_context
 from homestew.services.warranty import WARRANTY_UNITS, compute_warranty_end
@@ -33,12 +34,31 @@ from homestew.services.warranty import WARRANTY_UNITS, compute_warranty_end
 logger = logging.getLogger(__name__)
 
 _ACTIONS = (
+    "search_devices",
     "create",
     "update",
     "list",
     "add_attribute",
     "remove_attribute",
     "delete",
+)
+
+# Words that carry no device-identifying signal in a resolution query
+# ("what memory does my work laptop support"). Unlike the search engine's
+# stopword list, everyday nouns like 'laptop' or 'phone' are NOT listed:
+# they legitimately match device names/brands and only get down-weighted
+# naturally when they appear in many devices.
+_IDENTIFY_STOPWORDS = frozenset(
+    {
+        "a", "an", "and", "are", "as", "at", "be", "but", "by", "can",
+        "could", "did", "do", "does", "for", "from", "had", "has", "have",
+        "he", "her", "his", "how", "i", "if", "in", "is", "it", "its",
+        "me", "my", "no", "not", "of", "on", "or", "our", "please", "she",
+        "so", "tell", "than", "that", "the", "their", "them", "then",
+        "there", "they", "this", "to", "too", "was", "we", "were", "what",
+        "when", "where", "which", "who", "why", "will", "with", "would",
+        "you", "your",
+    }
 )
 
 # Optional text columns an empty string clears (mirrors how the calendar tool
@@ -91,6 +111,26 @@ def _link_label(name: Any) -> str:
     for ch in "[]()" :
         text = text.replace(ch, " ")
     return " ".join(text.split())
+
+
+def device_link_markdown(name: Any, device_id: int) -> str:
+    """Markdown link that opens this device's editor in the Devices tab.
+
+    Every mutation report ends with this link so the model can hand the user
+    a one-click jump to the device it just changed (the chat click handler
+    routes #edit-device-<id>, see frontend/app.js). Public: calendar_tool
+    reuses it for events that belong to a device.
+    """
+    return f"[{_link_label(name)}](#edit-device-{device_id})"
+
+
+def device_link_note(name: Any, device_id: int) -> str:
+    """Report suffix telling the model to pass the device link through."""
+    return (
+        "\nThe user can open this device with one click - end your answer "
+        f"with this link, reproduced verbatim (same href, device name as "
+        f"visible text): {device_link_markdown(name, device_id)}"
+    )
 
 
 def _warranty_phrase(row: Dict[str, Any]) -> str:
@@ -368,7 +408,11 @@ async def _update(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
         count = (await cursor.fetchone())["n"]
 
     changed = ", ".join(sorted(fields))
-    return f"Updated device id={row['id']} ({changed}): {_device_line(updated, manual_count=count)}"
+    return (
+        f"Updated device id={row['id']} ({changed}): "
+        f"{_device_line(updated, manual_count=count)}"
+        + device_link_note(updated["name"], row["id"])
+    )
 
 
 async def _delete_guidance(
@@ -427,6 +471,7 @@ async def _add_attribute(args: Dict[str, Any], chat_device_id: Optional[int]) ->
     return (
         f'Added attribute id={attr_id} to device id={row["id"]} '
         f'("{row["name"]}"): {attr_name}: {attr_value}'
+        + device_link_note(row["name"], row["id"])
     )
 
 
@@ -490,6 +535,232 @@ async def _remove_attribute(
     return (
         f'Removed attribute "{removed["attribute_name"]}" from device '
         f'id={row["id"]} ("{row["name"]}").'
+        + device_link_note(row["name"], row["id"])
+    )
+
+
+def _identify_tokens(query: Any) -> Tuple[List[str], str]:
+    """(loose tokens, full phrase) of a resolution query, lowercased.
+
+    Quoted runs are kept as one phrase token; stopwords and 1-char tokens
+    are dropped - they would match half the registry without identifying
+    anything. Returns ([], '') for an empty/stopword-only query.
+    """
+    raw = str(query or "").lower()
+    phrase_tokens: List[str] = []
+    for chunk in re.findall(r'"([^"]+)"', raw):
+        toks = _tokenize_words(chunk)
+        if toks:
+            phrase_tokens.append(" ".join(toks))
+    loose = [
+        t
+        for t in _tokenize_words(re.sub(r'"[^"]*"', " ", raw))
+        if len(t) > 1 and t not in _IDENTIFY_STOPWORDS
+    ]
+    # A phrase is just a strong hint; its words also join the loose set so a
+    # device matching only some of them can still surface.
+    tokens = list(dict.fromkeys(loose + [t for p in phrase_tokens for t in p.split()]))
+    return tokens, " ".join(phrase_tokens)
+
+
+def _tokenize_words(text: str) -> List[str]:
+    return re.findall(r"[a-z0-9]+", text)
+
+
+def _field_hit(token: str, field_tokens: set) -> bool:
+    """Token matches a field: exact token equality, or prefix for long tokens.
+
+    Prefix matching (>=5 chars, so 'laptop' finds 'laptops') mirrors the
+    search engine's mid-word rule while keeping short acronyms strict -
+    'ram' must not match inside 'program'.
+    """
+    if token in field_tokens:
+        return True
+    return len(token) >= 5 and any(ft.startswith(token) for ft in field_tokens)
+
+
+def _hits_identity(fields: Dict[str, List[str]], tokens: List[str]) -> bool:
+    """True when every token appears somewhere in name/brand/model."""
+    identity = set()
+    for key in ("name", "brand", "model"):
+        identity.update(fields[key])
+    return all(_field_hit(t, identity) for t in tokens)
+
+
+async def _search_devices(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
+    """Resolve a free-text device reference ('my work laptop') to real devices.
+
+    This is the FIRST step of any device question: users name devices by
+    nickname, not brand/model, and a manuals search for 'work laptop' finds
+    nothing because no manual contains the user's nickname. Matching happens
+    over each device's own entry (name/brand/model/description/attributes)
+    with IDF-style token weights computed across the registry: words shared
+    by every device ('home') carry no signal, distinctive ones identify a
+    unit on their own.
+    """
+    tokens, phrase = _identify_tokens(args.get("query"))
+    if not tokens:
+        return (
+            "Error: 'query' must name the device in the user's words, e.g. "
+            "'work laptop'. Only question words were given."
+        )
+
+    async with get_db_context() as db:
+        where = "WHERE id = ?" if chat_device_id is not None else ""
+        params: Tuple = (chat_device_id,) if chat_device_id is not None else ()
+        cursor = await db.execute(
+            f"SELECT {_DEVICE_COLUMNS} FROM devices {where} ORDER BY id", params
+        )
+        rows = [dict(r) for r in await cursor.fetchall()]
+        attr_cursor = await db.execute(
+            "SELECT device_id, attribute_name, attribute_value "
+            "FROM device_attributes ORDER BY id"
+        )
+        attrs_by_device: Dict[int, List[str]] = {}
+        for a in await attr_cursor.fetchall():
+            attrs_by_device.setdefault(a["device_id"], []).append(
+                f'{a["attribute_name"]}: {a["attribute_value"]}'
+            )
+
+    if not rows:
+        return "No devices are registered yet, so none can match."
+
+    # Per-device field texts (token sets for strict matching).
+    enriched = []
+    for row in rows:
+        fields = {
+            "name": _tokenize_words(str(row.get("name") or "").lower()),
+            "brand": _tokenize_words(str(row.get("brand") or "").lower()),
+            "model": _tokenize_words(str(row.get("model") or "").lower()),
+        }
+        attr_list = attrs_by_device.get(row["id"], [])
+        other_text = " ".join(
+            [
+                str(row.get("description") or ""),
+                str(row.get("serial_number") or ""),
+                str(row.get("product_number") or ""),
+            ]
+            + attr_list
+        ).lower()
+        fields["other"] = _tokenize_words(other_text)
+        full_text = " ".join(
+            [
+                str(row.get("name") or ""),
+                str(row.get("brand") or ""),
+                str(row.get("model") or ""),
+                other_text,
+            ]
+        ).lower()
+        all_tokens = (
+            set(fields["name"]) | set(fields["brand"])
+            | set(fields["model"]) | set(fields["other"])
+        )
+        enriched.append(
+            (row, fields, " ".join(full_text.split()), attr_list, all_tokens)
+        )
+
+    # Tokens no device mentions at all ('memory', 'support' in "what memory
+    # does my work laptop support") carry zero identifying signal: drop them
+    # before weighting so they cannot dilute a real match's coverage.
+    present = [t for t in tokens if any(_field_hit(t, e[4]) for e in enriched)]
+    if not present:
+        return (
+            f"No registered device matches '{_clean_text(args.get('query'), 100)}'. "
+            "Try again with different words from the user's question (drop "
+            "question words, keep nouns like 'laptop' or 'fridge'), call "
+            "action='list' to see every device, or fall back to a plain "
+            "search_manuals query across all devices."
+        )
+
+    # Token weight = 1 - ((df-1) / total): a word unique to one device gets
+    # ~1.0 and identifies it alone, a word in every device still keeps a
+    # small positive share (a single-device registry must match at all).
+    weights = {
+        t: max(
+            0.05,
+            1.0 - (sum(1 for e in enriched if _field_hit(t, e[4])) - 1) / len(rows),
+        )
+        for t in present
+    }
+    total_weight = sum(weights.values()) or 1.0
+
+    scored = []
+    for row, fields, full_text, attr_list, all_tokens in enriched:
+        hit_tokens = [t for t in present if _field_hit(t, all_tokens)]
+        if not hit_tokens:
+            continue
+        coverage = sum(weights[t] for t in hit_tokens) / total_weight
+        rare_hit = any(weights[t] >= 0.7 for t in hit_tokens)
+        if not (rare_hit or coverage >= 0.5):
+            continue
+        # Tier: exact phrase > all identifying tokens inside name/brand/model
+        # > partial (attribute/description-only) match.
+        if phrase and phrase in full_text:
+            tier = 0
+        elif _hits_identity(fields, present):
+            tier = 1
+        else:
+            tier = 2
+        # Ascending sort: best (lowest) tier first, then highest coverage.
+        scored.append((tier, -coverage, row, attr_list))
+
+    ordered = sorted(scored, key=lambda item: item[:2])
+    matches = [(row, attrs) for _t, _c, row, attrs in ordered[:5]]
+
+    # A candidate that clearly dominates the rest is not ambiguous even when
+    # weaker devices matched some words: 'work laptop' must resolve to the
+    # device whose NAME holds both words, not ask about a monitor that only
+    # matches 'work'. Dominance = strictly best tier, or (same tier) at least
+    # double the runner-up's coverage while covering most of the query.
+    if len(ordered) > 1:
+        (t0, nc0), (t1, nc1) = ordered[0][:2], ordered[1][:2]
+        c0, c1 = -nc0, -nc1
+        dominant = t0 < t1 or (c0 >= 0.75 and c0 >= 2 * c1)
+        if dominant:
+            matches = matches[:1]
+
+    if not matches:
+        return (
+            f"No registered device matches '{_clean_text(args.get('query'), 100)}'. "
+            "Try again with different words from the user's question (drop "
+            "question words, keep nouns like 'laptop' or 'fridge'), call "
+            "action='list' to see every device, or fall back to a plain "
+            "search_manuals query across all devices."
+        )
+
+    lines = []
+    for row, attr_list in matches:
+        line = f'- device_id={row["id"]}: {_device_line(row)}'
+        if attr_list:
+            line += " | attributes: " + "; ".join(attr_list)
+        lines.append(line)
+
+    if len(matches) == 1:
+        row = matches[0][0]
+        return (
+            f"Found exactly ONE device matching the question:\n"
+            + "\n".join(lines)
+            + f"\nThis is the device the user means. Rewrite their manual "
+            f'search query to use its brand and model instead of the ' \
+            f'nickname: "{row["brand"]} {row["model"]} <the spec words from '
+            'the question>" (e.g. "what memory does my work laptop support" '
+            f'-> "{row["brand"]} {row["model"]} memory"), then call '
+            f'search_manuals with device_id={row["id"]}. Check the '
+            'attributes above first - one may already answer the question '
+            'without any search. When you mention this device in your '
+            "answer, include its link verbatim: "
+            + device_link_markdown(row["name"], row["id"])
+        )
+
+    return (
+        f"{len(matches)} devices match the question - it is AMBIGUOUS:\n"
+        + "\n".join(lines)
+        + "\nAsk the user which of these they mean and stop; do NOT search "
+        "manuals or guess one yet. When answering, mention each candidate "
+        "with its link (verbatim) so the user can open it: "
+        + ", ".join(
+            device_link_markdown(row["name"], row["id"]) for row, _attrs in matches
+        )
     )
 
 
@@ -572,6 +843,8 @@ async def execute_device_tool(
         "Executing device tool: %s (device filter=%s)", action, chat_device_id
     )
     try:
+        if action == "search_devices":
+            return await _search_devices(args, chat_device_id)
         if action == "create":
             return await _create(args, chat_device_id)
         if action == "update":

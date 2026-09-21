@@ -168,6 +168,76 @@ def test_add_attribute_needs_both_parts(db_env):
     assert r.startswith("Error")
 
 
+# --- search_devices (device resolution) -----------------------------------
+
+def test_search_devices_unique_match_rewrites_with_brand_model(db_env):
+    run({"action": "create", "name": "Work Laptop", "brand": "HP",
+         "model": "EliteBook 840"})
+    run({"action": "create", "name": "Kitchen Fridge", "brand": "Bosch",
+         "model": "KAD93"})
+    # The user's nickname 'work laptop' matches exactly one device; the report
+    # must tell the model to re-search using that device's real brand+model.
+    report = run({"action": "search_devices", "query": "what memory does my work laptop support"})
+    assert "exactly ONE device" in report
+    assert "HP EliteBook 840" in report
+    # The rewritten-query instruction carries the concrete brand/model.
+    assert 'HP EliteBook 840 memory' in report
+    # And a clickable link to the resolved device.
+    assert "[Work Laptop](#edit-device-1)" in report
+
+
+def test_search_devices_ambiguous_asks_user(db_env):
+    run({"action": "create", "name": "Living Room TV", "brand": "Sony", "model": "A"})
+    run({"action": "create", "name": "Bedroom TV", "brand": "LG", "model": "B"})
+    report = run({"action": "search_devices", "query": "the tv"})
+    assert "AMBIGUOUS" in report
+    assert "Ask the user which" in report
+    # Both candidates get a link so the user can pick.
+    assert "[Living Room TV](#edit-device-1)" in report
+    assert "[Bedroom TV](#edit-device-2)" in report
+
+
+def test_search_devices_matches_custom_attribute(db_env):
+    run({"action": "create", "name": "Desktop", "brand": "Dell", "model": "X"})
+    run({"action": "add_attribute", "device_id": 1,
+         "attribute_name": "Nickname", "attribute_value": "render box"})
+    report = run({"action": "search_devices", "query": "render box"})
+    assert "exactly ONE device" in report and "device_id=1" in report
+
+
+def test_search_devices_no_match_falls_back(db_env):
+    run({"action": "create", "name": "TV", "brand": "Sony", "model": "X1"})
+    report = run({"action": "search_devices", "query": "espresso machine"})
+    assert "No registered device matches" in report
+
+
+def test_search_devices_needs_query(db_env):
+    r = run({"action": "search_devices", "query": "what is it"})
+    assert r.startswith("Error")
+
+
+# --- mutation reports always carry a device link --------------------------
+
+def test_update_and_attribute_reports_include_device_link(db_env):
+    run({"action": "create", "name": "Router", "brand": "Ubiquiti", "model": "U7"})
+    upd = run({"action": "update", "device_id": 1, "description": "office"})
+    assert "[Router](#edit-device-1)" in upd
+    add = run({"action": "add_attribute", "device_id": 1,
+               "attribute_name": "Ports", "attribute_value": "4x GbE"})
+    assert "[Router](#edit-device-1)" in add
+    rem = run({"action": "remove_attribute", "device_id": 1,
+               "attribute_name": "Ports"})
+    assert "[Router](#edit-device-1)" in rem
+
+
+def test_scoped_search_devices_only_sees_own_device(db_env):
+    run({"action": "create", "name": "Work Laptop", "brand": "HP", "model": "E"})
+    run({"action": "create", "name": "Home Laptop", "brand": "Apple", "model": "M"})
+    # In a chat filtered to device 2, only that device can match.
+    report = run({"action": "search_devices", "query": "laptop"}, chat_device_id=2)
+    assert '"Home Laptop"' in report and '"Work Laptop"' not in report
+
+
 # --- list -----------------------------------------------------------------
 
 def test_list_shows_ids_manuals_and_attributes(db_env):
