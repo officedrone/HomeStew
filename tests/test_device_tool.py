@@ -59,6 +59,9 @@ def test_create_returns_id_and_line(db_env):
     })
     assert report.startswith("Created device id=1:")
     assert '"Living Room TV" (Sony XR-65X90J)' in report
+    # A freshly created device comes with a one-click manuals link whose
+    # visible text is the device name, not its id.
+    assert "[Living Room TV](#fetch-manuals-1)" in report
     row = fetch(1)
     assert row["name"] == "Living Room TV"
 
@@ -131,7 +134,8 @@ def test_delete_is_refused_with_editor_link(db_env):
     run({"action": "create", "name": "TV", "brand": "Sony", "model": "X1"})
     report = run({"action": "delete", "device_id": 1})
     assert "was NOT deleted" in report
-    assert "(#edit-device-1)" in report
+    # The link's visible text is the device name, never "Edit Device #<id>".
+    assert "[TV](#edit-device-1)" in report
     # The device must still be there.
     assert fetch(1) is not None
 

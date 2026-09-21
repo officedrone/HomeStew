@@ -81,6 +81,18 @@ def _clean_text(value: Any, limit: int) -> str:
     return str(value if value is not None else "").strip()[:limit]
 
 
+def _link_label(name: Any) -> str:
+    """Device name made safe to use as Markdown link text.
+
+    Brackets/parens in a name ("TV (2020)") would otherwise break or shift
+    the [label](href) syntax the chat renderer parses.
+    """
+    text = str(name or "").strip()
+    for ch in "[]()" :
+        text = text.replace(ch, " ")
+    return " ".join(text.split())
+
+
 def _warranty_phrase(row: Dict[str, Any]) -> str:
     """One-line warranty summary for reports (mirrors chat.py's roster)."""
     parts = []
@@ -233,10 +245,16 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
         row = await _get_device_row(db, new_id)
 
     logger.info("Device tool created device id=%s (%s)", new_id, name)
+    # One-click follow-up: this link opens the device editor and immediately
+    # starts the manual search (see the chat-message click handler in app.js).
+    link = f"[{_link_label(name)}](#fetch-manuals-{new_id})"
     return (
         f"Created device id={new_id}: {_device_line(row, manual_count=0)}. "
-        "Manuals are not attached by this tool - tell the user they can upload "
-        "or fetch manuals for it in the Devices tab."
+        "Manuals are not attached by this tool. Tell the user the device was "
+        "created with its details, then end your answer with a sentence like "
+        "'Please navigate to <link> to search for and download manuals.' "
+        f"where <link> is exactly {link} - keep the href verbatim and use the "
+        "device name as the visible link text (never 'Device #<id>')."
     )
 
 
@@ -364,14 +382,18 @@ async def _delete_guidance(
         if err:
             return err
 
-    link = f"[open the editor for \u201c{row['name']}\u201d](#edit-device-{row['id']})"
+    # The visible text is the device name on purpose - users recognise
+    # "Kitchen Fridge", not "Edit Device #7" (the model must pass this link
+    # through verbatim, see the instruction below).
+    link = f"[{_link_label(row['name'])}](#edit-device-{row['id']})"
     return (
         f"Device id={row['id']} (\"{row['name']}\") was NOT deleted: HomeStew "
         "never lets the assistant delete devices because that also removes "
         "the manuals and custom attributes the user stored. Tell the user to "
         f"confirm it themselves - include this link so one click opens its "
         f"editor in the Devices tab, where the Delete button lives: {link}. "
-        "Do not claim anything was deleted."
+        "Pass the link through verbatim with the device name as its visible "
+        "text (never 'Edit Device #<id>'). Do not claim anything was deleted."
     )
 
 

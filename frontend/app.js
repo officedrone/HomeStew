@@ -18,11 +18,57 @@ if (window.DOMPurify) {
     // (href="#...", e.g. the #edit-device-<id> links the device tool hands
     // back) must stay in-page - they are handled by a click listener.
     DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-        if (node.tagName === 'A' && !(node.getAttribute('href') || '').startsWith('#')) {
-            node.target = '_blank';
-            node.rel = 'noopener noreferrer';
-        }
+        if (node.tagName !== 'A') return;
+        // Internal app links stay in-page: they are routed by handleInternalLink
+        // rather than followed. Checked on the RESOLVED hash because a model may
+        // emit an absolute URL for them (http://host/#fetch-manuals-3).
+        if (internalDeviceLink(node.getAttribute('href'))) return;
+        node.target = '_blank';
+        node.rel = 'noopener noreferrer';
     });
+}
+
+// ---------------------------------------------------------------------------
+// Internal device links handed out by the manage_devices tool.
+// ---------------------------------------------------------------------------
+
+// Maps an anchor href to { action, deviceId }, or null when it is not one of
+// our internal links. Deliberately resolves the href first: small models often
+// write the absolute form ('http://localhost:8000/#fetch-manuals-8') instead of
+// a bare '#fetch-manuals-8', and an attribute-prefix selector would miss it.
+function internalDeviceLink(href) {
+    const raw = String(href || '');
+    if (!raw) return null;
+    let hash;
+    try {
+        const url = new URL(raw, window.location.origin);
+        // Only our own origin counts - never route a link to another host.
+        if (url.origin !== window.location.origin) return null;
+        hash = url.hash;
+    } catch (e) {
+        return null;
+    }
+    const m = /^#(edit-device|fetch-manuals)-(\d+)$/.exec(hash);
+    if (!m) return null;
+    return { action: m[1], deviceId: parseInt(m[2], 10) };
+}
+
+// Click handler for those links, whatever container rendered them (chat bubbles,
+// tool traces, ...). Returns true when the click was consumed.
+function handleInternalLink(e) {
+    const link = e.target.closest && e.target.closest('a');
+    if (!link) return false;
+    const target = internalDeviceLink(link.getAttribute('href'));
+    if (!target) return false;
+    // Never let the browser touch the URL hash: restoreActiveTab() reads it on
+    // the next load and would otherwise reopen this tab/modal state.
+    e.preventDefault();
+    if (target.action === 'fetch-manuals') {
+        openDeviceEditorAndFetchById(target.deviceId);
+    } else {
+        openDeviceEditorById(target.deviceId);
+    }
+    return true;
 }
 
 function renderMarkdown(text) {
@@ -300,17 +346,13 @@ function setupEventListeners() {
     // Chat model warning banner: takes the user straight to the Settings page.
     document.getElementById('chat-open-settings-btn').addEventListener('click', () => switchTab('settings'));
 
-    // Internal links inside chat answers (href="#edit-device-<id>", produced
-    // when the LLM refuses a delete and hands the user the editor instead):
-    // open the Devices tab with that device's edit modal. Delegated because
-    // answer bubbles are created dynamically by the stream renderer.
-    document.getElementById('chat-messages').addEventListener('click', (e) => {
-        const link = e.target.closest('a[href^="#edit-device-"]');
-        if (!link) return;
-        e.preventDefault();
-        const deviceId = parseInt(link.getAttribute('href').slice('#edit-device-'.length), 10);
-        if (!Number.isNaN(deviceId)) openDeviceEditorById(deviceId);
-    });
+    // Internal links produced by the device tool:
+    //   #edit-device-<id>   - the LLM refuses a delete and hands over the editor
+    //   #fetch-manuals-<id> - a freshly created device: open its editor AND start
+    //                         the manual search so the user only has to approve.
+    // Bound on document (capture) rather than on #chat-messages: answers are
+    // rendered dynamically, and links can also appear in tool traces.
+    document.addEventListener('click', handleInternalLink, true);
 
     // Model switcher in the chat toolbar: picking a model saves it right away
     // (same settings the Settings page writes) and re-runs the availability probe.
@@ -1156,6 +1198,16 @@ async function openDeviceEditorById(deviceId) {
         return;
     }
     editDevice(deviceId);
+}
+
+// Chat link "#fetch-manuals-<id>" (handed over right after the LLM creates a
+// device): open that device's editor AND immediately start the manual search,
+// so the user only has to approve which PDFs to store. The Fetch Manuals
+// dialog stacks on top of the edit modal - closing it leaves the editor open.
+async function openDeviceEditorAndFetchById(deviceId) {
+    await openDeviceEditorById(deviceId);
+    if (!devices.some(d => d.id === deviceId)) return;
+    openFetchManuals(deviceId);
 }
 
 async function editDevice(deviceId) {
