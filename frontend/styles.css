@@ -2218,6 +2218,12 @@ details.chat-input-meta {
     gap: 6px;
 }
 
+/* The date-range filter sits next to the device filter and stays compact. */
+.calendar-range-filter {
+    flex: 0 0 auto;
+    max-width: 170px;
+}
+
 .calendar-list {
     display: flex;
     flex-direction: column;
@@ -2692,6 +2698,12 @@ details.chat-input-meta {
     #chat-model-select {
         max-width: none;
         flex: 1 1 100%;
+    }
+
+    #calendar-device-filter,
+    .calendar-range-filter {
+        max-width: none;
+        flex: 1 1 auto;
     }
 }
 

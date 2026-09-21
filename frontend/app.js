@@ -33,8 +33,10 @@ function renderMarkdown(text) {
 
 let devices = [];
 let currentDeviceFilter = null;
-// Calendar tab state: device filter and the currently loaded events.
+// Calendar tab state: device filter, date-range filter and loaded events.
+// The range is a day horizon ('all', 7, 31, 182 or 365) sent as within_days.
 let currentCalendarDeviceFilter = null;
+let currentCalendarRange = 'all';
 let calendarEvents = [];
 // Selected device filter for the AI Chat tab (null = all devices). Mirrors
 // currentDeviceFilter, but scoped to chat so the two tabs stay independent.
@@ -174,6 +176,12 @@ function setupEventListeners() {
     // Calendar: tab filter, new-event button and the event form.
     document.getElementById('calendar-device-filter').addEventListener('change', (e) => {
         currentCalendarDeviceFilter = e.target.value || null;
+        loadCalendarEvents();
+    });
+    // Range filter: 'all' loads every event, otherwise only those due within
+    // the horizon. Overdue events always stay visible so nothing is hidden.
+    document.getElementById('calendar-range-filter').addEventListener('change', (e) => {
+        currentCalendarRange = e.target.value || 'all';
         loadCalendarEvents();
     });
     document.getElementById('add-event-btn').addEventListener('click', () => openEventModal());
@@ -601,7 +609,11 @@ async function loadUpcomingEvents() {
 async function loadCalendarEvents() {
     const container = document.getElementById('calendar-list');
     try {
-        const qs = currentCalendarDeviceFilter ? `?device_id=${currentCalendarDeviceFilter}` : '';
+        const params = new URLSearchParams();
+        if (currentCalendarDeviceFilter) params.set('device_id', currentCalendarDeviceFilter);
+        // 'all' means no horizon: the API returns every event, past or future.
+        if (currentCalendarRange !== 'all') params.set('within_days', currentCalendarRange);
+        const qs = params.toString() ? `?${params}` : '';
         const response = await fetch(`/api/calendar${qs}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         calendarEvents = await response.json();
@@ -616,7 +628,17 @@ function renderCalendarList() {
     const container = document.getElementById('calendar-list');
 
     if (!calendarEvents.length) {
-        container.innerHTML = `
+        // Distinguish "nothing exists" from "nothing in this window", which
+        // would otherwise look like an empty calendar.
+        const rangeLabel = document.getElementById('calendar-range-filter')
+            .selectedOptions[0]?.textContent ?? '';
+        container.innerHTML = currentCalendarRange !== 'all'
+            ? `
+            <div class="empty-state">
+                <p>Nothing due in the next ${escapeHtml(rangeLabel.replace(/^Next\s/i, '').toLowerCase())}.</p>
+                <p>Switch the range filter to "All Events" to see everything.</p>
+            </div>`
+            : `
             <div class="empty-state">
                 <p>No maintenance events yet.</p>
                 <p>Add one to get reminded about things like filter replacements,
