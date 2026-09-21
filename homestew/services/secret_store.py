@@ -106,6 +106,15 @@ def _read_key_file(path: Path) -> Optional[bytes]:
             path, exc.strerror or exc.__class__.__name__,
         )
         return None
+    # A file that is EXACTLY the key length is raw binary key material (this
+    # is how create_generated_master_key stores it): return it verbatim. The
+    # text-decode + strip below would corrupt random bytes - notably a key
+    # whose first/last byte happens to be ASCII whitespace gets shortened by
+    # .strip(), which previously made ~6% of generated keys unreadable and
+    # intermittently failed the runtime-key tests. base64/hex files are 44/64
+    # chars, so they never hit this branch and keep using the text path.
+    if len(raw) == KEY_LENGTH:
+        return raw
     # utf-8-sig strips a BOM some Windows editors add; whitespace/newlines
     # come from echo/openssl output.
     text = raw.decode("utf-8-sig", errors="replace").strip()

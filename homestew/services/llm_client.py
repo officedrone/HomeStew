@@ -1,16 +1,26 @@
-"""LLM client supporting OpenAI-compatible APIs with tool calling."""
+"""LLM client supporting OpenAI-compatible APIs with tool calling.
+
+Tools are wired through a tiny registry: each offered tool is one
+:class:`ToolBinding` (name + JSON schema + async executor). The conversation
+loop builds its ``tools`` list from the bindings and dispatches calls by
+name, so adding a tool means appending one binding where the chat assembles
+them - and removing it is deleting that line. Executors return a normalised
+dict (content/ok/summary/result_count) instead of OpenAI message objects;
+the loop wraps them into the tool-role message.
+"""
 import asyncio
 import logging
 import re
-from typing import Optional, List, Dict, Any, AsyncGenerator
+from dataclasses import dataclass
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, List, Optional
 import json
 
 from homestew.config import settings
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
+    DEFAULT_DEVICE_TOOL_DESCRIPTION,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
-from homestew.services import calendar_tool
 
 logger = logging.getLogger(__name__)
 
@@ -450,54 +460,210 @@ def create_calendar_tool() -> Dict[str, Any]:
     }
 
 
-async def _execute_calendar_tool(
-    tool_call,
-    calendar_func,
-) -> tuple[Dict[str, Any], bool, str]:
-    """Execute a manage_calendar tool call.
+def create_device_tool() -> Dict[str, Any]:
+    """Create the manage_devices tool definition.
 
-    Returns (tool response message, ok, short summary). The summary is a
-    one-line outcome ('Created event id=4') surfaced to the UI's trace and
-    taken from the report itself so model and user always see the same thing.
+    One action-based tool covers the whole device registry (create/update/
+    list/add_attribute/remove_attribute) - same reasoning as
+    create_calendar_tool: small local models choose an action from one well-
+    described schema far more reliably than they juggle several tools.
+    Deletion is intentionally absent; see services/device_tool.py.
     """
-    args = calendar_tool.parse_tool_arguments(tool_call)
-    tc_id = tool_call.id if hasattr(tool_call, 'id') else tool_call.get('id')
+    return {
+        "type": "function",
+        "function": {
+            "name": "manage_devices",
+            # User-editable via Settings > Advanced; falls back to the
+            # built-in default when blank.
+            "description": settings.DEVICE_TOOL_DESCRIPTION
+            or DEFAULT_DEVICE_TOOL_DESCRIPTION,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "create",
+                            "update",
+                            "list",
+                            "add_attribute",
+                            "remove_attribute",
+                            "delete",
+                        ],
+                        "description": (
+                            "What to do: create a device, update an existing "
+                            "one (needs device_id), list devices (to find "
+                            "ids/details), add or remove a custom attribute, "
+                            "or delete - which is refused and returns a link "
+                            "for the user to delete it themselves."
+                        ),
+                    },
+                    "device_id": {
+                        "type": "integer",
+                        "description": (
+                            "The id of the device to update/delete/"
+                            "add_attribute/remove_attribute. Required for "
+                            "those actions; get it from action='list' or the "
+                            "conversation's device list - never invent one."
+                        ),
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Device name, e.g. 'Living Room TV'. Required for create.",
+                    },
+                    "brand": {
+                        "type": "string",
+                        "description": "Manufacturer, e.g. 'Sony'. Required for create.",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Model number/name, e.g. 'XR-65X90J'. Required for create.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional free-text note about the device. Empty string clears it on update.",
+                    },
+                    "serial_number": {
+                        "type": "string",
+                        "description": "Serial number if the user gives one. Empty string clears it on update.",
+                    },
+                    "product_number": {
+                        "type": "string",
+                        "description": "Product/SKU number if given. Empty string clears it on update.",
+                    },
+                    "purchase_date": {
+                        "type": "string",
+                        "description": "Purchase date as ISO YYYY-MM-DD (resolve relative dates against today). Empty string clears it on update.",
+                    },
+                    "warranty_length": {
+                        "type": "integer",
+                        "description": "Warranty length paired with warranty_unit, e.g. 2 + years.",
+                    },
+                    "warranty_unit": {
+                        "type": "string",
+                        "enum": ["days", "months", "years"],
+                        "description": "Unit for warranty_length. The end date is computed automatically from purchase_date.",
+                    },
+                    "warranty_end": {
+                        "type": "string",
+                        "description": "Explicit warranty expiry ISO YYYY-MM-DD; omit to auto-compute from purchase_date + length/unit.",
+                    },
+                    "attribute_name": {
+                        "type": "string",
+                        "description": (
+                            "Custom attribute label for add_attribute/"
+                            "remove_attribute, e.g. 'RAM' or 'Ports'."
+                        ),
+                    },
+                    "attribute_value": {
+                        "type": "string",
+                        "description": "Value stored with attribute_name for add_attribute, e.g. '16GB'.",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    }
+
+
+@dataclass
+class ToolBinding:
+    """One tool offered to the LLM: schema + executor, registered together.
+
+    ``run`` receives the parsed argument dict and returns a normalised
+    result::
+
+        {"content": str,          # full report sent back to the model
+         "ok": bool,              # success flag for the UI trace
+         "summary": str | None,   # one-line outcome (mutation tools)
+         "result_count": int | None}  # hit count (search-style tools)
+
+    Keys may be omitted; the conversation loop applies defaults. Adding a
+    tool to the chat = appending one ToolBinding where bindings are built;
+    removing it = deleting that line. Nothing else knows tool names.
+    """
+
+    name: str
+    schema: Dict[str, Any]
+    run: Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
+
+
+def build_search_binding(search_func) -> ToolBinding:
+    """Bind the search_manuals tool to its (already scoped) search callback."""
+    return ToolBinding(
+        name="search_manuals",
+        schema=create_search_tool(),
+        run=lambda args: _run_search_tool(search_func, args),
+    )
+
+
+def build_calendar_binding(calendar_func) -> ToolBinding:
+    """Bind the manage_calendar tool to its (already scoped) executor."""
+    return ToolBinding(
+        name="manage_calendar",
+        schema=create_calendar_tool(),
+        run=lambda args: _run_report_tool("calendar", calendar_func, args),
+    )
+
+
+def build_device_binding(device_func) -> ToolBinding:
+    """Bind the manage_devices tool to its (already scoped) executor."""
+    return ToolBinding(
+        name="manage_devices",
+        schema=create_device_tool(),
+        run=lambda args: _run_report_tool("device", device_func, args),
+    )
+
+
+def _parse_tool_args(raw: Any) -> Dict[str, Any]:
+    """Parse a streamed tool-call argument string into an argument dict."""
     try:
-        report = await calendar_func(args)
+        args = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return args if isinstance(args, dict) else {}
+
+
+async def _run_report_tool(
+    label: str,
+    report_func,
+    args: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Execute a text-report tool (calendar/device) and normalise the outcome.
+
+    The summary is a one-line outcome ('Created event id=4') surfaced to the
+    UI's trace and taken from the report itself so model and user always see
+    the same thing. ``report_func`` is an async callable(args) -> str; its
+    executors already return errors as text, but a crash still must not end
+    the conversation.
+    """
+    try:
+        report = await report_func(args)
         ok = not report.startswith("Error")
         # First line of the report doubles as the UI summary.
         summary = report.splitlines()[0][:120] if report else "Done"
-        tool_message = {"role": "tool", "content": report, "tool_call_id": tc_id}
-        return tool_message, ok, summary
+        return {"content": report, "ok": ok, "summary": summary}
     except Exception as e:  # noqa: BLE001 - keep the conversation alive
-        logger.error(f"Calendar tool call failed: {e}")
-        tool_message = {
-            "role": "tool",
-            "content": f"Error executing calendar action: {str(e)}",
-            "tool_call_id": tc_id,
+        logger.error(f"{label} tool call failed: {e}")
+        return {
+            "content": f"Error executing {label} action: {str(e)}",
+            "ok": False,
+            "summary": f"{label.capitalize()} action failed",
         }
-        return tool_message, False, "Calendar action failed"
 
 
-async def _execute_search_tool(
-    tool_call,
-    search_func
-) -> tuple[Dict[str, Any], Optional[int]]:
+async def _run_search_tool(
+    search_func,
+    args: Dict[str, Any],
+) -> Dict[str, Any]:
     """
     Execute a search_manuals tool call.
 
-    Returns:
-        Tuple of (tool response message, result count). The count is None
-        when the search itself failed, so callers can tell "no results"
-        apart from "search errored".
+    Returns the normalised result dict. ``result_count`` is None when the
+    search itself failed, so callers can tell "no results" apart from
+    "search errored".
     """
     try:
-        # Parse arguments
-        if hasattr(tool_call, 'function'):
-            args = json.loads(tool_call.function.arguments)
-        else:
-            args = json.loads(tool_call['function']['arguments'])
-
         query = args.get('query', '')
         device_id = args.get('device_id')
 
@@ -572,21 +738,15 @@ async def _execute_search_tool(
                 "a page for them."
             )
 
-        tool_message = {
-            "role": "tool",
-            "content": content,
-            "tool_call_id": tool_call.id if hasattr(tool_call, 'id') else tool_call.get('id')
-        }
-        return tool_message, len(results)
+        return {"content": content, "ok": True, "result_count": len(results)}
 
     except Exception as e:
         logger.error(f"Tool call failed: {e}")
-        tool_message = {
-            "role": "tool",
+        return {
             "content": f"Error executing search: {str(e)}",
-            "tool_call_id": tool_call.id if hasattr(tool_call, 'id') else tool_call.get('id')
+            "ok": False,
+            "result_count": None,
         }
-        return tool_message, None
 
 
 async def handle_tool_call(
@@ -595,24 +755,34 @@ async def handle_tool_call(
 ) -> Dict[str, Any]:
     """
     Handle a tool call from the LLM.
-    
+
+    Kept for direct (non-conversation-loop) callers: parses the call, runs
+    the search executor and wraps the report back into a tool message.
+
     Args:
         tool_call: Tool call object from LLM response
         search_func: Async function to execute search
-        
+
     Returns:
         Tool response message
     """
-    tool_message, _ = await _execute_search_tool(tool_call, search_func)
-    return tool_message
+    if hasattr(tool_call, 'function'):
+        raw = tool_call.function.arguments
+    else:
+        raw = tool_call['function']['arguments']
+    result = await _run_search_tool(search_func, _parse_tool_args(raw))
+    return {
+        "role": "tool",
+        "content": result["content"],
+        "tool_call_id": tool_call.id if hasattr(tool_call, 'id') else tool_call.get('id'),
+    }
 
 
 async def chat_with_tool_events(
     client: LLMClient,
     messages: List[Dict[str, str]],
-    search_func,
+    bindings: List[ToolBinding],
     max_tool_calls: int = 3,
-    calendar_func=None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Chat with tool calling, streaming the model's work as typed SSE events.
@@ -624,8 +794,9 @@ async def chat_with_tool_events(
       - {"type": "content_delta", "delta": str}   - streamed answer text
       - {"type": "tool_call", "id", "name", "arguments"}     - full call once
         its streamed argument fragments are complete
-      - {"type": "tool_result", "id", "ok", "result_count",
-         "summary"?}  - execution outcome (summary: calendar calls only)
+      - {"type": "tool_result", "id", "name", "ok",
+         "result_count", "summary"?}  - execution outcome (summary only when
+        the tool's executor provides one)
       - {"type": "message", "content": str, "used_search": bool,
          "search_results_count": int}             - final answer (terminal)
       - {"type": "done"}                          - stream finished
@@ -636,14 +807,13 @@ async def chat_with_tool_events(
     Args:
         client: LLMClient instance
         messages: Conversation messages
-        search_func: Async function for searching manuals
+        bindings: The tools to offer, each a ToolBinding (schema + executor).
+            An empty list means no tool calling at all. Callers assemble the
+            list - see api/chat.py build_tool_bindings().
         max_tool_calls: Maximum number of tool calls in one conversation
-        calendar_func: Optional async callable(args) -> str executing the
-            manage_calendar tool; when None the tool is not offered at all.
     """
-    tools = [create_search_tool()]
-    if calendar_func is not None:
-        tools.append(create_calendar_tool())
+    by_name = {b.name: b for b in bindings}
+    tools = [b.schema for b in bindings]
     current_messages = list(messages)
     tool_call_count = 0
     # Thinking models occasionally end a turn with only reasoning tokens and
@@ -692,34 +862,39 @@ async def chat_with_tool_events(
                     "arguments": tc_args,
                 }
 
-                # _execute_search_tool accepts plain dicts shaped like this.
-                call_obj = {"id": tc_id, "function": {"name": tc_name, "arguments": tc_args}}
-                result_event: Dict[str, Any]
-                if tc_name == "manage_calendar" and calendar_func is not None:
-                    tool_response, ok, summary = await _execute_calendar_tool(
-                        call_obj, calendar_func
-                    )
+                # Registry dispatch: the binding registered under this name
+                # owns execution; an unknown name (hallucinated by a small
+                # model) is reported back as text instead of crashing.
+                binding = by_name.get(tc_name)
+                if binding is None:
                     result_event = {
                         "type": "tool_result",
                         "id": tc_id,
                         "name": tc_name,
-                        "ok": ok,
+                        "ok": False,
                         "result_count": None,
-                        "summary": summary,
+                        "summary": "Unknown tool",
                     }
-                else:
-                    tool_response, result_count = await _execute_search_tool(
-                        call_obj, search_func
+                    content = (
+                        f"Error: there is no tool named '{tc_name}'. Available "
+                        "tools: " + ", ".join(by_name) + "."
                     )
+                else:
+                    result = await binding.run(_parse_tool_args(tc_args))
+                    content = result.get("content", "")
+                    summary = result.get("summary")
                     result_event = {
                         "type": "tool_result",
                         "id": tc_id,
                         "name": tc_name,
-                        "ok": result_count is not None,
-                        "result_count": result_count,
+                        "ok": bool(result.get("ok")),
+                        "result_count": result.get("result_count"),
                     }
+                    if summary:
+                        result_event["summary"] = summary
 
                 yield result_event
+                tool_response = {"role": "tool", "content": content, "tool_call_id": tc_id}
 
                 # Echo metadata (strict OpenAI-compatible servers, e.g.
                 # llama.cpp, match the tool reply against this call and
@@ -786,9 +961,8 @@ async def chat_with_tool_events(
 async def chat_with_tool_support(
     client: LLMClient,
     messages: List[Dict[str, str]],
-    search_func,
+    bindings: List[ToolBinding],
     max_tool_calls: int = 3,
-    calendar_func=None,
 ) -> tuple[str, bool, int]:
     """
     Chat with automatic tool calling support.
@@ -799,7 +973,7 @@ async def chat_with_tool_support(
     Args:
         client: LLMClient instance
         messages: Conversation messages
-        search_func: Async function for searching manuals
+        bindings: The tools to offer (see chat_with_tool_events).
         max_tool_calls: Maximum number of tool calls in one conversation
         
     Returns:
@@ -810,7 +984,7 @@ async def chat_with_tool_support(
     result_count = 0
 
     async for event in chat_with_tool_events(
-        client, messages, search_func, max_tool_calls, calendar_func=calendar_func
+        client, messages, bindings, max_tool_calls
     ):
         if event.get("type") == "message":
             content = event["content"]

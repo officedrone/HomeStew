@@ -200,6 +200,12 @@ class SettingsResponse(BaseModel):
     calendar_tool_description_default: str = Field(
         ..., description="Built-in default for calendar_tool_description (Restore Default)"
     )
+    device_tool_description: str = Field(
+        ..., description="Description of the manage_devices tool shown to the LLM"
+    )
+    device_tool_description_default: str = Field(
+        ..., description="Built-in default for device_tool_description (Restore Default)"
+    )
     notify_enabled: bool = Field(..., description="Background due-event notifier on/off")
     notify_check_interval_minutes: int = Field(
         ..., description="How often the notifier loop scans the calendar"
@@ -292,6 +298,9 @@ class SettingsUpdate(BaseModel):
     )
     calendar_tool_description: Optional[str] = Field(
         None, max_length=4000, description="Custom manage_calendar tool description"
+    )
+    device_tool_description: Optional[str] = Field(
+        None, max_length=4000, description="Custom manage_devices tool description"
     )
     notify_enabled: Optional[bool] = None
     notify_check_interval_minutes: Optional[int] = Field(

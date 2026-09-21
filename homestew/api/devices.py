@@ -1,7 +1,6 @@
 """Device management API endpoints."""
 import logging
 import re
-from datetime import timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
@@ -10,8 +9,8 @@ from typing import List
 from homestew.config import settings
 from homestew.db import get_db_context
 from homestew.models.schemas import Device, DeviceCreate, DeviceResponse, DeviceAttribute, Manual
-from homestew.services.calendar_engine import add_months
 from homestew.services.indexer import index_manual
+from homestew.services.warranty import warranty_fields
 
 logger = logging.getLogger(__name__)
 
@@ -35,26 +34,15 @@ def _warranty_fields(device: DeviceCreate) -> tuple:
 
     ``warranty_end`` is taken from the request when provided; otherwise it is
     computed from purchase date + warranty length/unit (months/years clamp
-    the day-of-month, e.g. Jan 31 + 1 month -> Feb 28).
+    the day-of-month, e.g. Jan 31 + 1 month -> Feb 28). The arithmetic lives
+    in services/warranty.py so the LLM device tool applies the same rule.
     """
-    purchase = device.purchase_date.isoformat() if device.purchase_date else None
-    length = device.warranty_length
-    unit = device.warranty_unit
-    end = device.warranty_end.isoformat() if device.warranty_end else None
-    if (
-        end is None
-        and device.purchase_date is not None
-        and length is not None
-        and unit in ("days", "months", "years")
-    ):
-        if unit == "days":
-            computed = device.purchase_date + timedelta(days=length)
-        elif unit == "months":
-            computed = add_months(device.purchase_date, length)
-        else:  # years
-            computed = add_months(device.purchase_date, 12 * length)
-        end = computed.isoformat()
-    return purchase, length, unit, end
+    return warranty_fields(
+        device.purchase_date,
+        device.warranty_length,
+        device.warranty_unit,
+        device.warranty_end,
+    )
 
 
 def _row_to_response(row, manual_count: int, attributes=None) -> DeviceResponse:

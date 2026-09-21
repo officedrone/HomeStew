@@ -13,11 +13,15 @@ from homestew.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
 from homestew.models.schemas import ChatRequest, ChatMessage, ChatResponse
 from homestew.services.llm_client import (
     LLMClient,
+    ToolBinding,
+    build_calendar_binding,
+    build_device_binding,
+    build_search_binding,
     chat_with_tool_support,
     chat_with_tool_events,
 )
 from homestew.services.search_engine import search_manuals
-from homestew.services import calendar_service, calendar_tool
+from homestew.services import calendar_service, calendar_tool, device_tool
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +333,39 @@ def scoped_calendar_func(device_id: Optional[int]):
     return _calendar
 
 
+def scoped_device_func(device_id: Optional[int]):
+    """Device-tool callback with the chat's device filter applied.
+
+    Same scope rule as the other tools: in a device-filtered conversation
+    only that device may be updated or annotated (creating stays allowed -
+    it touches no existing record). See device_tool for the action
+    semantics, incl. why deletion is refused with an editor link instead.
+    """
+
+    async def _device(args: Dict[str, Any]) -> str:
+        return await device_tool.execute_device_tool(args, device_id)
+
+    return _device
+
+
+def build_tool_bindings(
+    device_id: Optional[int], valid_ids: List[int]
+) -> List[ToolBinding]:
+    """Assemble the tools offered to the LLM for one conversation.
+
+    This is THE registration point: adding a tool means appending one
+    binding here, removing it means deleting that line - nothing else in
+    the chat pipeline knows individual tool names. Every callback closes
+    over the request's device filter so scope can never be widened by a
+    tool argument.
+    """
+    return [
+        build_search_binding(scoped_search_func(device_id, valid_ids)),
+        build_calendar_binding(scoped_calendar_func(device_id)),
+        build_device_binding(scoped_device_func(device_id)),
+    ]
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Send a chat message and get LLM response with manual search capability."""
@@ -369,12 +406,11 @@ async def chat(request: ChatRequest):
         if messages[0]['role'] != 'system':
             messages.insert(0, {"role": "system", "content": system_prompt})
 
-        # Chat with tool support
+        # Chat with tool support (tools assembled in build_tool_bindings).
         response_text, used_search, search_count = await chat_with_tool_support(
             client=client,
             messages=messages,
-            search_func=scoped_search_func(request.device_id, valid_ids),
-            calendar_func=scoped_calendar_func(request.device_id),
+            bindings=build_tool_bindings(request.device_id, valid_ids),
             max_tool_calls=8
         )
         
@@ -438,8 +474,7 @@ async def chat_stream(request: ChatRequest):
             async for event in chat_with_tool_events(
                 client=client,
                 messages=messages,
-                search_func=scoped_search_func(request.device_id, valid_ids),
-                calendar_func=scoped_calendar_func(request.device_id),
+                bindings=build_tool_bindings(request.device_id, valid_ids),
                 max_tool_calls=8
             ):
                 # json.dumps keeps each frame on a single line, as SSE requires.

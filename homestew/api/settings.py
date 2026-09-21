@@ -18,6 +18,7 @@ from homestew.config import (
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
+    DEFAULT_DEVICE_TOOL_DESCRIPTION,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
 from homestew.models.schemas import (
@@ -81,9 +82,11 @@ def _current_settings() -> SettingsResponse:
         chat_system_prompt=settings.CHAT_SYSTEM_PROMPT,
         search_tool_description=settings.SEARCH_TOOL_DESCRIPTION,
         calendar_tool_description=settings.CALENDAR_TOOL_DESCRIPTION,
+        device_tool_description=settings.DEVICE_TOOL_DESCRIPTION,
         chat_system_prompt_default=DEFAULT_CHAT_SYSTEM_PROMPT,
         search_tool_description_default=DEFAULT_SEARCH_TOOL_DESCRIPTION,
         calendar_tool_description_default=DEFAULT_CALENDAR_TOOL_DESCRIPTION,
+        device_tool_description_default=DEFAULT_DEVICE_TOOL_DESCRIPTION,
         notify_enabled=settings.NOTIFY_ENABLED,
         notify_check_interval_minutes=settings.NOTIFY_CHECK_INTERVAL_MINUTES,
         notify_lead_value=settings.NOTIFY_LEAD_VALUE,
@@ -164,6 +167,10 @@ async def update_settings(update: SettingsUpdate):
     if update.calendar_tool_description is not None:
         changes["CALENDAR_TOOL_DESCRIPTION"] = (
             update.calendar_tool_description.strip() or DEFAULT_CALENDAR_TOOL_DESCRIPTION
+        )
+    if update.device_tool_description is not None:
+        changes["DEVICE_TOOL_DESCRIPTION"] = (
+            update.device_tool_description.strip() or DEFAULT_DEVICE_TOOL_DESCRIPTION
         )
 
     # Notifications: the notifier loop re-reads these each tick, so saving is

@@ -14,9 +14,11 @@ if (window.marked) {
 }
 if (window.DOMPurify) {
     // Open manual/citation links in a new tab so the chat is never lost,
-    // and strip referrer info from outbound links.
+    // and strip referrer info from outbound links. Internal app links
+    // (href="#...", e.g. the #edit-device-<id> links the device tool hands
+    // back) must stay in-page - they are handled by a click listener.
     DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-        if (node.tagName === 'A') {
+        if (node.tagName === 'A' && !(node.getAttribute('href') || '').startsWith('#')) {
             node.target = '_blank';
             node.rel = 'noopener noreferrer';
         }
@@ -297,6 +299,18 @@ function setupEventListeners() {
 
     // Chat model warning banner: takes the user straight to the Settings page.
     document.getElementById('chat-open-settings-btn').addEventListener('click', () => switchTab('settings'));
+
+    // Internal links inside chat answers (href="#edit-device-<id>", produced
+    // when the LLM refuses a delete and hands the user the editor instead):
+    // open the Devices tab with that device's edit modal. Delegated because
+    // answer bubbles are created dynamically by the stream renderer.
+    document.getElementById('chat-messages').addEventListener('click', (e) => {
+        const link = e.target.closest('a[href^="#edit-device-"]');
+        if (!link) return;
+        e.preventDefault();
+        const deviceId = parseInt(link.getAttribute('href').slice('#edit-device-'.length), 10);
+        if (!Number.isNaN(deviceId)) openDeviceEditorById(deviceId);
+    });
 
     // Model switcher in the chat toolbar: picking a model saves it right away
     // (same settings the Settings page writes) and re-runs the availability probe.
@@ -1126,6 +1140,22 @@ async function handleAddDevice(e) {
     } finally {
         endOp('add-device');
     }
+}
+
+// Open a device's edit modal from anywhere (chat links): make sure the
+// device list is fresh first — editDevice() reads the in-memory `devices`
+// array, which may predate a device the LLM just created.
+async function openDeviceEditorById(deviceId) {
+    if (!devices.some(d => d.id === deviceId)) {
+        await loadDevices();
+    }
+    switchTab('devices');
+    const device = devices.find(d => d.id === deviceId);
+    if (!device) {
+        showToast(`Device ${deviceId} no longer exists`, 'error');
+        return;
+    }
+    editDevice(deviceId);
 }
 
 async function editDevice(deviceId) {
@@ -2031,7 +2061,7 @@ function createStreamRenderer() {
             try {
                 const parsed = JSON.parse(event.arguments || '{}');
                 if (parsed.query) argPreview = `: ${parsed.query}`;
-                else if (event.name === 'manage_calendar')
+                else if (event.name === 'manage_calendar' || event.name === 'manage_devices')
                     // "manage_calendar: create" reads better than raw JSON.
                     argPreview = `: ${parsed.action || ''}`;
                 else if (Object.keys(parsed).length) argPreview = `: ${event.arguments}`;
@@ -2067,7 +2097,19 @@ function createStreamRenderer() {
         finishToolCall(event) {
             const entry = toolCallEls.get(event.id);
             if (!entry) return;
-            if (event.name === 'manage_calendar') {
+            if (event.name === 'manage_devices') {
+                // Device mutations report a one-line outcome; on success the
+                // sidebar / Devices grid must show it live. loadDevices()
+                // refreshes both plus the chat device filters.
+                if (event.ok) {
+                    entry.resultLine.textContent = event.summary || 'Done';
+                    entry.resultLine.classList.remove('pending');
+                    loadDevices();
+                } else {
+                    entry.resultLine.textContent = event.summary || 'Device action failed';
+                    entry.resultLine.classList.add('failed');
+                }
+            } else if (event.name === 'manage_calendar') {
                 // Calendar calls report a one-line outcome from the backend
                 // instead of a result count.
                 if (event.ok) {
@@ -2695,6 +2737,7 @@ const PROMPT_FIELD_IDS = {
     chat_system_prompt: 'settings-chat-system-prompt',
     search_tool_description: 'settings-search-tool-description',
     calendar_tool_description: 'settings-calendar-tool-description',
+    device_tool_description: 'settings-device-tool-description',
 };
 
 function restorePromptDefault(settingName) {
@@ -2767,6 +2810,7 @@ async function loadSettingsPage() {
         chat_system_prompt: settings.chat_system_prompt_default || '',
         search_tool_description: settings.search_tool_description_default || '',
         calendar_tool_description: settings.calendar_tool_description_default || '',
+        device_tool_description: settings.device_tool_description_default || '',
     };
     document.getElementById('settings-chat-system-prompt').value =
         settings.chat_system_prompt || '';
@@ -2774,6 +2818,8 @@ async function loadSettingsPage() {
         settings.search_tool_description || '';
     document.getElementById('settings-calendar-tool-description').value =
         settings.calendar_tool_description || '';
+    document.getElementById('settings-device-tool-description').value =
+        settings.device_tool_description || '';
     // Notifications: enable toggle, cadence, lead time and webhook fields.
     document.getElementById('settings-notify-enabled').checked = !!settings.notify_enabled;
     document.getElementById('settings-notify-interval').value =
@@ -3024,6 +3070,7 @@ async function handleSettingsSave(event) {
         chat_system_prompt: document.getElementById('settings-chat-system-prompt').value.trim(),
         search_tool_description: document.getElementById('settings-search-tool-description').value.trim(),
         calendar_tool_description: document.getElementById('settings-calendar-tool-description').value.trim(),
+        device_tool_description: document.getElementById('settings-device-tool-description').value.trim(),
         notify_enabled: document.getElementById('settings-notify-enabled').checked,
         notify_check_interval_minutes:
             clampInt(document.getElementById('settings-notify-interval').value, 1, 1440, 15),

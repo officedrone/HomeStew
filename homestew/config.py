@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
+    DEFAULT_DEVICE_TOOL_DESCRIPTION,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
 from homestew.services.secret_store import (
@@ -31,6 +32,7 @@ EDITABLE_SETTINGS = (
     "CHAT_SYSTEM_PROMPT",
     "SEARCH_TOOL_DESCRIPTION",
     "CALENDAR_TOOL_DESCRIPTION",
+    "DEVICE_TOOL_DESCRIPTION",
     "NOTIFY_ENABLED",
     "NOTIFY_CHECK_INTERVAL_MINUTES",
     "NOTIFY_LEAD_VALUE",
@@ -90,6 +92,7 @@ class Settings(BaseSettings):
     CHAT_SYSTEM_PROMPT: str = DEFAULT_CHAT_SYSTEM_PROMPT
     SEARCH_TOOL_DESCRIPTION: str = DEFAULT_SEARCH_TOOL_DESCRIPTION
     CALENDAR_TOOL_DESCRIPTION: str = DEFAULT_CALENDAR_TOOL_DESCRIPTION
+    DEVICE_TOOL_DESCRIPTION: str = DEFAULT_DEVICE_TOOL_DESCRIPTION
 
     # Notifications - a background loop (services/notifier.py) checks calendar
     # events every NOTIFY_CHECK_INTERVAL_MINUTES minutes and alerts when one is
