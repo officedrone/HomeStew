@@ -2642,13 +2642,22 @@ function currentThemePref() {
     }
 }
 
-// Apply a theme preference everywhere it matters: the live document and the
-// localStorage mirror used before first paint. The server-side copy is saved
-// by the Settings page.
+// Apply a theme preference everywhere it matters: the live document, the
+// localStorage mirror used before first paint, and the Settings > General
+// radio group. The server-side copy is saved by the Settings page.
 function setThemePref(pref) {
     if (!THEME_ORDER.includes(pref)) pref = 'auto';
     try { localStorage.setItem('theme', pref); } catch (e) { /* private mode */ }
     applyTheme();
+    syncThemeRadios(pref);
+}
+
+// Reflect the active preference in the Settings > General radio group so the
+// correct option is selected when the page loads (and after a save).
+function syncThemeRadios(pref) {
+    const checked = document.querySelector(
+        `#settings-form input[name="theme"][value="${pref}"]`);
+    if (checked) checked.checked = true;
 }
 
 function applyTheme() {
