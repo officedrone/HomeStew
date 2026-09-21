@@ -2020,6 +2020,31 @@ details.chat-input-meta {
     flex-shrink: 0;
 }
 
+/* "Test Connection" button + inline result label under the LLM key field */
+.conn-test-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.conn-test-result {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.conn-test-result:empty {
+    display: none;
+}
+
+.conn-test-result.ok {
+    color: var(--success);
+}
+
+.conn-test-result.error {
+    color: var(--error);
+    font-weight: 400;
+}
+
 /* Obsured placeholder signalling a configured API key */
 .settings-field input::placeholder {
     letter-spacing: 2px;

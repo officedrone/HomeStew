@@ -322,6 +322,11 @@ function setupEventListeners() {
     });
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
+    document.getElementById('test-connection-btn').addEventListener('click', () => testLlmConnection({
+        urlId: 'settings-llm-base-url', keyId: 'settings-llm-api-key',
+        btnId: 'test-connection-btn', resultId: 'settings-conn-test-result',
+    }));
+    resetConnTestOnEdit('settings-llm-base-url', 'settings-llm-api-key', 'settings-conn-test-result');
     document.getElementById('test-webhook-btn').addEventListener('click', () => sendTestNotification());
     // "Remove" buttons next to the write-only secret fields schedule deletion
     // for save; typing into a cleared field cancels that removal (without
@@ -374,6 +379,11 @@ function setupEventListeners() {
     document.getElementById('wizard-skip-btn').addEventListener('click', handleWizardSkip);
     document.getElementById('wizard-save-btn').addEventListener('click', handleWizardSave);
     document.getElementById('wizard-fetch-models-btn').addEventListener('click', fetchWizardLlmModels);
+    document.getElementById('wizard-test-connection-btn').addEventListener('click', () => testLlmConnection({
+        urlId: 'wizard-llm-base-url', keyId: 'wizard-llm-api-key',
+        btnId: 'wizard-test-connection-btn', resultId: 'wizard-conn-test-result',
+    }));
+    resetConnTestOnEdit('wizard-llm-base-url', 'wizard-llm-api-key', 'wizard-conn-test-result');
 
     // Escape closes any open modal, or the mobile drawer when none is open.
     document.addEventListener('keydown', (e) => {
@@ -2900,6 +2910,12 @@ async function loadSettingsPage() {
     renderSecretField('notify_webhook_token');
     document.getElementById('webhook-test-hint').textContent = '';
 
+    // Connection-test status describes a previous probe; clear it so reopening
+    // Settings never shows a stale "Connection Successful".
+    const connResult = document.getElementById('settings-conn-test-result');
+    connResult.className = 'conn-test-result';
+    connResult.textContent = '';
+
     // Advanced: master-key status + create/delete buttons.
     renderAdvancedKeyPanel(settings);
 
@@ -3027,6 +3043,76 @@ async function fetchLlmModels({ openPicker = false } = {}) {
     } finally {
         modelRefreshInFlight = false;
         btn.disabled = false;
+    }
+}
+
+// "Test Connection": probes the LLM server's /models endpoint with whatever
+// base URL / API key are currently in the form (saved or freshly typed),
+// reusing the same /api/settings/models call as the "Models" button. A 200
+// means the server answered, so we report success even when it lists no
+// models - reachability is what this checks. Shared by Settings and the wizard.
+let connTestInFlight = false;
+
+async function testLlmConnection({ urlId, keyId, btnId, resultId }) {
+    if (connTestInFlight) return;
+
+    const btn = document.getElementById(btnId);
+    const result = document.getElementById(resultId);
+    const baseUrl = document.getElementById(urlId).value.trim();
+    if (!baseUrl) {
+        result.className = 'conn-test-result error';
+        result.textContent = 'Enter the LLM Base URL first.';
+        return;
+    }
+
+    const payload = { llm_base_url: baseUrl };
+    // Only send a freshly typed key. If blank, the server probes with the
+    // saved key - but only when the URL matches the saved base URL (a foreign
+    // URL never receives the stored credential).
+    const keyInput = document.getElementById(keyId);
+    if (keyInput && keyInput.value.trim()) {
+        payload.llm_api_key = keyInput.value.trim();
+    }
+
+    connTestInFlight = true;
+    btn.disabled = true;
+    result.className = 'conn-test-result';
+    result.textContent = 'Testing...';
+    try {
+        const response = await fetch('/api/settings/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            let detail = `HTTP ${response.status}`;
+            try {
+                const data = await response.json();
+                if (data.detail) detail = data.detail;
+            } catch (e) { /* non-JSON error body */ }
+            throw new Error(detail);
+        }
+        result.className = 'conn-test-result ok';
+        result.textContent = 'Connection Successful';
+    } catch (error) {
+        result.className = 'conn-test-result error';
+        result.textContent = error.message;
+    } finally {
+        connTestInFlight = false;
+        btn.disabled = false;
+    }
+}
+
+// Clear a stale "Connection Successful"/error label once the URL or key it
+// described is edited, so the status never outlives the settings shown.
+function resetConnTestOnEdit(urlId, keyId, resultId) {
+    const result = document.getElementById(resultId);
+    for (const id of [urlId, keyId]) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', () => {
+            result.className = 'conn-test-result';
+            result.textContent = '';
+        });
     }
 }
 

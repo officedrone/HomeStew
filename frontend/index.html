@@ -273,6 +273,14 @@
                                 </div>
                                 <p class="settings-hint" id="settings-api-key-hint"></p>
                             </div>
+                            <!-- Connection test: probes the base URL's /models
+                                 endpoint with whatever URL/key are in the form. -->
+                            <div class="settings-field">
+                                <div class="conn-test-row">
+                                    <button type="button" class="btn btn-secondary" id="test-connection-btn" title="Check the LLM server is reachable with these settings">Test Connection</button>
+                                    <span class="conn-test-result" id="settings-conn-test-result" role="status"></span>
+                                </div>
+                            </div>
                             <div class="settings-field">
                                 <label for="settings-llm-model">LLM Model</label>
                                 <div class="model-row">
@@ -641,6 +649,14 @@
                 <div class="settings-field">
                     <label for="wizard-llm-api-key">API Key (optional)</label>
                     <input type="password" id="wizard-llm-api-key" autocomplete="new-password" placeholder="Not needed for local servers">
+                </div>
+                <!-- Connection test: probes the base URL's /models endpoint
+                     with whatever URL/key are typed (unsaved is fine). -->
+                <div class="settings-field">
+                    <div class="conn-test-row">
+                        <button type="button" class="btn btn-secondary" id="wizard-test-connection-btn" title="Check the LLM server is reachable with these settings">Test Connection</button>
+                        <span class="conn-test-result" id="wizard-conn-test-result" role="status"></span>
+                    </div>
                 </div>
                 <div class="settings-field">
                     <label for="wizard-llm-model">LLM Model</label>
