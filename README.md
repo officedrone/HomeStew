@@ -226,11 +226,11 @@ call requires a valid session, so there is no way to reach the app without it.
   browser (and the token itself expires after 12 hours regardless). Log out any
   time from the sidebar.
 - **The password hash** is stored in `settings.json` in the data volume, hashed
-  with `scrypt`. It is deliberately *not* encrypted with the secrets master key
+  with `scrypt`. It is deliberately _not_ encrypted with the secrets master key
   (deleting that key would otherwise disable login), and it never leaves the
   server — no endpoint returns it.
 - **Changing the password** under **Settings > Advanced** requires the current
-  one and immediately signs out every *other* browser (the session signing key
+  one and immediately signs out every _other_ browser (the session signing key
   is derived from the hash). Your current browser stays signed in.
 - **Failed logins** are throttled: after `Max Failed Attempts` consecutive
   failures from one device, further attempts are refused for `Lockout Minutes`.
