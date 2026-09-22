@@ -67,8 +67,8 @@ function renderAuthGate(mode) {
     document.getElementById('auth-title').textContent =
         create ? 'Create your account' : 'Welcome back';
     document.getElementById('auth-subtitle').textContent = create
-        ? 'HomeStew is protected by a single password. Create it now to continue - this step cannot be skipped.'
-        : 'Enter your HomeStew password to unlock the app.';
+        ? 'Welcome! Please create your HomeStew password below'
+        : 'Please Enter your HomeStew password.';
     const btn = document.getElementById('auth-submit-btn');
     btn.textContent = create ? 'Create Account' : 'Sign In';
     btn.disabled = false;

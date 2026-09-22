@@ -47,7 +47,7 @@
             </div>
             <div class="logo content-only">
                 <h1>HomeStew</h1>
-                <p class="tagline">Device Information Management</p>
+                <p class="tagline">Home Maintenance Helper</p>
             </div>
 
             <!-- Tab navigation: same icon-btn pattern as the Settings row -
@@ -764,7 +764,7 @@
     <div id="setup-wizard-modal" class="modal">
         <div class="modal-content setup-wizard-content">
             <h2>Welcome to HomeStew</h2>
-            <p class="wizard-subtitle">A few one-time steps &mdash; you can skip any of them.</p>
+            <p class="wizard-subtitle">This is our first-run setup wizard. Please follow the prompts to get started.</p>
 
             <!-- Step progress dots, rebuilt by renderWizardProgress(). -->
             <div id="wizard-progress" class="wizard-progress" role="list"></div>
@@ -778,8 +778,7 @@
                     data volume.
                 </p>
                 <p class="wizard-text">
-                    Creating it generates a random key inside your data volume
-                    (<code>/data/.secrets_key</code>). This is a one-time step &mdash; after it,
+                    Creating it generates a random key which is used to encrypt your secrets This is a one-time step. Once the key is created
                     every saved secret is encrypted at rest. You can also manage the key later
                     under Settings &gt; Advanced.
                 </p>
@@ -789,14 +788,16 @@
             <section class="wizard-step" id="wizard-step-llm" hidden>
                 <h3>Connect your AI model</h3>
                 <p class="wizard-text">
-                    Chat and manual search run on an OpenAI-compatible server you control
-                    (Ollama, LM Studio, llama.cpp, or a hosted provider). Point HomeStew at it
+                    HomeStew works best when connected to an LLM (Large Language Model)! We support any OpenAI-compatible endpoint (e.g.,
+                    Ollama, LM Studio, llama.cpp, or a hosted provider). Point HomeStew at it
                     and pick a model. You can change this later under Settings &gt; AI.
+                </p>
+                <p class="wizard-text">
+                     You can change this later under Settings &gt; AI.
                 </p>
                 <div class="settings-field">
                     <label for="wizard-llm-base-url">LLM Base URL</label>
                     <input type="text" id="wizard-llm-base-url" placeholder="e.g., http://localhost:11434/v1">
-                    <p class="settings-hint">For Ollama on the same machine as the container, use your host's address (e.g. <code>http://host.docker.internal:11434/v1</code>).</p>
                 </div>
                 <div class="settings-field">
                     <label for="wizard-llm-api-key">API Key (optional)</label>
@@ -824,8 +825,8 @@
             <section class="wizard-step" id="wizard-step-device" hidden>
                 <h3>Add your first device</h3>
                 <p class="wizard-text">
-                    HomeStew organises manuals, search and maintenance reminders around your
-                    devices. Add one now &mdash; manuals can be downloaded or uploaded later
+                    HomeStew organises manuals, search and maintenance reminders around for your
+                    devices and appliances. Feel free to add a device or appliance now! You can then fetch manuals from the internet or manually upload them to HomeStew later
                     from the device's Edit dialog.
                 </p>
                 <div class="settings-field">
