@@ -1,5 +1,6 @@
 """Pydantic models for API requests and responses."""
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, model_validator
 from datetime import date, datetime, time
 from typing import Literal, Optional
 
@@ -133,10 +134,54 @@ class ManualSearchResponse(BaseModel):
     error_detail: Optional[str] = None
 
 
+# Vision support: user messages may carry inline images as data URLs.
+# The frontend downscales photos before sending (canvas -> JPEG q~0.85),
+# so a few MB of base64 per image is the realistic worst case; anything
+# bigger is rejected instead of bloating every LLM request.
+MAX_CHAT_IMAGES = 4
+MAX_IMAGE_DATA_URL_CHARS = 4_000_000
+_IMAGE_DATA_URL_RE = re.compile(
+    r"^data:image/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=\s]+$"
+)
+
+
 class ChatMessage(BaseModel):
-    """Chat message model."""
+    """Chat message model.
+
+    ``images`` carries optional data URLs (``data:image/jpeg;base64,...``)
+    for vision models. Only the newest user turn's images are forwarded to
+    the LLM - older ones collapse to a text placeholder in api/chat.py so
+    conversation history stays small for local models with tight context.
+    """
     role: str = Field(..., pattern="^(user|assistant|system)$")
-    content: str = Field(..., min_length=1)
+    # No min_length: an image-only message has empty text. The validator
+    # below guarantees at least one of text/images is present.
+    content: str = Field("", max_length=20000)
+    images: list[str] = Field(
+        default_factory=list,
+        description="Optional inline images as data:image/...;base64 URLs",
+    )
+
+    @model_validator(mode="after")
+    def _validate_text_or_images(self):
+        # An empty message is only meaningful when it carries an image.
+        if not self.content.strip() and not self.images:
+            raise ValueError("Message must contain text or at least one image")
+        if self.images and self.role != "user":
+            raise ValueError("Only user messages may carry images")
+        if len(self.images) > MAX_CHAT_IMAGES:
+            raise ValueError(f"At most {MAX_CHAT_IMAGES} images per message")
+        for url in self.images:
+            if len(url) > MAX_IMAGE_DATA_URL_CHARS:
+                raise ValueError("Attached image is too large")
+            # Reject anything that is not an inline raster data URL: no
+            # remote URLs (the LLM server may not fetch them, and it would
+            # turn the chat into an SSRF vector), no non-image types.
+            if not _IMAGE_DATA_URL_RE.match(url):
+                raise ValueError(
+                    "Images must be inline data:image/(png|jpeg|webp|gif);base64 URLs"
+                )
+        return self
 
 
 class ChatRequest(BaseModel):

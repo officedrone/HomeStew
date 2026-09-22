@@ -3,6 +3,7 @@ import json
 import logging
 from datetime import date as _date
 
+import requests as _requests
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
@@ -10,7 +11,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 from homestew.config import settings
 from homestew.db import get_db_context
 from homestew.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
-from homestew.models.schemas import ChatRequest, ChatMessage, ChatResponse
+from homestew.models.schemas import ChatMessage, ChatRequest, ChatResponse
 from homestew.services.llm_client import (
     LLMClient,
     ToolBinding,
@@ -372,10 +373,95 @@ def build_tool_bindings(
     ]
 
 
+# Markers that identify a server-side "this model cannot see images" error.
+# Checked case-insensitively against the exception text from the OpenAI SDK /
+# requests fallback; when one hits, the raw upstream message (often a
+# confusing 400 dump) is replaced by actionable guidance for the user.
+_VISION_ERROR_MARKERS = (
+    "does not support images",
+    "does not support image",
+    "not support vision",
+    "no vision",
+    "image input",
+    "unsupported modality",
+    "invalideventtypeimagetype",
+)
+
+
+def friendly_llm_error(exc: Exception) -> str:
+    """Map a raw LLM failure to a user-facing message.
+
+    The most common image-related failure is a text-only model (the default
+    llama3.2 cannot see images at all); Ollama answers with a 400 whose text
+    mentions image support, so those get pointed at the model switcher in
+    Settings instead of being shown the raw server dump.
+    """
+    detail = str(exc)
+    lowered = detail.lower()
+    if any(marker in lowered for marker in _VISION_ERROR_MARKERS) or (
+        isinstance(exc, _requests.HTTPError)
+        and exc.response is not None
+        and exc.response.status_code == 400
+        and "image" in lowered
+    ):
+        return (
+            "The selected model cannot read images. Switch to a vision model "
+            "(e.g. qwen3-vl, llava or gemma3) under Settings > AI, or remove "
+            "the attached image and ask again."
+        )
+    return f"Chat processing failed: {detail}"
+
+
+def to_openai_messages(
+    messages: List[ChatMessage],
+) -> List[Dict[str, Any]]:
+    """Convert chat history into OpenAI message dicts (vision-aware).
+
+    Plain text messages keep the classic string content. A user message that
+    carries images becomes a multimodal array - ``{type:"text"}`` plus one
+    ``{type:"image_url"}`` part per data URL - which is the shape Ollama's
+    OpenAI-compatible endpoint expects for vision (base64 data URLs only;
+    remote image URLs are not fetched by local servers).
+
+    Only the LAST user message keeps its images: every earlier image turn
+    collapses to ``content + "\n[image attached]"``. Re-sending base64 blobs
+    on each follow-up would multiply request size and blow out the context
+    window of small local models, while the model rarely needs to re-examine
+    an older photo.
+    """
+    last_user_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "user":
+            last_user_idx = i
+            break
+
+    out: List[Dict[str, Any]] = []
+    for i, msg in enumerate(messages):
+        if not (msg.images and i == last_user_idx):
+            content: Any = msg.content
+            if msg.images:
+                # Older image turn: keep a trace so the model knows a photo
+                # was part of the conversation without paying for its bytes.
+                content = f"{msg.content}\n[image attached]".strip()
+            out.append({"role": msg.role, "content": content})
+            continue
+
+        parts: List[Dict[str, Any]] = []
+        if msg.content.strip():
+            parts.append({"type": "text", "text": msg.content})
+        for url in msg.images:
+            # Ollama accepts the bare data-URL string here too; the nested
+            # object is the OpenAI shape and works on both backends.
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        out.append({"role": msg.role, "content": parts})
+    return out
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Send a chat message and get LLM response with manual search capability."""
-    if not request.messages or not request.messages[-1].content:
+    last = request.messages[-1] if request.messages else None
+    if last is None or (not last.content.strip() and not last.images):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Message content cannot be empty"
@@ -389,11 +475,8 @@ async def chat(request: ChatRequest):
     try:
         client = get_llm_client()
 
-        # Convert to OpenAI message format
-        messages = [
-            {"role": msg.role, "content": msg.content}
-            for msg in request.messages
-        ]
+        # Convert to OpenAI message format (multimodal when images attached)
+        messages = to_openai_messages(request.messages)
 
         # Add system prompt if needed (user-editable via Settings > Advanced
         # Settings; a blank value falls back to the built-in default).
@@ -430,7 +513,7 @@ async def chat(request: ChatRequest):
         logger.error(f"Chat failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chat processing failed: {str(e)}"
+            detail=friendly_llm_error(e),
         )
 
 
@@ -442,7 +525,8 @@ async def chat_stream(request: ChatRequest):
     "thinking_end"|"content_delta"|"tool_call"|"tool_result",...},
     {"type":"message",...}, {"type":"done"} or {"type":"error",...}.
     """
-    if not request.messages or not request.messages[-1].content:
+    last = request.messages[-1] if request.messages else None
+    if last is None or (not last.content.strip() and not last.images):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Message content cannot be empty"
@@ -456,10 +540,8 @@ async def chat_stream(request: ChatRequest):
         try:
             client = get_llm_client()
 
-            messages = [
-                {"role": msg.role, "content": msg.content}
-                for msg in request.messages
-            ]
+            # Multimodal when the newest user turn carries images.
+            messages = to_openai_messages(request.messages)
 
             # Add system prompt (user-editable via Settings > Advanced
             # Settings; a blank value falls back to the built-in default).
@@ -488,8 +570,10 @@ async def chat_stream(request: ChatRequest):
             
         except Exception as e:
             # Headers are already sent, so report the failure as an event.
+            # friendly_llm_error turns a text-only-model rejection into
+            # actionable guidance (see vision error markers).
             logger.error(f"Streaming chat failed: {e}")
-            error_event = {"type": "error", "message": str(e)}
+            error_event = {"type": "error", "message": friendly_llm_error(e)}
             yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(

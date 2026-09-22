@@ -100,6 +100,15 @@ let chatModelAvailable = null;
 // fetch (which also tears down the SSE stream server-side). Null when idle.
 let chatAbortController = null;
 
+// Images picked for the NEXT message (data URLs after client-side
+// downscaling). Cleared on send and by New Session. The backend caps the
+// same limits (MAX_CHAT_IMAGES / size) - these guards just fail fast.
+let pendingChatImages = [];
+const MAX_CHAT_IMAGES = 4;
+// Longest edge after downscale: enough for reading labels/nameplates, small
+// enough that base64 stays a few hundred KB per photo for local models.
+const CHAT_IMAGE_MAX_DIM = 1024;
+
 // Chat scroll state - pinned-to-bottom with heuristic so user can read mid-stream.
 let chatPinned = true;
 const CHAT_SCROLL_THRESHOLD = 80; // px from bottom to consider "pinned"
@@ -252,6 +261,17 @@ function setupEventListeners() {
     // Stop aborts the in-flight stream; New Session clears the conversation.
     document.getElementById('stop-btn').addEventListener('click', stopChatStream);
     document.getElementById('new-session-btn').addEventListener('click', startNewSession);
+
+    // Chat image capture: attach opens a file picker, camera asks for the
+    // rear camera (phones); both feed the same downscale+preview pipeline.
+    document.getElementById('chat-attach-btn').addEventListener('click', () => {
+        document.getElementById('chat-image-input').click();
+    });
+    document.getElementById('chat-camera-btn').addEventListener('click', () => {
+        document.getElementById('chat-camera-input').click();
+    });
+    document.getElementById('chat-image-input').addEventListener('change', handleChatImageSelected);
+    document.getElementById('chat-camera-input').addEventListener('change', handleChatImageSelected);
 
     // Scroll-to-bottom button for chat messages.
     document.getElementById('scroll-down-btn').addEventListener('click', scrollToBottom);
@@ -1859,11 +1879,112 @@ function renderSearchResults(data) {
     `;
 }
 
+// A file was picked via the attach or camera button: downscale each image
+// and queue it as a data URL for the next message. The inputs are reset so
+// picking the same file twice still fires 'change'.
+async function handleChatImageSelected(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+
+    for (const file of files) {
+        if (!file.type.startsWith('image/')) {
+            showToast('Only image files can be attached', 'error');
+            continue;
+        }
+        if (pendingChatImages.length >= MAX_CHAT_IMAGES) {
+            showToast(`At most ${MAX_CHAT_IMAGES} images per message`, 'error');
+            break;
+        }
+        try {
+            const dataUrl = await downscaleImageToDataUrl(file);
+            pendingChatImages.push(dataUrl);
+        } catch (e) {
+            console.error('Failed to read image:', e);
+            showToast('Could not read that image', 'error', String(e));
+        }
+    }
+    renderPendingChatPreviews();
+}
+
+// Resize an image file to at most CHAT_IMAGE_MAX_DIM on its longest edge and
+// re-encode as JPEG. Phone photos are several MB; a downscaled 1024px JPEG is
+// ~100-300 KB of base64 - still sharp enough for the model to read labels and
+// nameplates, but small enough not to blow up local-model context.
+function downscaleImageToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const scale = Math.min(1, CHAT_IMAGE_MAX_DIM / Math.max(img.width, img.height));
+                const w = Math.max(1, Math.round(img.width * scale));
+                const h = Math.max(1, Math.round(img.height * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                // JPEG has no alpha: paint white so transparent PNGs don't
+                // turn black when re-encoded.
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', 0.85));
+            } catch (e) {
+                reject(e);
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image failed to load')); };
+        img.src = url;
+    });
+}
+
+// Thumbnail strip above the input showing what will be sent, each with an ×
+// so a wrong photo can be dropped before sending.
+function renderPendingChatPreviews() {
+    const strip = document.getElementById('chat-attachment-preview');
+    if (!strip) return;
+    strip.innerHTML = '';
+    if (!pendingChatImages.length) {
+        strip.style.display = 'none';
+        return;
+    }
+    pendingChatImages.forEach((dataUrl, i) => {
+        const item = document.createElement('div');
+        item.className = 'chat-attachment-item';
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.alt = `Attachment ${i + 1}`;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'chat-attachment-remove';
+        remove.title = 'Remove image';
+        remove.setAttribute('aria-label', 'Remove image');
+        remove.textContent = '\u00d7';
+        remove.addEventListener('click', () => {
+            pendingChatImages.splice(i, 1);
+            renderPendingChatPreviews();
+        });
+        item.appendChild(img);
+        item.appendChild(remove);
+        strip.appendChild(item);
+    });
+    strip.style.display = 'flex';
+}
+
+function clearPendingChatImages() {
+    pendingChatImages = [];
+    renderPendingChatPreviews();
+}
+
 async function sendChatMessage() {
     const input = document.getElementById('chat-input');
     const message = input.value.trim();
     
-    if (!message) return;
+    // An image-only message is valid: the model reads the photo itself.
+    if (!message && !pendingChatImages.length) return;
 
     // If the last model probe failed, don't waste a round-trip: keep the
     // warning banner visible and point the user at Settings instead.
@@ -1875,10 +1996,14 @@ async function sendChatMessage() {
     // start a parallel conversation turn.
     if (!beginOp('send-chat')) return;
 
-    // Add user message to chat
-    addMessageToChat('user', message);
+    // Add user message to chat (with thumbnails of any attached images).
+    addMessageToChat('user', message, pendingChatImages);
     input.value = '';
-    
+
+    // The photos now live in the sent bubble; the picker is empty for the
+    // next message. History re-sends them only on the newest user turn.
+    clearPendingChatImages();
+
     // Build history BEFORE adding the streaming bubble so its transient
     // content never leaks into the conversation sent to the backend.
     const messages = getChatMessages();
@@ -1895,10 +2020,26 @@ async function sendChatMessage() {
     try {
         // EventSource can't POST, so consume the SSE stream with fetch + reader.
         const chatPayload = {
-            messages: messages.map(msg => ({
-                role: msg.role,
-                content: msg.content
-            }))
+            messages: messages.map((msg, i) => {
+                const out = { role: msg.role, content: msg.content };
+                if (msg.images && msg.images.length) {
+                    // Only the NEWEST turn carries its images to the LLM:
+                    // re-sending base64 on every follow-up would multiply
+                    // request size and overflow small local-model contexts.
+                    // Older image turns instead get a text marker so the
+                    // model still knows a photo was part of the conversation
+                    // (and, per the system prompt's Image rules, asks for it
+                    // again rather than pretending to re-read it). The exact
+                    // string matches the backend's own collapse in
+                    // to_openai_messages() so both paths stay consistent.
+                    if (i === messages.length - 1) {
+                        out.images = msg.images;
+                    } else {
+                        out.content = `${msg.content}\n[image attached]`.trim();
+                    }
+                }
+                return out;
+            })
         };
         // The chat device filter scopes manual searches to one device.
         if (currentChatDeviceFilter) {
@@ -1944,7 +2085,13 @@ async function sendChatMessage() {
                     break;
                 case 'error':
                     console.error('Chat stream error:', event.message);
-                    renderer.fail('Sorry, I encountered an error. Please try again.');
+                    // The server maps known failures (e.g. a text-only model
+                    // rejecting an image) to actionable guidance - show it
+                    // verbatim instead of the generic apology.
+                    renderer.fail(event.message || 'Sorry, I encountered an error. Please try again.');
+                    if (event.message && /image/i.test(event.message)) {
+                        showToast(event.message, 'error');
+                    }
                     finished = true;
                     break;
                 case 'done':
@@ -2000,6 +2147,7 @@ function startNewSession() {
     `;
     const input = document.getElementById('chat-input');
     if (input) input.value = '';
+    clearPendingChatImages();
     chatPinned = true;
     updateScrollDownButton();
 }
@@ -2313,23 +2461,38 @@ function getChatMessages() {
         // Skip welcome message
         if (content.includes('Hello! I\'m HomeStew')) return;
         
-        messages.push({ role, content });
+        messages.push({ role, content, images: contentEl._images || [] });
     });
     
     return messages;
 }
 
-function addMessageToChat(role, content) {
+function addMessageToChat(role, content, images = []) {
     const container = document.getElementById('chat-messages');
     
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
     // Assistant answers are markdown; user messages stay plain escaped text.
     const contentHtml = role === 'assistant' ? renderMarkdown(content) : escapeHtml(content);
+    // Attached photos render as thumbnails above the caption inside the
+    // bubble. src is set programmatically: data URLs must never go through
+    // innerHTML, and an empty caption collapses instead of showing a gap.
+    const thumbsHtml = images.length
+        ? `<div class="message-images">${images.map(() => '<img alt="Attached image">').join('')}</div>`
+        : '';
     messageDiv.innerHTML = `
-        <div class="message-content${role === 'assistant' ? ' markdown-body' : ''}">${contentHtml}</div>
+        <div class="message-content${role === 'assistant' ? ' markdown-body' : ''}">${thumbsHtml}${content ? `<div class="message-text">${contentHtml}</div>` : ''}</div>
     `;
-    messageDiv.querySelector('.message-content')._raw = content;
+    const contentEl = messageDiv.querySelector('.message-content');
+    if (images.length) {
+        contentEl.querySelectorAll('.message-images img').forEach((img, i) => {
+            img.src = images[i];
+        });
+    }
+    // _raw keeps the original markdown for history; _images keeps the data
+    // URLs so a re-sent turn can include them (newest user turn only).
+    contentEl._raw = content;
+    if (images.length) contentEl._images = [...images];
 
     container.appendChild(messageDiv);
     chatPinned = true;

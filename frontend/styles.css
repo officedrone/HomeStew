@@ -1087,6 +1087,12 @@ a.result-page-link:hover {
     border-bottom-right-radius: 4px;
 }
 
+/* An image-only message has no caption element; thumbnails then sit flush
+   against the bubble padding instead of leaving an empty text row. */
+.message-content > .message-images:only-child {
+    margin-bottom: 0;
+}
+
 .message.assistant .message-content {
     background: var(--surface);
     border: 1px solid var(--border-color);
@@ -1373,6 +1379,85 @@ details.chat-input-meta {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: var(--ring);
+}
+
+/* Attach / camera buttons: square icon-only variants of .btn-secondary so the
+   input row stays compact (they sit left of the textarea). */
+.chat-icon-btn {
+    flex-shrink: 0;
+    width: 42px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+}
+
+/* Thumbnails of images queued for the NEXT message, above the input row. */
+.chat-attachment-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-light);
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+.chat-attachment-item {
+    position: relative;
+    width: 64px;
+    height: 64px;
+}
+
+.chat-attachment-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    display: block;
+}
+
+.chat-attachment-remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: none;
+    background: var(--error);
+    color: #fff;
+    font-size: 0.8rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Attached photos inside a sent user bubble: stacked thumbnails above the
+   caption, sized against the bubble's max-width rather than the viewport. */
+.message-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.message-images img {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    display: block;
+}
+
+.message.assistant .message-images img {
+    border-color: var(--border-color);
 }
 
 /* Scroll-to-bottom button - floats over the bottom-center of the chat messages. */
