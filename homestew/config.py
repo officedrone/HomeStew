@@ -45,6 +45,14 @@ EDITABLE_SETTINGS = (
     # First-run wizard bookkeeping: which steps were skipped/saved, so a
     # skipped step is never re-prompted on the next launch.
     "SETUP_STEPS",
+    # Single-user account: scrypt hash of the password (services/auth.py).
+    # NOT in SECRET_SETTINGS on purpose - those are encrypted with the
+    # master key, and deleting that key would silently disable login. The
+    # hash itself is one-way, so plaintext storage adds no exposure.
+    "PASSWORD_HASH",
+    # Login brute-force lockout tuning (in-memory, per client IP).
+    "AUTH_MAX_FAILED_ATTEMPTS",
+    "AUTH_LOCKOUT_MINUTES",
 )
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
@@ -122,6 +130,17 @@ class Settings(BaseSettings):
     # is never re-prompted on a later launch; empty dict = nothing resolved
     # yet, and steps whose condition still applies are offered again.
     SETUP_STEPS: dict = {}
+
+    # Single-user account. Empty = no password yet: every page load then
+    # shows the forced create-account screen (first run AND upgrades from
+    # pre-auth installs - there is deliberately no way to opt out).
+    # scrypt hash string, see services/auth.py; never returned by any API.
+    PASSWORD_HASH: str = ""
+    # Failed-login lockout: consecutive failures per client IP before that
+    # address is refused for AUTH_LOCKOUT_MINUTES minutes. Editable under
+    # Settings > Advanced so a household can tune (or effectively widen) it.
+    AUTH_MAX_FAILED_ATTEMPTS: int = 8
+    AUTH_LOCKOUT_MINUTES: int = 5
     
     # Manual fetching (services/manual_finder.py + manual_downloader.py).
     # Env-only knobs (not UI-editable): MANUAL_SEARCH_BACKENDS is a comma-list

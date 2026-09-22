@@ -15,6 +15,7 @@ from homestew.config import (
     save_settings_overrides,
     settings,
 )
+from homestew.services import auth
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
@@ -105,6 +106,13 @@ def _current_settings() -> SettingsResponse:
         # decide which steps still apply.
         setup_steps=normalize_setup_steps(settings.SETUP_STEPS),
         llm_configured=llm_looks_configured(),
+        # Account status for Settings > Advanced. The hash itself is never
+        # exposed - only whether one exists (every caller reaching this
+        # endpoint is authenticated anyway). Read through auth so a CLI reset
+        # from another process is reflected without a restart.
+        password_configured=auth.password_configured(),
+        auth_max_failed_attempts=settings.AUTH_MAX_FAILED_ATTEMPTS,
+        auth_lockout_minutes=settings.AUTH_LOCKOUT_MINUTES,
     )
 
 
@@ -209,6 +217,14 @@ async def update_settings(update: SettingsUpdate):
     # (None means "unchanged", which the Optional schema already gives us).
     if update.notify_webhook_verify_ssl is not None:
         changes["NOTIFY_WEBHOOK_VERIFY_SSL"] = update.notify_webhook_verify_ssl
+
+    # Login lockout tuning (Settings > Advanced). The password itself never
+    # travels through this endpoint - it has its own PUT /api/auth/password
+    # so changing it goes through current-password verification.
+    if update.auth_max_failed_attempts is not None:
+        changes["AUTH_MAX_FAILED_ATTEMPTS"] = update.auth_max_failed_attempts
+    if update.auth_lockout_minutes is not None:
+        changes["AUTH_LOCKOUT_MINUTES"] = update.auth_lockout_minutes
 
     # Explicit secret removal (UI Remove buttons). Applied after the updates
     # above; an empty string persists as "cleared" (load treats it as unset).

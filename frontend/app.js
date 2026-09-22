@@ -1,8 +1,173 @@
 // HomeStew Frontend Application
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Auth gate listeners must exist before anything else can run: the rest
+    // of setupEventListeners() only wires up once a session is confirmed.
+    setupAuthGate();
     initializeApp();
 });
+
+// ---------------------------------------------------------------------------
+// Authentication gate (single-user account, services/auth.py on the server)
+//
+// Every API call requires a valid session cookie. Two mechanisms keep the UI
+// honest:
+//  * checkAuth() runs before any other initialization and shows #auth-modal
+//    (create-account on first run, sign-in afterwards) when unauthenticated.
+//  * The global fetch patch below catches late 401s - an expired session or a
+//    second tab logging out - without touching the 42 call sites individually
+//    (several loaders swallow errors in catch blocks, so per-site handling
+//    would be unreliable).
+// ---------------------------------------------------------------------------
+let authMode = null; // 'create' | 'login', set by renderAuthGate()
+let authInFlight = false;
+
+(function installAuthFetchPatch() {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async function (input, init) {
+        const response = await nativeFetch(input, init);
+        try {
+            const url = typeof input === 'string' ? input : (input && input.url) || '';
+            // These three 401s are meaningful to the caller itself (a wrong
+            // password shows an inline error), so they must not re-open the
+            // gate. A 401 from PUT /api/auth/password (session expired
+            // mid-edit) does, like any other app endpoint.
+            const selfHandled = ['/api/auth/status', '/api/auth/login', '/api/auth/setup']
+                .some((p) => url.includes(p));
+            if (response.status === 401 && !selfHandled) {
+                handleUnauthenticated();
+            }
+        } catch (e) { /* never break the original request */ }
+        return response;
+    };
+})();
+
+function handleUnauthenticated() {
+    const modal = document.getElementById('auth-modal');
+    if (modal.style.display === 'flex') return; // gate already up
+    showAuthGate();
+}
+
+// Decide which auth screen to show and raise the gate. Safe to call anytime.
+async function showAuthGate() {
+    let statusData = { password_configured: true, authenticated: false };
+    try {
+        const response = await fetch('/api/auth/status');
+        if (response.ok) statusData = await response.json();
+    } catch (e) { /* offline: fall back to the login form */ }
+    if (statusData.authenticated) return; // raced a successful login - stay put
+    renderAuthGate(statusData.password_configured ? 'login' : 'create');
+}
+
+function renderAuthGate(mode) {
+    authMode = mode;
+    const create = mode === 'create';
+    document.getElementById('auth-section-create').hidden = !create;
+    document.getElementById('auth-section-login').hidden = create;
+    document.getElementById('auth-title').textContent =
+        create ? 'Create your account' : 'Welcome back';
+    document.getElementById('auth-subtitle').textContent = create
+        ? 'HomeStew is protected by a single password. Create it now to continue - this step cannot be skipped.'
+        : 'Enter your HomeStew password to unlock the app.';
+    const btn = document.getElementById('auth-submit-btn');
+    btn.textContent = create ? 'Create Account' : 'Sign In';
+    btn.disabled = false;
+    setAuthError(null);
+    document.getElementById('auth-modal').style.display = 'flex';
+    const focusId = create ? 'auth-password' : 'auth-login-password';
+    setTimeout(() => document.getElementById(focusId).focus(), 50);
+}
+
+function setAuthError(message) {
+    const el = document.getElementById('auth-error');
+    el.textContent = message || '';
+    el.hidden = !message;
+}
+
+async function authRequest(path, method, body) {
+    const response = await fetch(`/api/auth/${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    let data = null;
+    try { data = await response.json(); } catch (e) { /* no body */ }
+    if (!response.ok) {
+        const detail = data && typeof data.detail === 'string'
+            ? data.detail : `HTTP ${response.status}`;
+        throw new Error(detail);
+    }
+    return data;
+}
+
+async function handleAuthSubmit() {
+    if (authInFlight || !authMode) return;
+    const btn = document.getElementById('auth-submit-btn');
+    setAuthError(null);
+    try {
+        if (authMode === 'create') {
+            const password = document.getElementById('auth-password').value;
+            const confirm = document.getElementById('auth-confirm').value;
+            if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+            if (password !== confirm) throw new Error('The passwords do not match.');
+            authInFlight = true;
+            btn.disabled = true;
+            await authRequest('setup', 'POST', { password, confirm_password: confirm });
+        } else {
+            const password = document.getElementById('auth-login-password').value;
+            if (!password) throw new Error('Enter your password.');
+            authInFlight = true;
+            btn.disabled = true;
+            await authRequest('login', 'POST', {
+                password,
+                remember_me: document.getElementById('auth-remember').checked,
+            });
+        }
+        // Full reload (not a re-init): every listener/loader then runs once
+        // against an authenticated session, exactly like a fresh page load.
+        location.reload();
+    } catch (error) {
+        setAuthError(error.message);
+        authInFlight = false;
+        btn.disabled = false;
+    }
+}
+
+async function handleLogout() {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { /* cookie cleared client-side anyway */ }
+    location.reload();
+}
+
+function setupAuthGate() {
+    document.getElementById('auth-submit-btn').addEventListener('click', handleAuthSubmit);
+    // Enter in any auth field submits, like a real login form.
+    for (const id of ['auth-password', 'auth-confirm', 'auth-login-password']) {
+        document.getElementById(id).addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); handleAuthSubmit(); }
+        });
+    }
+}
+
+// Returns true when the caller's session is valid; raises the gate otherwise.
+async function checkAuth() {
+    let statusData;
+    try {
+        const response = await fetch('/api/auth/status');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        statusData = await response.json();
+    } catch (e) {
+        console.error('Auth check failed:', e);
+        renderAuthGate('login'); // assume login mode; the fetch patch retries later
+        setAuthError('Could not reach HomeStew. Check that the container is running, then reload.');
+        return false;
+    }
+    if (statusData.authenticated) {
+        document.getElementById('auth-modal').style.display = 'none';
+        return true;
+    }
+    renderAuthGate(statusData.password_configured ? 'login' : 'create');
+    return false;
+}
 
 // ---------------------------------------------------------------------------
 // Markdown rendering for chat answers.
@@ -198,6 +363,10 @@ function updateScrollDownButton() {
 }
 
 async function initializeApp() {
+    // Nothing below may run without a session: the loaders would only 401
+    // (and several swallow errors), so gate first and stop. On successful
+    // create/login the page reloads and this runs again, authenticated.
+    if (!(await checkAuth())) return;
     await loadDevices();
     setupEventListeners();
     // Restore the tab from before a page refresh (URL hash first, then the
@@ -448,6 +617,10 @@ function setupEventListeners() {
     // Secrets master key management: Settings > Advanced create/delete.
     document.getElementById('create-key-btn').addEventListener('click', handleCreateKeyFromSettings);
     document.getElementById('delete-key-btn').addEventListener('click', handleDeleteKeyFromSettings);
+
+    // Account password change (Settings > Advanced) and sidebar sign-out.
+    document.getElementById('change-password-btn').addEventListener('click', handleChangePassword);
+    document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
     // First-run setup wizard footer + AI step's model picker. The wizard is
     // deliberately not closable via Escape (see below): every step must end
@@ -3133,6 +3306,18 @@ async function loadSettingsPage() {
     document.getElementById('settings-notify-webhook-verify-ssl').checked =
         settings.notify_webhook_verify_ssl !== false;
 
+    // Account panel: password fields never keep a previous visit's values,
+    // and the lockout numbers come from the server (clamped client-side too).
+    document.getElementById('settings-current-password').value = '';
+    document.getElementById('settings-new-password').value = '';
+    document.getElementById('settings-confirm-password').value = '';
+    const changeHint = document.getElementById('change-password-hint');
+    if (changeHint) changeHint.textContent = '';
+    document.getElementById('settings-auth-max-attempts').value =
+        settings.auth_max_failed_attempts ?? 8;
+    document.getElementById('settings-auth-lockout-minutes').value =
+        settings.auth_lockout_minutes ?? 5;
+
     // Webhook bearer token: same placeholder treatment as the LLM API key -
     // the value is never sent to the client, blank on save keeps it.
     const tokenInput = document.getElementById('settings-notify-webhook-token');
@@ -3588,6 +3773,10 @@ async function handleSettingsSave(event) {
         notify_webhook_type: document.getElementById('settings-notify-webhook-type').value,
         notify_webhook_verify_ssl:
             document.getElementById('settings-notify-webhook-verify-ssl').checked,
+        auth_max_failed_attempts:
+            clampInt(document.getElementById('settings-auth-max-attempts').value, 1, 100, 8),
+        auth_lockout_minutes:
+            clampInt(document.getElementById('settings-auth-lockout-minutes').value, 1, 240, 5),
     };
     // The webhook URL is write-only like the key: only a freshly typed value
     // is sent; blank keeps the stored one (removal goes through clear_secrets).
@@ -3674,6 +3863,35 @@ function renderAdvancedKeyPanel(s) {
     hint.textContent = s.secrets_encrypted
         ? 'Deleting the key makes stored secrets unreadable until a new key is created and they are re-entered.'
         : 'Create one now, or mount your own key file at SECRETS_KEY_FILE (see README \u201cSecrets\u201d).';
+}
+
+// Change the account password (Settings > Advanced). Separate from the
+// settings form: it verifies the current password and re-issues this
+// browser's cookie, so saving does not sign you out. Other browsers get
+// logged out on their next request - the signing key derives from the hash.
+async function handleChangePassword() {
+    const hint = document.getElementById('change-password-hint');
+    const current = document.getElementById('settings-current-password').value;
+    const next = document.getElementById('settings-new-password').value;
+    const confirm = document.getElementById('settings-confirm-password').value;
+    if (!current) { hint.textContent = 'Enter the current password first.'; return; }
+    if (next.length < 8) { hint.textContent = 'The new password must be at least 8 characters.'; return; }
+    if (next !== confirm) { hint.textContent = 'The new passwords do not match.'; return; }
+    const btn = document.getElementById('change-password-btn');
+    btn.disabled = true;
+    try {
+        await authRequest('password', 'PUT', {
+            current_password: current, new_password: next, confirm_password: confirm,
+        });
+        document.getElementById('settings-current-password').value = '';
+        document.getElementById('settings-new-password').value = '';
+        document.getElementById('settings-confirm-password').value = '';
+        hint.textContent = 'Password changed. Other signed-in devices were logged out.';
+    } catch (error) {
+        hint.textContent = error.message;
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 // Shared POST helper for the two key endpoints: returns the JSON body on

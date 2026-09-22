@@ -11,6 +11,7 @@ A **super lightweight** home device manual manager with AI-powered search. Store
 - ✅ **Zero heavy dependencies** - No vector databases, no complex infrastructure
 - ✅ **Single Docker container** - ~60MB image, easy homelab deployment
 - ✅ **Persistent storage** - All data stored locally with volume mounts
+- ✅ **Password protected** - Single-user login gates every page and API call; resettable from the container CLI
 
 ## Architecture
 
@@ -212,6 +213,44 @@ For that threat use full-disk encryption or an external secrets manager.
   key file is never deleted by the app - remove the container's secret
   mount for that.
 
+## Authentication (single-user login)
+
+HomeStew is protected by **one password**. On the first page load — and on any
+existing install upgrading into a build that has authentication — you are shown
+a **create-account** screen before anything else. It cannot be skipped or
+dismissed (no close button, Escape is ignored): every page load and every API
+call requires a valid session, so there is no way to reach the app without it.
+
+- **Sessions** are signed cookies (`HttpOnly`, `SameSite=Lax`). Sign in with
+  **"Remember me"** for a 30-day session; otherwise it ends when you close the
+  browser (and the token itself expires after 12 hours regardless). Log out any
+  time from the sidebar.
+- **The password hash** is stored in `settings.json` in the data volume, hashed
+  with `scrypt`. It is deliberately *not* encrypted with the secrets master key
+  (deleting that key would otherwise disable login), and it never leaves the
+  server — no endpoint returns it.
+- **Changing the password** under **Settings > Advanced** requires the current
+  one and immediately signs out every *other* browser (the session signing key
+  is derived from the hash). Your current browser stays signed in.
+- **Failed logins** are throttled: after `Max Failed Attempts` consecutive
+  failures from one device, further attempts are refused for `Lockout Minutes`.
+  Both are tunable under **Settings > Advanced**.
+
+### Forgotten password? Reset it from the container
+
+There is no email reset — you prove ownership by having access to the container:
+
+```bash
+docker exec -it homestew python -m homestew.auth_cli reset-password
+```
+
+You'll be prompted for the new password twice (echo hidden). All existing
+sessions are invalidated, so sign in again in the browser. Non-interactive / CI
+variant: `docker exec -e HOMESTEW_PASSWORD='new-secret' homestew python -m homestew.auth_cli reset-password`.
+
+Other subcommands: `status` (is a password set?) and `clear-password` (remove it
+and re-arm the create-account screen).
+
 ## Project Structure
 
 ```
@@ -221,7 +260,8 @@ HomeStew/
 │   │   ├── devices.py         # Device CRUD endpoints
 │   │   ├── downloads.py       # Manual download triggers
 │   │   ├── search.py          # Search endpoints
-│   │   └── chat.py            # Chat with LLM
+│   │   ├── chat.py            # Chat with LLM
+│   │   └── auth.py            # Login / account creation / password change
 │   ├── services/              # Business logic
 │   │   ├── pdf_extractor.py   # PDF text extraction (pypdf)
 │   │   ├── web_search.py         # ddgs wrapper (engine-agnostic web search)
@@ -229,11 +269,13 @@ HomeStew/
 │   │   ├── manual_downloader.py  # PDF download + validation
 │   │   ├── indexer.py         # SQLite FTS5 indexing
 │   │   ├── search_engine.py   # Full-text search
+│   │   ├── auth.py            # scrypt hashing, signed sessions, lockout
 │   │   └── llm_client.py      # OpenAI-compatible client
+│   ├── auth_cli.py            # `python -m homestew.auth_cli` password reset
 │   ├── models/                # Pydantic schemas
 │   ├── config.py              # Configuration
 │   ├── db.py                  # Database setup
-│   └── main.py                # FastAPI app entry
+│   └── main.py                # FastAPI app entry (auth middleware lives here)
 ├── frontend/                  # Static web UI
 │   ├── index.html             # Single-page app
 │   ├── styles.css             # Minimal CSS
@@ -305,6 +347,17 @@ Everything runs in one ~60MB container with persistent volumes for data.
 - `POST /api/backup/restore` - Restore from an uploaded `.zip` (`mode=merge|replace`)
 - `GET /api/backup/restore-status` - Background search re-index progress
 
+### Auth (single-user login)
+
+Every endpoint above requires a valid session cookie except `/health`, the
+login screen's own assets, and these three self-guarding routes:
+
+- `GET /api/auth/status` - `{password_configured, authenticated}` (the only pre-login info)
+- `POST /api/auth/setup` - Create the account on first run (`409` once one exists)
+- `POST /api/auth/login` - Verify password, issue session cookie (`remember_me`) — `423` while locked out
+- `POST /api/auth/logout` - Clear the session cookie
+- `PUT /api/auth/password` - Change the password (requires current; signs out other browsers)
+
 ## Development
 
 ### Local Setup
@@ -356,6 +409,15 @@ pytest tests/
 - Ensure PDFs were successfully downloaded and indexed
 - Check `/data/devices/{id}/manuals/` for PDF files
 - Verify text extraction works on your PDFs (some scanned PDFs need OCR)
+
+### Locked out / forgot the password?
+
+- Wait for the lockout to expire (default 5 minutes), or reset immediately:
+  `docker exec -it homestew python -m homestew.auth_cli reset-password`
+- If even that fails, confirm the container name (`docker ps`) and that the
+  data volume is mounted — the password lives in `/data/settings.json`.
+- A `401 Not authenticated` from an API call you expect to work means the
+  session cookie expired or another tab logged out; reload and sign in again.
 
 ## Future Enhancements
 

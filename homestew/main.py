@@ -5,9 +5,9 @@ A simple web application that helps you manage and search through device manuals
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from homestew.config import settings
@@ -20,7 +20,9 @@ from homestew.api.settings import router as settings_router
 from homestew.api.calendar import router as calendar_router
 from homestew.api.notifications import router as notifications_router
 from homestew.api.backup import router as backup_router
+from homestew.api.auth import router as auth_router
 from homestew.services.notifier import notification_loop
+from homestew.services import auth
 
 # Configure logging
 logging.basicConfig(
@@ -93,6 +95,39 @@ async def no_cache_html(request: Request, call_next):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
+
+# Single-user authentication (services/auth.py). Registered after
+# no_cache_html, so it runs first and a 401 never reaches the app.
+# Allowlist - everything else requires a valid session cookie:
+#   /health      Docker HEALTHCHECK must stay reachable without a login
+#   / + static   the login/create-account screen needs its own assets
+#                (they contain no user data)
+#   auth setup/login/status  self-guarding: /setup 409s once a password
+#                exists, /login checks the password itself
+# /docs and /openapi.json are deliberately NOT exempt - they are gated like
+# the rest of the app. OPTIONS (CORS preflight) carries no cookie by design.
+_AUTH_EXEMPT_PAGES = {"/health", "/", "/index.html", "/favicon.ico"}
+_AUTH_EXEMPT_API = {"/api/auth/status", "/api/auth/login", "/api/auth/setup"}
+
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    """Reject every request without a valid session cookie (401 JSON)."""
+    path = request.url.path
+    if (
+        request.method == "OPTIONS"
+        or path in _AUTH_EXEMPT_PAGES
+        or path.startswith("/static/")
+        or path in _AUTH_EXEMPT_API
+    ):
+        return await call_next(request)
+    if not auth.verify_session_token(request.cookies.get(auth.SESSION_COOKIE)):
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Not authenticated"},
+        )
+    return await call_next(request)
+
 # Register API routers
 app.include_router(devices_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
@@ -102,6 +137,7 @@ app.include_router(settings_router, prefix="/api")
 app.include_router(calendar_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(backup_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 
 
 @app.get("/health")

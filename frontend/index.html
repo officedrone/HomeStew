@@ -104,6 +104,12 @@
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     <span class="content-only">Settings</span>
                 </button>
+                <!-- Sign out: clears the session cookie and reloads to the
+                     login screen. Same icon-btn shape as Settings above it. -->
+                <button type="button" class="icon-btn" id="logout-btn" data-tip="Log out" aria-label="Log out">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                    <span class="content-only">Log out</span>
+                </button>
             </div>
         </aside>
 
@@ -479,6 +485,49 @@
                                 </div>
                                 <p class="settings-hint" id="advanced-key-hint"></p>
                             </div>
+
+                            <!-- Account password: change requires the current
+                                 one; a forgotten password is reset from the
+                                 container CLI (documented in README). -->
+                            <h4 class="settings-subheading">Account Password</h4>
+                            <p class="settings-hint">
+                                HomeStew is protected by a single password. Changing it signs every
+                                other browser out immediately. Forgotten? Reset it from the
+                                container: <code>docker exec -it homestew python -m homestew.auth_cli reset-password</code>
+                            </p>
+                            <div class="settings-field">
+                                <label for="settings-current-password">Current Password</label>
+                                <input type="password" id="settings-current-password" autocomplete="current-password">
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-new-password">New Password</label>
+                                <input type="password" id="settings-new-password" autocomplete="new-password" placeholder="At least 8 characters">
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-confirm-password">Repeat New Password</label>
+                                <input type="password" id="settings-confirm-password" autocomplete="new-password">
+                            </div>
+                            <div class="settings-field">
+                                <div class="model-row">
+                                    <button type="button" class="btn btn-secondary" id="change-password-btn">Change Password</button>
+                                </div>
+                                <p class="settings-hint" id="change-password-hint"></p>
+                            </div>
+
+                            <!-- Failed-login lockout tuning (in-memory, per client IP). -->
+                            <h4 class="settings-subheading">Login Lockout</h4>
+                            <p class="settings-hint">
+                                After this many failed sign-in attempts from one device, further
+                                attempts are refused until the lockout expires.
+                            </p>
+                            <div class="settings-field">
+                                <label for="settings-auth-max-attempts">Max Failed Attempts</label>
+                                <input type="number" id="settings-auth-max-attempts" min="1" max="100" step="1" value="8">
+                            </div>
+                            <div class="settings-field">
+                                <label for="settings-auth-lockout-minutes">Lockout Minutes</label>
+                                <input type="number" id="settings-auth-lockout-minutes" min="1" max="240" step="1" value="5">
+                            </div>
                         </section>
                     </div>
 
@@ -656,6 +705,54 @@
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeFetchManualsModal()">Close</button>
                 <button type="button" id="download-all-btn" class="btn btn-primary" data-dedupe style="display: none;" onclick="downloadAllManuals()">Download All</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Authentication gate (single-user account): shown whenever the
+         session cookie is missing or invalid - create-account form on first
+         run, sign-in form afterwards. Like the setup wizard below there is
+         no close button and Escape is deliberately ignored: the app cannot
+         be used without signing in. checkAuth() in app.js decides which
+         section to show from GET /api/auth/status. -->
+    <div id="auth-modal" class="modal">
+        <div class="modal-content setup-wizard-content auth-content">
+            <h2 id="auth-title">Create your account</h2>
+            <p class="wizard-subtitle" id="auth-subtitle"></p>
+
+            <!-- First run: create the single account (cannot be skipped -
+                 POST /api/auth/setup 409s once a password exists). -->
+            <section id="auth-section-create">
+                <div class="settings-field">
+                    <label for="auth-password">Password</label>
+                    <input type="password" id="auth-password" autocomplete="new-password" placeholder="At least 8 characters">
+                </div>
+                <div class="settings-field">
+                    <label for="auth-confirm">Repeat Password</label>
+                    <input type="password" id="auth-confirm" autocomplete="new-password" placeholder="Type the password again">
+                </div>
+            </section>
+
+            <!-- Later visits: sign in. "Remember me" keeps the session for
+                 30 days; otherwise it ends when the browser closes. -->
+            <section id="auth-section-login" hidden>
+                <div class="settings-field">
+                    <label for="auth-login-password">Password</label>
+                    <input type="password" id="auth-login-password" autocomplete="current-password" placeholder="Your HomeStew password">
+                </div>
+                <label class="checkbox-option">
+                    <input type="checkbox" id="auth-remember"> Remember me on this device
+                </label>
+                <p class="settings-hint" id="auth-cli-hint">
+                    Forgotten? Reset it from the container:
+                    <code>docker exec -it homestew python -m homestew.auth_cli reset-password</code>
+                </p>
+            </section>
+
+            <p class="wizard-error" id="auth-error" hidden></p>
+
+            <div class="modal-actions wizard-actions">
+                <button type="button" class="btn btn-primary" id="auth-submit-btn">Create Account</button>
             </div>
         </div>
     </div>

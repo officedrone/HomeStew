@@ -309,6 +309,21 @@ class SettingsResponse(BaseModel):
         "(API key saved, AI step previously saved in the wizard, or base "
         "URL/model changed from the built-in defaults)",
     )
+    password_configured: bool = Field(
+        False,
+        description="True once the single-user account password exists. The "
+        "hash itself is never returned by any endpoint.",
+    )
+    auth_max_failed_attempts: int = Field(
+        8, ge=1, le=100,
+        description="Consecutive failed logins from one client IP before it "
+        "is locked out (Settings > Advanced)",
+    )
+    auth_lockout_minutes: int = Field(
+        5, ge=1, le=240,
+        description="How long a locked-out client IP must wait before it may "
+        "try logging in again",
+    )
 
 
 class SecretsKeyActionResponse(BaseModel):
@@ -382,6 +397,14 @@ class SettingsUpdate(BaseModel):
         "after the updates above, so a field and its clear entry must not "
         "be combined in one request.",
     )
+    auth_max_failed_attempts: Optional[int] = Field(
+        None, ge=1, le=100,
+        description="Failed logins per client IP before the lockout applies",
+    )
+    auth_lockout_minutes: Optional[int] = Field(
+        None, ge=1, le=240,
+        description="Lockout duration in minutes once the limit is reached",
+    )
 
 
 class WebhookTestRequest(BaseModel):
@@ -418,6 +441,39 @@ class SetupStepResolveRequest(BaseModel):
 class SetupStepResolveResponse(BaseModel):
     """All wizard step resolutions after the recorded one."""
     setup_steps: dict[str, Literal["skipped", "saved"]]
+
+
+class AuthStatusResponse(BaseModel):
+    """The only pre-login information HomeStew reveals (two booleans)."""
+    password_configured: bool = Field(
+        ..., description="False on first run -> the UI shows create-account"
+    )
+    authenticated: bool = Field(
+        ..., description="Whether the caller's session cookie is valid"
+    )
+
+
+class PasswordSetupRequest(BaseModel):
+    """First-run account creation (POST /api/auth/setup)."""
+    password: str = Field(..., min_length=8, max_length=256)
+    confirm_password: str = Field(..., min_length=8, max_length=256)
+
+
+class PasswordLoginRequest(BaseModel):
+    """Password login (POST /api/auth/login)."""
+    password: str = Field(..., min_length=1, max_length=256)
+    remember_me: bool = Field(
+        False,
+        description="True -> persistent 30-day cookie; false -> the session "
+        "ends when the browser closes (and the token expires after 12 h)",
+    )
+
+
+class PasswordChangeRequest(BaseModel):
+    """Password change from Settings > Advanced (PUT /api/auth/password)."""
+    current_password: str = Field(..., min_length=1, max_length=256)
+    new_password: str = Field(..., min_length=8, max_length=256)
+    confirm_password: str = Field(..., min_length=8, max_length=256)
 
 
 class ModelListRequest(BaseModel):

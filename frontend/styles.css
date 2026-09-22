@@ -2129,6 +2129,40 @@ details.chat-input-meta {
     color: var(--error);
 }
 
+/* Auth gate (login / create-account). Reuses .setup-wizard-content for the
+   card size and .settings-field for its inputs; these cover what that combo
+   does not provide on its own. */
+.auth-content {
+    max-width: min(460px, 100%);
+    min-height: auto;
+}
+
+/* The "Remember me" checkbox lives outside a .settings-field (it is the only
+   control in its row), so it needs the inline label/box layout directly. */
+.auth-content .checkbox-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.auth-content .checkbox-option input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
+
+/* The CLI reset hint wraps a long command - let it break instead of
+   overflowing the narrow card. */
+.auth-content code,
+.settings-hint code {
+    word-break: break-all;
+}
+
 /* "Remove" button beside a write-only secret field. */
 .secret-remove-btn {
     align-self: stretch;

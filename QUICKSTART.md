@@ -11,9 +11,10 @@ copy .env.example .env
 notepad .env  # Edit if needed - keep real API keys out of this file;
               # enter them in the Settings UI (stored encrypted)
 
-# 3. Build and run (on first start a setup wizard walks you through the
-#    encryption key, AI model and your first device - each step is skippable,
-#    see README "Secrets")
+# 3. Build and run (the first page load asks you to create a password - it
+#    cannot be skipped; then a setup wizard walks you through the encryption
+#    key, AI model and your first device - each step is skippable, see README
+#    "Authentication" and "Secrets")
 docker-compose up -d --build
 
 # 4. Open browser
@@ -66,10 +67,15 @@ Open your browser to: http://localhost:8000
 
 ### First-Time Setup
 
-On the first page load a **setup wizard** offers three one-time steps: create
-the secrets encryption key, connect your AI model and add your first device.
-Skip any of them - skipped/saved steps are remembered and never re-prompted,
-and everything stays editable later under Settings.
+On the first page load you must **create an account password** (one local user
+gates every page and API call). It cannot be skipped; if it is ever forgotten:
+`docker exec -it homestew python -m homestew.auth_cli reset-password`. Change
+it later under Settings > Advanced.
+
+Once signed in, a **setup wizard** offers three one-time steps: create the
+secrets encryption key, connect your AI model and add your first device. Skip
+any of them - skipped/saved steps are remembered and never re-prompted, and
+everything stays editable later under Settings.
 
 1. **Add your first device** (e.g., Samsung TV):
    - Name: "Living Room TV"
