@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     MANUAL_MAX_DOWNLOADS: int = 5
     MANUAL_SEARCH_TIMEOUT: int = 10
     MANUAL_DOWNLOAD_TIMEOUT: int = 30
-    MANUAL_MAX_PDF_MB: int = 25
+    MANUAL_MAX_PDF_MB: int = 50
     # Optional http/socks5 proxy for search + PDF downloads, e.g.
     # "http://user:pass@example.com:3128" or the ddgs alias "tb" (Tor).
     MANUAL_PROXY: str = ""
