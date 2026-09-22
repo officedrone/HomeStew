@@ -19,6 +19,7 @@ from homestew.api.chat import router as chat_router
 from homestew.api.settings import router as settings_router
 from homestew.api.calendar import router as calendar_router
 from homestew.api.notifications import router as notifications_router
+from homestew.api.backup import router as backup_router
 from homestew.services.notifier import notification_loop
 
 # Configure logging
@@ -100,6 +101,7 @@ app.include_router(chat_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
 app.include_router(calendar_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
+app.include_router(backup_router, prefix="/api")
 
 
 @app.get("/health")

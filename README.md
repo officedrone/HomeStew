@@ -92,6 +92,21 @@ Switch to the chat tab and ask questions:
 
 The AI will automatically search your manuals and provide answers based on the actual documentation.
 
+### 5. Backup & Restore
+
+Open **Settings → General**:
+
+- **Download Backup** creates a single `.zip` with all devices (incl. custom
+  attributes), calendar events and - optionally - the manual PDF files.
+  Inside, `data.json` holds plain JSON rows you can inspect, plus one PDF per
+  manual under `manuals/`.
+- **Restore** takes that file back. *Merge* adds only what's missing (restoring
+  twice changes nothing); *Replace* wipes devices, manuals and calendar events
+  first, then recreates them exactly from the archive. Restored PDFs are
+  re-indexed for search in the background.
+- Settings and secrets (API key, webhook URL/token) are **never** included -
+  they're encrypted with your master key and stay on the server.
+
 ## Configuration
 
 ### Environment Variables
@@ -282,6 +297,13 @@ Everything runs in one ~60MB container with persistent volumes for data.
 
 - `POST /api/chat` - Send message, get AI response with manual search
 - `POST /api/chat/stream` - Stream chat response (SSE)
+
+### Backup
+
+- `POST /api/backup/create` - Build a backup archive (`include_manuals` form flag)
+- `GET /api/backup/file/{filename}` - Download the created archive
+- `POST /api/backup/restore` - Restore from an uploaded `.zip` (`mode=merge|replace`)
+- `GET /api/backup/restore-status` - Background search re-index progress
 
 ## Development
 

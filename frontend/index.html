@@ -267,6 +267,39 @@
                                 </div>
                                 <p class="settings-hint">Auto follows your operating system's light/dark setting.</p>
                             </div>
+
+                            <h4 class="settings-subheading">Backup &amp; Restore</h4>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="backup-include-manuals">
+                                    <input type="checkbox" id="backup-include-manuals" checked>
+                                    Include manual PDF files
+                                </label>
+                                <p class="settings-hint">Devices, custom attributes and calendar events are always included. Settings and secrets (API key, webhook token) are never part of a backup.</p>
+                            </div>
+                            <div class="settings-field">
+                                <div class="model-row">
+                                    <span class="settings-hint webhook-test-label">Download everything as a single .zip file.</span>
+                                    <button type="button" class="btn btn-secondary" id="backup-create-btn">Download Backup</button>
+                                </div>
+                                <p class="settings-hint" id="backup-hint"></p>
+                            </div>
+
+                            <h4 class="settings-subheading">Restore</h4>
+                            <div class="settings-field">
+                                <label id="restore-mode-label">Restore mode</label>
+                                <div class="radio-row" role="radiogroup" aria-labelledby="restore-mode-label">
+                                    <label class="radio-option"><input type="radio" name="restore-mode" value="merge" checked> Merge</label>
+                                    <label class="radio-option"><input type="radio" name="restore-mode" value="replace"> Replace</label>
+                                </div>
+                                <p class="settings-hint">Merge adds only what's missing and leaves existing data alone. Replace wipes all devices, manuals and calendar events first, then restores the archive exactly.</p>
+                            </div>
+                            <div class="settings-field">
+                                <div class="model-row">
+                                    <span class="settings-hint webhook-test-label">Choose a HomeStew backup .zip to restore.</span>
+                                    <button type="button" class="btn btn-secondary" id="restore-btn">Choose Backup…</button>
+                                </div>
+                                <p class="settings-hint" id="restore-hint"></p>
+                            </div>
                         </section>
 
                         <!-- AI -->
@@ -772,6 +805,8 @@
 
     <!-- Hidden file input used by the "Upload Manual" buttons -->
     <input type="file" id="manual-upload-input" accept="application/pdf,.pdf" style="display: none;">
+    <!-- Settings > General "Restore": single backup archive picker. -->
+    <input type="file" id="restore-file-input" accept=".zip,application/zip" style="display: none;">
 
     <!-- Chat image pickers: the attach button opens the file picker, the
          camera button asks for capture="environment" so phones open their

@@ -522,3 +522,123 @@ class UpcomingEventsResponse(BaseModel):
     """Events due within a day-window, for the sidebar notification area."""
     days: int
     events: list[CalendarEventResponse]
+
+
+# ---------------------------------------------------------------------------
+# Backup / restore (Settings > General)
+#
+# The archive stores raw database column values (including ids and audit
+# timestamps) so a restore can reproduce the original rows as faithfully as
+# possible. Dates/times/datetimes are plain ISO strings in the JSON; Pydantic
+# parses them back on restore. Manuals reference their PDF inside the archive
+# via ``archive_path`` instead of the absolute ``filepath`` column, which is
+# machine-specific and must be rewritten against the current DEVICES_DIR.
+# ---------------------------------------------------------------------------
+
+# Temporal columns are carried as verbatim ISO strings (exactly what SQLite
+# stores) rather than parsed date/datetime objects, so a restore re-inserts the
+# original text. This keeps audit timestamps byte-identical and, critically,
+# preserves notification-ledger dedupe keys that compare due_date as TEXT.
+class BackupDevice(BaseModel):
+    """A device row exactly as stored, for backup/restore round-tripping."""
+    id: int
+    name: str
+    brand: str
+    model: str
+    description: Optional[str] = None
+    serial_number: Optional[str] = None
+    product_number: Optional[str] = None
+    purchase_date: Optional[str] = None
+    warranty_length: Optional[int] = None
+    warranty_unit: Optional[str] = None
+    warranty_end: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class BackupAttribute(BaseModel):
+    """A custom device attribute row."""
+    id: int
+    device_id: int
+    attribute_name: str
+    attribute_value: str
+    created_at: Optional[str] = None
+
+
+class BackupManual(BaseModel):
+    """A manual row; the PDF itself lives at ``archive_path`` in the archive."""
+    id: int
+    device_id: int
+    filename: str
+    page_count: Optional[int] = None
+    source_url: Optional[str] = None
+    indexed_at: Optional[str] = None
+    archive_path: Optional[str] = Field(
+        None, description="Relative path of the PDF inside the archive (manuals/<id>.pdf)"
+    )
+
+
+class BackupCalendarEvent(BaseModel):
+    """A calendar event row exactly as stored."""
+    id: int
+    device_id: Optional[int] = None
+    title: str
+    description: Optional[str] = None
+    start_date: date = Field(..., description="Anchor / first due date (validated)")
+    start_time: Optional[str] = None
+    recurrence_type: str
+    interval: int
+    last_completed_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class BackupNotification(BaseModel):
+    """A notification-ledger row, so restored events don't re-alert.
+
+    ``due_date`` stays a verbatim string to match the UNIQUE(event_id,
+    due_date, kind) dedupe key exactly on restore.
+    """
+    event_id: int
+    due_date: str
+    kind: str
+    sent_at: Optional[str] = None
+
+
+class BackupData(BaseModel):
+    """Everything captured in a backup's data.json member."""
+    devices: list[BackupDevice] = []
+    device_attributes: list[BackupAttribute] = []
+    manuals: list[BackupManual] = []
+    calendar_events: list[BackupCalendarEvent] = []
+    notification_log: list[BackupNotification] = []
+
+
+class BackupCreateResponse(BaseModel):
+    """Result of building a backup file, before it is downloaded."""
+    filename: str = Field(..., description="Archive name to download")
+    url: str = Field(..., description="One-shot download URL for the archive")
+    devices: int
+    manuals: int
+    calendar_events: int
+    missing_files: list[str] = Field(
+        default_factory=list,
+        description="Manuals whose PDF was absent on disk and could not be archived",
+    )
+
+
+class RestoreResponse(BaseModel):
+    """Summary of a restore operation (search re-indexing runs in background)."""
+    mode: str = Field(..., pattern="^(merge|replace)$")
+    devices_created: int
+    devices_merged: int
+    manuals_restored: int
+    events_restored: int
+    skipped: int = Field(0, description="Rows already present and left untouched (merge)")
+    index_total: int = Field(..., description="Manuals queued for search re-indexing")
+
+
+class RestoreIndexStatus(BaseModel):
+    """Progress of the background search re-index that follows a restore."""
+    running: bool
+    done: int
+    total: int

@@ -348,6 +348,12 @@ function setupEventListeners() {
     }));
     resetConnTestOnEdit('settings-llm-base-url', 'settings-llm-api-key', 'settings-conn-test-result');
     document.getElementById('test-webhook-btn').addEventListener('click', () => sendTestNotification());
+
+    // Backup & Restore (Settings > General). Buttons are type="button" so the
+    // surrounding settings form never submits when they're clicked.
+    document.getElementById('backup-create-btn').addEventListener('click', createBackup);
+    document.getElementById('restore-btn').addEventListener('click', triggerRestoreFilePick);
+    document.getElementById('restore-file-input').addEventListener('change', handleRestoreFileSelected);
     // "Remove" buttons next to the write-only secret fields schedule deletion
     // for save; typing into a cleared field cancels that removal (without
     // re-rendering, so the in-progress value survives).
@@ -3088,6 +3094,10 @@ async function loadSettingsPage() {
     connResult.className = 'conn-test-result';
     connResult.textContent = '';
 
+    // Backup & Restore hints describe a previous run; start each visit blank.
+    document.getElementById('backup-hint').textContent = '';
+    document.getElementById('restore-hint').textContent = '';
+
     // Advanced: master-key status + create/delete buttons.
     renderAdvancedKeyPanel(settings);
 
@@ -3342,6 +3352,141 @@ async function sendTestNotification() {
         webhookTestInFlight = false;
         btn.disabled = false;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Backup & Restore (Settings > General)
+// ---------------------------------------------------------------------------
+
+// Build the archive server-side, then trigger a plain browser download via a
+// temporary <a download>. Two-step (create -> fetch file) so the hint can show
+// exactly what was captured before anything downloads.
+async function createBackup() {
+    if (!beginOp('backup-create')) return;
+
+    const btn = document.getElementById('backup-create-btn');
+    const hint = document.getElementById('backup-hint');
+    const includeManuals = document.getElementById('backup-include-manuals').checked;
+
+    btn.disabled = true;
+    hint.textContent = 'Creating backup...';
+    try {
+        const formData = new FormData();
+        formData.append('include_manuals', includeManuals ? 'true' : 'false');
+
+        const response = await fetch('/api/backup/create', { method: 'POST', body: formData });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Backup failed'));
+
+        const info = await response.json();
+        const parts = [`${info.devices} device(s)`, `${info.calendar_events} calendar event(s)`];
+        if (includeManuals) parts.push(`${info.manuals} manual(s)`);
+
+        // Kick off the download; the server sends Content-Disposition: attachment.
+        const link = document.createElement('a');
+        link.href = info.url;
+        link.download = info.filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        hint.textContent = `Backup ready (${parts.join(', ')}). Your browser should start the download.`;
+        if (info.missing_files && info.missing_files.length) {
+            showToast(
+                `${info.missing_files.length} manual file(s) were missing on disk and are not in the backup`,
+                'error',
+                info.missing_files.join('\n'),
+            );
+        } else {
+            showToast('Backup created', 'success');
+        }
+    } catch (error) {
+        console.error('Backup failed:', error);
+        hint.textContent = '';
+        showToast(error.message || 'Backup failed', 'error');
+    } finally {
+        btn.disabled = false;
+        endOp('backup-create');
+    }
+}
+
+function triggerRestoreFilePick() {
+    const input = document.getElementById('restore-file-input');
+    input.value = ''; // allow re-selecting the same file after a cancel
+    input.click();
+}
+
+// Restore an archive chosen via the hidden input. Replace mode is destructive,
+// so it asks for confirmation first; afterwards the sidebar/devices/calendar
+// are refreshed and background search re-indexing is polled into the hint.
+async function handleRestoreFileSelected(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const mode = document.querySelector('input[name="restore-mode"]:checked')?.value || 'merge';
+    if (mode === 'replace' && !confirm(
+        'Replace mode deletes ALL current devices, manuals and calendar events before restoring. Continue?'
+    )) {
+        return;
+    }
+    if (!beginOp('backup-restore')) return;
+
+    const btn = document.getElementById('restore-btn');
+    const hint = document.getElementById('restore-hint');
+    btn.disabled = true;
+    hint.textContent = `Restoring "${file.name}" (${mode})...`;
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('mode', mode);
+
+        const response = await fetch('/api/backup/restore', { method: 'POST', body: formData });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Restore failed'));
+
+        const result = await response.json();
+        hint.textContent = `Restored ${result.devices_created} device(s), ` +
+            `${result.manuals_restored} manual(s), ${result.events_restored} event(s)` +
+            (result.skipped ? ` (${result.skipped} already present, skipped)` : '') + '.';
+        showToast('Backup restored', 'success');
+
+        // Refresh everything the restore may have changed.
+        await loadDevices();
+        if (document.getElementById('calendar-tab').classList.contains('active')) {
+            loadCalendarEvents();
+        }
+
+        if (result.index_total > 0) pollRestoreIndex(hint);
+    } catch (error) {
+        console.error('Restore failed:', error);
+        hint.textContent = '';
+        showToast(error.message || 'Restore failed', 'error');
+    } finally {
+        btn.disabled = false;
+        endOp('backup-restore');
+    }
+}
+
+// Poll the background search re-index that follows a restore until it finishes,
+// showing progress in the restore hint line.
+function pollRestoreIndex(hint) {
+    const tick = async () => {
+        try {
+            const response = await fetch('/api/backup/restore-status');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const status = await response.json();
+            if (status.total === 0) return; // nothing to wait for
+
+            hint.textContent = `Rebuilding search index... ${status.done}/${status.total}`;
+            if (status.running) {
+                setTimeout(tick, 1500);
+            } else {
+                hint.textContent = `Restore complete - search index rebuilt (${status.done}/${status.total}).`;
+            }
+        } catch (e) {
+            // A lost status request must not strand the spinner text.
+            hint.textContent = 'Restore complete.';
+        }
+    };
+    setTimeout(tick, 500);
 }
 
 // Clicking (or keyboard-opening) the model dropdown refreshes its options
