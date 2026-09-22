@@ -109,44 +109,92 @@ const MAX_CHAT_IMAGES = 4;
 // enough that base64 stays a few hundred KB per photo for local models.
 const CHAT_IMAGE_MAX_DIM = 1024;
 
-// Chat scroll state - pinned-to-bottom with heuristic so user can read mid-stream.
+// Chat scroll state - "stick to bottom" while an answer streams, released as
+// soon as the user genuinely scrolls up and restored when they return to the
+// bottom (or press the scroll-to-bottom button).
 let chatPinned = true;
-const CHAT_SCROLL_THRESHOLD = 80; // px from bottom to consider "pinned"
+const CHAT_SCROLL_THRESHOLD = 80; // px from bottom that still counts as "at bottom"
 let _chatScrollQueued = false;
+// Last scrollTop we know about, so incoming scroll events can be read by
+// DIRECTION. Distance-from-bottom alone is not enough: while an answer streams,
+// content grows between a programmatic pin and the scroll event the browser
+// fires for it, which then looks like "the user scrolled away" and silently
+// kills auto-follow for the rest of the conversation.
+let _lastChatScrollTop = 0;
+
+function chatMessagesEl() {
+    return document.getElementById('chat-messages');
+}
 
 function isNearBottom(el, threshold) {
     return (el.scrollHeight - el.scrollTop - el.clientHeight) <= threshold;
 }
 
+// Coalesce scroll work to one pass per frame: token streams and ResizeObserver
+// callbacks would otherwise fight over scrollTop.
 function scheduleChatScroll() {
     if (_chatScrollQueued) return;
     _chatScrollQueued = true;
     requestAnimationFrame(() => {
         _chatScrollQueued = false;
-        const container = document.getElementById('chat-messages');
+        const container = chatMessagesEl();
         if (!container) return;
-        if (chatPinned) scrollToBottom();
+        // Pin first, then refresh the button - in between it would briefly
+        // flash into view on frames where new tokens pushed content down.
+        if (chatPinned) pinToBottom(container);
         updateScrollDownButton();
     });
+}
+
+// Scrolls to the newest message and records the position we asked for, so the
+// resulting scroll event is recognised as ours instead of a user gesture.
+function pinToBottom(container) {
+    container.scrollTop = container.scrollHeight;
+    // Read back: the browser clamps scrollTop to the scrollable range, and the
+    // clamped value is what the scroll event will report.
+    _lastChatScrollTop = container.scrollTop;
 }
 
 // Always pins; safe as a click handler (the event arg is ignored).
 function scrollToBottom() {
     chatPinned = true;
-    const container = document.getElementById('chat-messages');
+    const container = chatMessagesEl();
     if (!container) return;
-    container.scrollTop = container.scrollHeight;
+    pinToBottom(container);
+    updateScrollDownButton();
+}
+
+// Scroll events from the messages area. Only a real upward scroll releases the
+// pin, so neither our own programmatic pins nor reflows (a <details> collapsing,
+// an image finishing to load, content shrinking below the viewport) can leave
+// auto-scroll stuck off - or, in reverse, yank the view back down while the user
+// is trying to read earlier messages.
+function handleChatMessagesScroll() {
+    const container = chatMessagesEl();
+    if (!container) return;
+    const top = container.scrollTop;
+    const scrolledUp = top < _lastChatScrollTop - 1;
+    _lastChatScrollTop = top;
+
+    if (isNearBottom(container, CHAT_SCROLL_THRESHOLD)) {
+        // Back at the bottom: start following again. Checked first so a clamp
+        // caused by content shrinking never counts as scrolling away.
+        chatPinned = true;
+    } else if (scrolledUp) {
+        chatPinned = false;
+    }
     updateScrollDownButton();
 }
 
 function updateScrollDownButton() {
     const btn = document.getElementById('scroll-down-btn');
     if (!btn) return;
-    const container = document.getElementById('chat-messages');
+    const container = chatMessagesEl();
     if (!container) return;
     const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    // Show button when more than ~120px of content is below the current view.
-    btn.classList.toggle('hidden', distFromBottom <= 120);
+    // Hidden while pinned (the next frame pins us back anyway, so showing it
+    // mid-stream would only flicker) and when less than ~120px is below view.
+    btn.classList.toggle('hidden', chatPinned || distFromBottom <= 120);
 }
 
 async function initializeApp() {
@@ -278,25 +326,27 @@ function setupEventListeners() {
 
     // Chat scroll container: track pinned state and wire observers.
     (function initChatScroll() {
-        const container = document.getElementById('chat-messages');
+        const container = chatMessagesEl();
         if (!container) return;
         chatPinned = true;
-        container.addEventListener('scroll', () => {
-            chatPinned = isNearBottom(container, CHAT_SCROLL_THRESHOLD);
-            updateScrollDownButton();
-        });
-        // Re-pins when user expands/collapses a <details> while pinned.
-        container.addEventListener('toggle', (e) => {
-            if (!chatPinned) return;
-            requestAnimationFrame(() => scrollToBottom());
+        _lastChatScrollTop = container.scrollTop;
+        container.addEventListener('scroll', handleChatMessagesScroll);
+        // Re-pins when user expands/collapses a <details> while pinned. Deferred
+        // through scheduleChatScroll so no layout write happens inside the
+        // toggle handler, and so a burst of events collapses to one pass.
+        container.addEventListener('toggle', () => {
+            if (chatPinned) scheduleChatScroll();
         }, true);
         // Observe new message nodes so their height changes update button visibility and re-pin.
         const ro = new ResizeObserver(() => {
-            updateScrollDownButton();
-            if (chatPinned) scrollToBottom();
+            // Deferred on purpose: writing scrollTop from inside a RO callback
+            // can trip the browser's "ResizeObserver loop" guard, after which
+            // later notifications are dropped - i.e. auto-scroll quietly stops.
+            scheduleChatScroll();
         });
-        // The container itself resizes when the model-warning banner shows/hides;
-        // without observing it, pinning/button state would go stale until the next scroll.
+        // The container itself resizes when the model-warning banner shows/hides,
+        // the window changes size or the chat tab is shown again; without
+        // observing it, pinning/button state would go stale until the next scroll.
         ro.observe(container);
         const mo = new MutationObserver((mutations) => {
             for (const m of mutations) {
@@ -2154,8 +2204,9 @@ function startNewSession() {
     const input = document.getElementById('chat-input');
     if (input) input.value = '';
     clearPendingChatImages();
-    chatPinned = true;
-    updateScrollDownButton();
+    // Replacing innerHTML clamps scrollTop to 0; pin explicitly so the fresh
+    // session starts at its (single) message with auto-follow armed.
+    scrollToBottom();
 }
 
 // Build the streaming assistant bubble and its event handlers.
@@ -2501,7 +2552,8 @@ function addMessageToChat(role, content, images = []) {
     if (images.length) contentEl._images = [...images];
 
     container.appendChild(messageDiv);
-    chatPinned = true;
+    // Sending always jumps to the newest message, even if the user was reading
+    // further up when they hit Send.
     scrollToBottom();
 }
 

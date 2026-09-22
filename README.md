@@ -100,8 +100,8 @@ Open **Settings → General**:
   attributes), calendar events and - optionally - the manual PDF files.
   Inside, `data.json` holds plain JSON rows you can inspect, plus one PDF per
   manual under `manuals/`.
-- **Restore** takes that file back. *Merge* adds only what's missing (restoring
-  twice changes nothing); *Replace* wipes devices, manuals and calendar events
+- **Restore** takes that file back. _Merge_ adds only what's missing (restoring
+  twice changes nothing); _Replace_ wipes devices, manuals and calendar events
   first, then recreates them exactly from the archive. Restored PDFs are
   re-indexed for search in the background.
 - Settings and secrets (API key, webhook URL/token) are **never** included -

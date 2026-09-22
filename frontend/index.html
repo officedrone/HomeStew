@@ -167,16 +167,28 @@
                          populated by app.js, cleared on send / New Session. -->
                     <div id="chat-attachment-preview" class="chat-attachment-preview" style="display: none;"></div>
 
+                    <!-- Input row. The attach / camera pickers are flat icon
+                         buttons INSIDE the field (same .card-icon-btn style as
+                         Recent Devices rows and device cards) pinned to its
+                         right edge; the textarea reserves matching right
+                         padding so typed text never runs under them.
+                         Send/Stop stay outside as the only block button. -->
                     <div class="chat-input-container">
-                        <button type="button" id="chat-attach-btn" class="btn btn-secondary chat-icon-btn" title="Attach a photo for the model to look at" aria-label="Attach image">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
-                        </button>
-                        <button type="button" id="chat-camera-btn" class="btn btn-secondary chat-icon-btn" title="Take a photo (mobile)" aria-label="Take photo">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
-                        </button>
-                        <textarea id="chat-input" placeholder="Ask a question about your devices..." rows="2"></textarea>
-                        <button id="stop-btn" class="btn btn-danger" style="display: none;" title="Stop generating">■ Stop</button>
-                        <button id="send-btn" class="btn btn-primary" data-dedupe>Send</button>
+                        <div class="chat-input-wrap">
+                            <textarea id="chat-input" placeholder="Ask a question about your devices..." rows="2"></textarea>
+                            <div class="chat-input-tools">
+                                <button type="button" id="chat-attach-btn" class="card-icon-btn" title="Attach a photo for the model to look at" aria-label="Attach image">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                                </button>
+                                <button type="button" id="chat-camera-btn" class="card-icon-btn" title="Take a photo (mobile)" aria-label="Take photo">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="chat-send-col">
+                            <button id="stop-btn" class="btn btn-danger" style="display: none;" title="Stop generating">■ Stop</button>
+                            <button id="send-btn" class="btn btn-primary" data-dedupe>Send</button>
+                        </div>
                     </div>
 
                     <!-- Context / model pickers, below the input row and collapsed

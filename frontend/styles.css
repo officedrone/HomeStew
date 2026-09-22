@@ -68,9 +68,9 @@
     --shadow-md: 0 6px 20px rgba(23, 26, 33, 0.1);
     --shadow-lg: 0 18px 50px rgba(23, 26, 33, 0.22);
 
-    --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 18px;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 9px;
 
     --topbar-h: 54px;
 }
@@ -371,7 +371,7 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
     padding: 10px 12px;
     margin-bottom: 10px;
     border: none;
-    border-radius: 6px;
+    border-radius: 3px;
     background: var(--sidebar-surface);
     color: white;
     font-size: 0.9rem;
@@ -514,7 +514,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
        their hover/expanded background instead of a card outline. */
     background: transparent;
     border: none;
-    border-radius: 8px;
+    border-radius: 4px;
     margin-bottom: 6px;
     overflow: hidden;
     transition: background 0.2s;
@@ -983,7 +983,7 @@ a.result-page-link:hover {
     background: var(--mark-bg);
     color: inherit;
     padding: 2px 4px;
-    border-radius: 3px;
+    border-radius: 2px;
 }
 
 /* Hit in a device's own record (details / custom attributes) rather than
@@ -1267,7 +1267,7 @@ a.result-page-link:hover {
     margin: 0 0 8px;
     padding: 6px 8px;
     background: var(--bg-light);
-    border-radius: 6px;
+    border-radius: 3px;
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 0.8rem;
@@ -1339,10 +1339,23 @@ details.chat-input-meta {
     white-space: nowrap;
 }
 
+/* Input row, left to right: the field (with its inline attach/camera pickers)
+   and Send (or Stop while streaming). */
 .chat-input-container {
     display: flex;
+    align-items: stretch;
     gap: 10px;
     flex-shrink: 0;
+}
+
+/* Anchors the inline picker buttons to the field's right edge. The wrapper -
+   not the textarea - is the flex item so the absolutely positioned tools have
+   a containing block that matches the visible border box. */
+.chat-input-wrap {
+    position: relative;
+    flex: 1 1 220px;
+    min-width: 0;
+    display: flex;
 }
 
 /* The chat device filter lives just above the input box, beside the model
@@ -1361,16 +1374,26 @@ details.chat-input-meta {
     flex-shrink: 0;
 }
 
-.chat-input-container textarea {
-    flex: 1 1 220px;
+.chat-input-wrap textarea {
+    flex: 1;
     min-width: 0;
-    padding: 12px;
+    /* Right padding = the picker strip (2 x 30px + gap + inset) so every
+       wrapped line stops short of the buttons instead of typing under them. */
+    padding: 12px 78px 12px 12px;
     border: 1.5px solid var(--border-color);
     border-radius: var(--radius-md);
     background: var(--surface);
     color: var(--text-primary);
     font-size: 1rem;
-    resize: none;
+    /* User-resizable so long prompts can be reviewed before sending. Vertical
+       only: a horizontal handle would fight the flex row. The max keeps a
+       dragged-out box from eating the whole messages area, and the min keeps
+       the field tall enough that the centred pickers stay clear of the resize
+       grip in the bottom-right corner. */
+    resize: vertical;
+    min-height: 56px;
+    max-height: min(50vh, 420px);
+    overflow-y: auto;
     font-family: inherit;
     transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -1381,16 +1404,40 @@ details.chat-input-meta {
     box-shadow: var(--ring);
 }
 
-/* Attach / camera buttons: square icon-only variants of .btn-secondary so the
-   input row stays compact (they sit left of the textarea). */
-.chat-icon-btn {
+/* Attach / camera pickers, floating inside the field on its right edge.
+   Flat .card-icon-btn styling (transparent until hovered) keeps them reading
+   as part of the box rather than as separate buttons; centring them vertically
+   looks intentional at any resized height. */
+.chat-input-tools {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 2px;
+}
+
+/* The field's own border/ring is the hover affordance, so the buttons stay
+   quiet until pointed at; bump them slightly for a comfortable touch target. */
+.chat-input-tools .card-icon-btn {
+    width: 32px;
+    height: 32px;
+}
+
+/* Send / Stop share one slot at the far right of the input row (only one is
+   visible at a time). The wrapper keeps them vertically centred against a
+   textarea the user may have dragged taller. */
+.chat-send-col {
     flex-shrink: 0;
-    width: 42px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
+    display: flex;
+    flex-direction: column;
     justify-content: center;
-    align-self: stretch;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.chat-send-col .btn {
+    white-space: nowrap;
 }
 
 /* Thumbnails of images queued for the NEXT message, above the input row. */
@@ -1503,7 +1550,7 @@ details.chat-input-meta {
 
 .toast {
     padding: 12px 20px;
-    border-radius: 8px;
+    border-radius: 4px;
     margin-top: 10px;
     animation: slideIn 0.3s ease;
     min-width: 280px;
@@ -1558,7 +1605,7 @@ details.chat-input-meta {
     margin-top: 10px;
     padding: 10px;
     background: rgba(0, 0, 0, 0.2);
-    border-radius: 4px;
+    border-radius: 2px;
     font-size: 0.8rem;
     word-break: break-word;
     overflow-wrap: break-word;
@@ -1668,7 +1715,7 @@ details.chat-input-meta {
     gap: 10px;
     padding: 8px;
     background: var(--bg-light);
-    border-radius: 6px;
+    border-radius: 3px;
     margin-bottom: 8px;
 }
 
@@ -1695,7 +1742,7 @@ details.chat-input-meta {
     gap: 10px;
     padding: 8px;
     background: var(--bg-light);
-    border-radius: 6px;
+    border-radius: 3px;
     margin-bottom: 8px;
 }
 
@@ -2071,7 +2118,7 @@ details.chat-input-meta {
 .wizard-text code {
     background: var(--bg-light);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: 2px;
     padding: 1px 5px;
     font-size: 0.82em;
 }
@@ -2141,7 +2188,7 @@ details.chat-input-meta {
 .advanced-settings {
     margin: 4px 0 20px;
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 4px;
     background: var(--bg-light);
 }
 
@@ -2244,7 +2291,7 @@ details.chat-input-meta {
     gap: 8px;
     background: var(--sidebar-surface);
     border-left: 3px solid var(--primary-on-dark);
-    border-radius: 8px;
+    border-radius: 4px;
     padding: 7px 9px;
 }
 
@@ -2498,7 +2545,7 @@ details.chat-input-meta {
     gap: 15px;
     padding: 15px;
     background: var(--bg-light);
-    border-radius: 8px;
+    border-radius: 4px;
     margin-top: 20px;
 }
 
