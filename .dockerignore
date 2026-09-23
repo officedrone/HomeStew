@@ -65,6 +65,7 @@ Thumbs.db
 Dockerfile*
 docker-compose*.yml
 .dockerignore
+out/
 
 # Docs and tests
 README.md

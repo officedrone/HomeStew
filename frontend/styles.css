@@ -1417,6 +1417,18 @@ details.chat-input-meta {
     gap: 2px;
 }
 
+/* The saved model is not marked vision-capable ("Model supports Vision"
+   unchecked): the pickers disappear and the textarea reclaims their reserved
+   right padding. body starts with .no-vision (index.html) so the buttons
+   never flash before /api/settings resolves. */
+body.no-vision .chat-input-tools {
+    display: none;
+}
+
+body.no-vision .chat-input-wrap textarea {
+    padding-right: 12px;
+}
+
 /* The field's own border/ring is the hover affordance, so the buttons stay
    quiet until pointed at; bump them slightly for a comfortable touch target. */
 .chat-input-tools .card-icon-btn {

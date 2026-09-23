@@ -224,6 +224,11 @@ class SettingsResponse(BaseModel):
     theme: str = Field(..., description="UI theme preference: auto | light | dark")
     llm_base_url: str
     llm_model: str
+    llm_supports_vision: bool = Field(
+        False,
+        description="True when the selected model is marked as able to read "
+        "images (enables the chat photo attach / camera controls)",
+    )
     llm_api_key_set: bool = Field(
         ..., description="True if an LLM API key is configured (value not exposed)"
     )
@@ -350,6 +355,12 @@ class SettingsUpdate(BaseModel):
     llm_base_url: Optional[str] = Field(None, max_length=500)
     llm_api_key: Optional[str] = Field(None, max_length=500)
     llm_model: Optional[str] = Field(None, min_length=1, max_length=200)
+    # A plain boolean toggle, so False must apply too (None = unchanged).
+    llm_supports_vision: Optional[bool] = Field(
+        None,
+        description="Mark the selected model as able to read images; enables "
+        "the chat photo attach / camera controls",
+    )
     chat_system_prompt: Optional[str] = Field(
         None, max_length=8000, description="Custom chat system prompt"
     )
@@ -503,6 +514,11 @@ class ModelStatusResponse(BaseModel):
         ..., description="True if an LLM model name is configured in settings"
     )
     model_available: Optional[bool] = None
+    llm_supports_vision: bool = Field(
+        False,
+        description="Whether the saved 'Model supports Vision' toggle is on; "
+        "the chat UI shows the attach / camera buttons only when true",
+    )
     llm_base_url: str
     llm_model: str
     available_models_count: Optional[int] = None

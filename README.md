@@ -93,6 +93,14 @@ Switch to the chat tab and ask questions:
 
 The AI will automatically search your manuals and provide answers based on the actual documentation.
 
+**Photos & vision models.** If your model can read images (e.g. `qwen3-vl`,
+`llava`, `gemma3`), tick **Model supports Vision** under **Settings → AI** (or
+in the first-run wizard's AI step). This reveals the photo-attach and camera
+buttons in the chat input so you can snap a nameplate or error screen and ask
+about it. With the box unchecked those controls stay hidden and the server
+rejects image uploads, so a text-only model never receives a photo it would
+refuse.
+
 ### 5. Backup & Restore
 
 Open **Settings → General**:

@@ -79,6 +79,7 @@ def _current_settings() -> SettingsResponse:
         theme=settings.THEME,
         llm_base_url=settings.LLM_BASE_URL,
         llm_model=settings.LLM_MODEL,
+        llm_supports_vision=bool(getattr(settings, "LLM_SUPPORTS_VISION", False)),
         llm_api_key_set=bool(settings.LLM_API_KEY),
         chat_system_prompt=settings.CHAT_SYSTEM_PROMPT,
         search_tool_description=settings.SEARCH_TOOL_DESCRIPTION,
@@ -158,6 +159,11 @@ async def update_settings(update: SettingsUpdate):
 
     if update.llm_model is not None and update.llm_model.strip():
         changes["LLM_MODEL"] = update.llm_model.strip()
+
+    # Vision toggle: a plain boolean, so False must be applied too (None
+    # means "unchanged", which the Optional schema already gives us).
+    if update.llm_supports_vision is not None:
+        changes["LLM_SUPPORTS_VISION"] = update.llm_supports_vision
 
     if update.llm_api_key is not None and update.llm_api_key.strip():
         changes["LLM_API_KEY"] = update.llm_api_key.strip()
@@ -418,6 +424,7 @@ async def get_model_status():
             model_configured=model_selected,
             llm_base_url=base_url,
             llm_model=settings.LLM_MODEL,
+            llm_supports_vision=bool(getattr(settings, "LLM_SUPPORTS_VISION", False)),
             error=str(exc.detail),
         )
 
@@ -429,6 +436,7 @@ async def get_model_status():
         model_available=available,
         llm_base_url=base_url,
         llm_model=settings.LLM_MODEL,
+        llm_supports_vision=bool(getattr(settings, "LLM_SUPPORTS_VISION", False)),
         available_models_count=len(result.models),
         available_models=result.models,
     )

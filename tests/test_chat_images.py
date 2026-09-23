@@ -4,14 +4,21 @@ Covers the two pieces added for vision input:
   * ``ChatMessage`` validation (data-URL shape, count/size caps, user-only).
   * ``to_openai_messages`` - only the newest user turn keeps its images;
     older image turns collapse to a text placeholder.
-Plus ``friendly_llm_error`` mapping a text-only-model rejection to guidance.
+Plus ``friendly_llm_error`` mapping a text-only-model rejection to guidance,
+and ``reject_images_without_vision`` gating uploads on the saved "Model
+supports Vision" setting.
 
 No network and no LLM: these are pure functions over Pydantic models.
 """
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
-from homestew.api.chat import friendly_llm_error, to_openai_messages
+from homestew.api.chat import (
+    friendly_llm_error,
+    reject_images_without_vision,
+    to_openai_messages,
+)
 from homestew.models.schemas import (
     MAX_CHAT_IMAGES,
     ChatMessage,
@@ -153,3 +160,50 @@ class TestFriendlyLLMError:
         msg = friendly_llm_error(exc)
         assert "Chat processing failed" in msg
         assert "connection refused" in msg
+
+
+# --------------------------------------------------------------------------
+# Vision gating: images require the saved "Model supports Vision" setting
+# --------------------------------------------------------------------------
+
+class TestRejectImagesWithoutVision:
+    def test_image_without_vision_flag_is_refused(self, monkeypatch):
+        from homestew import config as cfg
+
+        monkeypatch.setattr(cfg.settings, "LLM_SUPPORTS_VISION", False)
+        with pytest.raises(HTTPException) as excinfo:
+            reject_images_without_vision([_user("look", [PNG_URL])])
+        assert excinfo.value.status_code == 415
+        # The message must name the checkbox so the user can fix it.
+        assert "Model supports Vision" in str(excinfo.value.detail)
+
+    def test_image_with_vision_flag_passes(self, monkeypatch):
+        from homestew import config as cfg
+
+        monkeypatch.setattr(cfg.settings, "LLM_SUPPORTS_VISION", True)
+        reject_images_without_vision([_user("look", [PNG_URL])])  # no raise
+
+    def test_text_only_message_never_raises(self, monkeypatch):
+        from homestew import config as cfg
+
+        monkeypatch.setattr(cfg.settings, "LLM_SUPPORTS_VISION", False)
+        reject_images_without_vision([_user("hello")])  # no images -> fine
+
+    def test_only_newest_user_turn_matters(self, monkeypatch):
+        # An older image turn (which collapses to a text marker before the
+        # LLM sees it) must not trip the guard when the newest turn is plain.
+        from homestew import config as cfg
+
+        monkeypatch.setattr(cfg.settings, "LLM_SUPPORTS_VISION", False)
+        msgs = [
+            _user("first", [PNG_URL]),
+            ChatMessage(role="assistant", content="ok"),
+            _user("follow-up with no photo"),
+        ]
+        reject_images_without_vision(msgs)  # no raise
+
+    def test_empty_history_is_fine(self, monkeypatch):
+        from homestew import config as cfg
+
+        monkeypatch.setattr(cfg.settings, "LLM_SUPPORTS_VISION", False)
+        reject_images_without_vision([])  # no user turn at all -> fine

@@ -29,6 +29,10 @@ EDITABLE_SETTINGS = (
     "LLM_BASE_URL",
     "LLM_API_KEY",
     "LLM_MODEL",
+    # Whether the selected model can read images. Gates the chat attach /
+    # camera controls (and image uploads server-side) so a text-only model
+    # never receives an image it would reject.
+    "LLM_SUPPORTS_VISION",
     "CHAT_SYSTEM_PROMPT",
     "SEARCH_TOOL_DESCRIPTION",
     "CALENDAR_TOOL_DESCRIPTION",
@@ -94,6 +98,12 @@ class Settings(BaseSettings):
     # empty value means "no API key configured" in the Settings UI.
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "llama3.2"
+    # Whether the selected model can read images (vision). Off by default so
+    # a text-only model never gets offered image input; the checkbox under
+    # Settings > AI (and in the first-run wizard) turns the chat photo
+    # controls on. The chat API rejects images while this is off, so the UI
+    # gate is cosmetic as well as defensive.
+    LLM_SUPPORTS_VISION: bool = False
 
     # LLM prompts (editable under Settings > Advanced Settings). Defaults are
     # the built-in prompt texts from homestew.default_prompts.

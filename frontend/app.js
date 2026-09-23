@@ -261,6 +261,21 @@ let uploadTargetDeviceId = null;
 // null = unknown/not yet checked; true/false = whether chatting is allowed.
 let chatModelAvailable = null;
 
+// Whether the saved config marks the model as vision-capable ("Model supports
+// Vision" in Settings > AI / the first-run wizard). The attach & camera
+// buttons are hidden while false, and sendChatMessage refuses images so an
+// old tab can't push a photo to a text-only model. Seeded from
+// /api/settings/model-status (see checkChatModelStatus) and refreshed after a
+// settings save; the server independently rejects images too (chat API).
+let chatVisionEnabled = false;
+
+// Show/hide the chat image controls to match chatVisionEnabled: a body class
+// hides the picker strip and reclaims the textarea's right padding, so typed
+// text uses the full width when there are no buttons to avoid.
+function updateChatImageControls() {
+    document.body.classList.toggle('no-vision', !chatVisionEnabled);
+}
+
 // While an answer streams in, this controller lets the Stop button abort the
 // fetch (which also tears down the SSE stream server-side). Null when idle.
 let chatAbortController = null;
@@ -2115,6 +2130,12 @@ async function handleChatImageSelected(event) {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
     if (!files.length) return;
+    // The pickers are hidden while the model is not marked vision-capable, but
+    // a stale file dialog can still deliver a drop - refuse it here too.
+    if (!chatVisionEnabled) {
+        showToast('The model does not support images. Enable "Model supports Vision" in Settings > AI.', 'error');
+        return;
+    }
 
     for (const file of files) {
         if (!file.type.startsWith('image/')) {
@@ -2214,6 +2235,13 @@ async function sendChatMessage() {
     
     // An image-only message is valid: the model reads the photo itself.
     if (!message && !pendingChatImages.length) return;
+
+    // Belt & braces: pending images cannot normally exist while vision is
+    // off (the pickers are hidden), but never send them to a text-only model.
+    if (pendingChatImages.length && !chatVisionEnabled) {
+        showToast('The model does not support images. Enable "Model supports Vision" in Settings > AI.', 'error');
+        return;
+    }
 
     // If the last model probe failed, don't waste a round-trip: keep the
     // warning banner visible and point the user at Settings instead.
@@ -2807,6 +2835,12 @@ async function checkChatModelStatus() {
         // Keep the toolbar model switcher in sync with what the server offers
         // (and at least show the saved selection when the probe failed).
         populateChatModelSelect(status);
+        // The vision toggle is an independent saved setting: apply it even on
+        // the unreachable/no-model paths below, so the attach & camera buttons
+        // match Settings > AI regardless of probe outcome. (A failed status
+        // request keeps whatever state was last known.)
+        chatVisionEnabled = !!status.llm_supports_vision;
+        updateChatImageControls();
     } catch (error) {
         // The status probe itself failed - treat as unavailable but keep the
         // chat usable-looking rather than blocking on our own error.
@@ -3269,6 +3303,10 @@ async function loadSettingsPage() {
 
     document.getElementById('model-list-hint').textContent =
         'Click the dropdown to load models from the server.';
+
+    // Vision toggle: only an explicit true checks it (missing key = off).
+    document.getElementById('settings-llm-vision').checked =
+        settings.llm_supports_vision === true;
 
     // Advanced settings: current prompts + built-in defaults (for Restore).
     promptDefaults = {
@@ -3757,6 +3795,8 @@ async function handleSettingsSave(event) {
         theme: themeInput ? themeInput.value : 'auto',
         llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
         llm_model: document.getElementById('settings-llm-model').value.trim(),
+        // Always sent: a plain boolean, so unchecking must persist too.
+        llm_supports_vision: document.getElementById('settings-llm-vision').checked,
         // Prompts are always sent; the server treats a blank value as
         // "restore the built-in default".
         chat_system_prompt: document.getElementById('settings-chat-system-prompt').value.trim(),
@@ -3815,6 +3855,10 @@ async function handleSettingsSave(event) {
         // visible without a reload.
         setThemePref(payload.theme);
         showToast('Settings saved');
+        // Reflect a vision-toggle change in the chat right away: the attach /
+        // camera buttons appear or disappear without waiting for a reload.
+        chatVisionEnabled = payload.llm_supports_vision;
+        updateChatImageControls();
         // Re-probe the chat in case the LLM settings were fixed here: its
         // warning banner should clear even though it is on another tab.
         if (document.getElementById('chat-tab').classList.contains('active')) {
@@ -3996,6 +4040,13 @@ async function checkSetupWizard() {
         if (!response.ok) return;
         const s = await response.json();
         wizardQueue = wizardPendingSteps(s);
+        // Seed the chat image controls + the wizard's vision checkbox from
+        // the saved config before any tab renders, so the attach/camera
+        // buttons never flash in for a text-only model. (checkChatModelStatus
+        // re-applies this whenever the chat tab opens.)
+        chatVisionEnabled = !!s.llm_supports_vision;
+        updateChatImageControls();
+        document.getElementById('wizard-llm-vision').checked = chatVisionEnabled;
         if (!wizardQueue.length) return;
         // Prefill the AI step from what the server has (defaults or env).
         document.getElementById('wizard-llm-base-url').value = s.llm_base_url || '';
@@ -4212,7 +4263,12 @@ async function wizardSaveLlm() {
     }
     if (!model) throw new Error('Pick a model - click "Models" to load the list from your server.');
 
-    const payload = { llm_base_url: baseUrl, llm_model: model };
+    const payload = {
+        llm_base_url: baseUrl,
+        llm_model: model,
+        // Always sent so unchecking in the wizard persists too.
+        llm_supports_vision: document.getElementById('wizard-llm-vision').checked,
+    };
     // Blank key = none configured (local servers ignore it); omitted so the
     // server keeps any stored key untouched.
     const apiKey = document.getElementById('wizard-llm-api-key').value.trim();

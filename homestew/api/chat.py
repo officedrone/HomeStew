@@ -412,6 +412,37 @@ def friendly_llm_error(exc: Exception) -> str:
     return f"Chat processing failed: {detail}"
 
 
+def reject_images_without_vision(messages: List[ChatMessage]) -> None:
+    """Refuse image input while the model is not marked as vision-capable.
+
+    The UI hides the attach / camera buttons when Settings > AI has "Model
+    supports Vision" unchecked, but requests can still arrive with images
+    (an old tab, a direct API call). Rather than letting the LLM server
+    reject them with an opaque 400, answer with a clear 415 pointing at the
+    checkbox. Only the newest user turn actually carries image bytes to the
+    model - older turns collapse to a text marker in ``to_openai_messages``
+    - so that is what gets validated.
+    """
+    last_user_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "user":
+            last_user_idx = i
+            break
+    if last_user_idx is None or not messages[last_user_idx].images:
+        return
+    if getattr(settings, "LLM_SUPPORTS_VISION", False):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail=(
+            'The selected model is not marked as supporting images. Tick '
+            '"Model supports Vision" under Settings > AI (or switch to a '
+            "vision model such as qwen3-vl, llava or gemma3), or remove the "
+            "attached image and ask again."
+        ),
+    )
+
+
 def to_openai_messages(
     messages: List[ChatMessage],
 ) -> List[Dict[str, Any]]:
@@ -466,7 +497,8 @@ async def chat(request: ChatRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Message content cannot be empty"
         )
-    
+    reject_images_without_vision(request.messages)
+
     # Resolve before the try so a 404 for an unknown device isn't swallowed
     # into a generic 500.
     device = await resolve_device_filter(request.device_id)
@@ -531,6 +563,7 @@ async def chat_stream(request: ChatRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Message content cannot be empty"
         )
+    reject_images_without_vision(request.messages)
 
     # Resolve before streaming starts so an unknown device is a plain 404.
     device = await resolve_device_filter(request.device_id)
