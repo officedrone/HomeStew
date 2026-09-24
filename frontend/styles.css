@@ -23,23 +23,34 @@
 :root {
     color-scheme: light;
 
-    /* Brand seed - teal */
-    --brand-h: 174;
-    --brand-s: 68%;
+    /* Brand seed - teal (drives the tint of every neutral surface/border). */
+    --brand-h: 186;
+    --brand-s: 55%;
 
-    /* Primary / interactive - CTAs, links, active states (AA on white) */
-    --primary-color: hsl(var(--brand-h) var(--brand-s) 30%);
-    --primary-hover: hsl(var(--brand-h) var(--brand-s) 24%);
+    /* Brand palette (exact scheme). Neutrals stay hue-derived from --brand-h so
+       light/dark canvases, borders and the ink sidebar pick up the teal cast
+       automatically; these five are the fixed brand colors. */
+    --teal-primary: #2F9FA8;   /* vivid primary teal - dark-mode primary / on-dark accents */
+    --teal-dark: #0F4C5C;      /* deep petrol teal - light-mode primary (AA on white) */
+    --teal-light: #D9F2F4;     /* pale tint - recessed panels / chips in light mode */
+    --gold-accent: #F0B54A;    /* highlight, warning & special-CTA accent */
+    --neutral-text: #6B7280;   /* secondary text on light surfaces (AA) */
+
+    /* Primary / interactive - CTAs, links, active states. Light mode uses the
+       deep teal so small labels clear AA on white; the vivid primary teal takes
+       over in dark mode where it clears AA on near-black. */
+    --primary-color: var(--teal-dark);
+    --primary-hover: #0b3a47;
     --on-primary: #ffffff;                        /* text sitting on primary fills */
-    --primary-on-dark: hsl(var(--brand-h) 55% 62%); /* brand wordmark on the ink sidebar */
+    --primary-on-dark: var(--teal-primary);       /* brand wordmark / topbar title on the ink sidebar */
 
-    /* Accent - same hue family, muted. Secondary interactive / tags */
-    --accent-color: hsl(calc(var(--brand-h) + 10) 34% 38%);
+    /* Accent - gold. Secondary interactive / tags / highlights */
+    --accent-color: var(--gold-accent);
 
     /* Backgrounds - neutrals tinted toward the brand hue */
     --bg-app: hsl(var(--brand-h) 28% 97%);      /* main canvas behind cards */
     --surface: #ffffff;                          /* cards, modals, inputs */
-    --bg-light: hsl(var(--brand-h) 22% 94%);     /* recessed panels (chat area, chips, wells) */
+    --bg-light: color-mix(in srgb, var(--teal-light) 55%, white); /* recessed panels (chat area, chips, wells) */
 
     /* Sidebar / topbar keep a deep "ink" identity in both themes */
     --bg-darker: hsl(var(--brand-h) 30% 8%);
@@ -51,17 +62,17 @@
 
     /* Text - near-black / slate tinted toward the brand hue */
     --text-primary: hsl(var(--brand-h) 22% 9%);   /* ~17:1 on white */
-    --text-secondary: hsl(var(--brand-h) 11% 35%); /* AA on white */
+    --text-secondary: var(--neutral-text);         /* AA on white */
     --border-color: hsl(var(--brand-h) 18% 87%);
 
     /* Semantic - fixed regardless of brand hue */
     --success: #15803d;
     --error: #dc2626;
 
-    --warn-bg: #fef4e2;
-    --warn-border: #f0b429;
-    --warn-text: #8a5a06;
-    --mark-bg: #fde9b8;
+    --warn-bg: color-mix(in srgb, var(--gold-accent) 16%, white);
+    --warn-border: #d99a2b;
+    --warn-text: #7a5410;
+    --mark-bg: color-mix(in srgb, var(--gold-accent) 48%, white); /* search highlight = accent gold */
 
     --ring: 0 0 0 3px color-mix(in srgb, var(--primary-color) 25%, transparent);
     --shadow-sm: 0 1px 3px rgba(23, 26, 33, 0.07);
@@ -83,11 +94,11 @@
     :root:not([data-theme="light"]) {
         color-scheme: dark;
 
-        --primary-color: hsl(var(--brand-h) 60% 48%);
-        --primary-hover: hsl(var(--brand-h) 62% 57%);
-        --on-primary: hsl(var(--brand-h) 35% 7%); /* near-black on bright teal */
+        --primary-color: var(--teal-primary);   /* vivid teal - AA on near-black */
+        --primary-hover: #4bb3bc;
+        --on-primary: #062a33;                  /* deep teal-black text on bright teal fills */
 
-        --accent-color: hsl(calc(var(--brand-h) + 10) 42% 68%);
+        --accent-color: var(--gold-accent);     /* gold accent pops on dark surfaces */
 
         --bg-app: hsl(var(--brand-h) 12% 4%);     /* main canvas */
         --surface: hsl(var(--brand-h) 10% 9%);    /* cards, containers */
@@ -99,10 +110,10 @@
         --text-secondary: hsl(var(--brand-h) 5% 66%);
         --border-color: hsl(var(--brand-h) 7% 24%);
 
-        --warn-bg: rgba(240, 180, 41, 0.12);
+        --warn-bg: rgba(240, 181, 74, 0.12);
         --warn-border: #b97e1f;
         --warn-text: #fcd38a;
-        --mark-bg: rgba(250, 204, 21, 0.35);
+        --mark-bg: rgba(240, 181, 74, 0.32); /* accent gold highlight */
 
         --ring: 0 0 0 3px color-mix(in srgb, var(--primary-color) 35%, transparent);
         --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -115,11 +126,11 @@
 [data-theme="dark"] {
     color-scheme: dark;
 
-    --primary-color: hsl(var(--brand-h) 60% 48%);
-    --primary-hover: hsl(var(--brand-h) 62% 57%);
-    --on-primary: hsl(var(--brand-h) 35% 7%); /* near-black on bright teal */
+    --primary-color: var(--teal-primary);   /* vivid teal - AA on near-black */
+    --primary-hover: #4bb3bc;
+    --on-primary: #062a33;                  /* deep teal-black text on bright teal fills */
 
-    --accent-color: hsl(calc(var(--brand-h) + 10) 42% 68%);
+    --accent-color: var(--gold-accent);     /* gold accent pops on dark surfaces */
 
     --bg-app: hsl(var(--brand-h) 12% 4%);     /* main canvas */
     --surface: hsl(var(--brand-h) 10% 9%);    /* cards, containers */
@@ -131,10 +142,10 @@
     --text-secondary: hsl(var(--brand-h) 5% 66%);
     --border-color: hsl(var(--brand-h) 7% 24%);
 
-    --warn-bg: rgba(240, 180, 41, 0.12);
+    --warn-bg: rgba(240, 181, 74, 0.12);
     --warn-border: #b97e1f;
     --warn-text: #fcd38a;
-    --mark-bg: rgba(250, 204, 21, 0.35);
+    --mark-bg: rgba(240, 181, 74, 0.32); /* accent gold highlight */
 
     --ring: 0 0 0 3px color-mix(in srgb, var(--primary-color) 35%, transparent);
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -192,10 +203,14 @@ summary:focus-visible {
     border-bottom: 1px solid color-mix(in srgb, white 10%, transparent);
 }
 
-.topbar-title {
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--primary-on-dark);
+/* Brand logo in the mobile top bar — sized like the sidebar logo before it
+   grew to 133% (a 120x80 box for this 3:2 image). */
+.topbar-logo {
+    display: block;
+    height: 80px;
+    width: auto;
+    max-width: calc(100vw - 90px);
+    object-fit: contain;
 }
 
 /* Hamburger sits on the dark topbar in both themes */
@@ -245,13 +260,16 @@ body.sidebar-collapsed .sidebar {
     padding: 12px 8px;
 }
 
-/* Sidebar top row: brand wordmark on the left, collapse chevron on the
-   right (in collapsed mode the logo hides and only the chevron remains). */
+/* Sidebar top row: the logo is centered in the middle of the sidebar and the
+   collapse chevron floats at the right edge (absolute, so it never nudges the
+   logo off-center). In collapsed mode the logo hides and only the chevron
+   remains. */
 .sidebar-top {
+    position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    justify-content: center;
+    min-height: 40px;
     margin-bottom: 12px;
 }
 
@@ -261,9 +279,25 @@ body.sidebar-collapsed .sidebar {
     min-width: 0;
 }
 
+/* Collapse chevron pinned to the right edge, vertically centered against the
+   (taller) logo. Absolute positioning keeps the logo perfectly centered. */
+.sidebar-top #sidebar-toggle-btn {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
 body.sidebar-collapsed .sidebar-top {
     flex-direction: column;
     margin-bottom: 8px;
+}
+
+/* Collapsed rail: the logo is gone, so drop the absolute pin and let the lone
+   chevron re-center itself in the narrow rail via the flex container. */
+body.sidebar-collapsed .sidebar-top #sidebar-toggle-btn {
+    position: static;
+    transform: none;
 }
 
 /* Rail-only icons are hidden while expanded; content hides when collapsed.
@@ -381,11 +415,16 @@ body:not(.sidebar-collapsed) .sidebar-footer .icon-btn {
     color: white;
 }
 
-.logo h1 {
-    font-size: clamp(1.4rem, 1.2rem + 0.9vw, 1.8rem);
-    margin-bottom: 5px;
-    /* Brand wordmark pops against the dark sidebar in both themes */
-    color: var(--primary-on-dark);
+.logo .logo-img {
+    display: block;
+    /* Horizontal wordmark at 133% of its previous rendered size (the old
+       height: 80px rule produced a 120x80 box for this 3:2 image, so the
+       new target is 160x106). Sized by width; max-width keeps it inside
+       the narrowest sidebar. */
+    width: min(160px, 100%);
+    height: auto;
+    /* Breathing room above/below the logo within the header row. */
+    margin: 10px 0;
 }
 
 .section {
