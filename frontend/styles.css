@@ -79,6 +79,10 @@
     --shadow-md: 0 6px 20px rgba(23, 26, 33, 0.1);
     --shadow-lg: 0 18px 50px rgba(23, 26, 33, 0.22);
 
+    /* Scrollbar thumb - mobile-style overlay bar (see "Modern scrollbars"). */
+    --scrollbar-thumb: rgba(82, 82, 91, 0.55);        /* dark gray on light surfaces */
+    --scrollbar-thumb-hover: rgba(63, 63, 70, 0.85);
+
     --radius-sm: 4px;
     --radius-md: 6px;
     --radius-lg: 9px;
@@ -119,6 +123,9 @@
         --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
         --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
         --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.6);
+
+        --scrollbar-thumb: rgba(148, 163, 184, 0.4);      /* lighter gray stays visible on near-black */
+        --scrollbar-thumb-hover: rgba(148, 163, 184, 0.65);
     }
 }
 
@@ -151,6 +158,9 @@
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
     --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.6);
+
+    --scrollbar-thumb: rgba(148, 163, 184, 0.4);      /* lighter gray stays visible on near-black */
+    --scrollbar-thumb-hover: rgba(148, 163, 184, 0.65);
 }
 
 body {
@@ -174,6 +184,50 @@ summary:focus-visible {
 
 ::selection {
     background: color-mix(in srgb, var(--primary-color) 30%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+   Modern scrollbars - mobile-style overlay bars everywhere: no arrow buttons,
+   fully transparent track, slim rounded dark-gray thumb (lighter gray in dark
+   mode so it stays visible). WebKit/Blink get the pseudo-element rendering;
+   Firefox gets the standard thin properties (gated so Chromium keeps the
+   rounded thumbs above - setting scrollbar-color there would disable them).
+   -------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 999px;
+    min-height: 36px;
+}
+
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+    background-color: var(--scrollbar-thumb-hover);
+}
+
+/* Kill the classic up/down/left/right arrow buttons. */
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:start,
+::-webkit-scrollbar-button:end {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+@supports (-moz-appearance: none) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb) transparent;
+    }
 }
 
 .app-container {
@@ -954,6 +1008,9 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    /* Breathing room between card borders and the scrollbar thumb - the
+       scrollbar sits outside the padding box, so this inset becomes a gap. */
+    padding-right: 10px;
 }
 
 #chat-tab.active {
