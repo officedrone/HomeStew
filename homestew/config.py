@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
 
+from homestew import __version__
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
@@ -76,7 +77,7 @@ class Settings(BaseSettings):
     
     # Application
     APP_NAME: str = "HomeStew"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = __version__
     DEBUG: bool = False
     
     # Server
