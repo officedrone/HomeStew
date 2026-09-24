@@ -362,16 +362,16 @@ class SettingsUpdate(BaseModel):
         "the chat photo attach / camera controls",
     )
     chat_system_prompt: Optional[str] = Field(
-        None, max_length=8000, description="Custom chat system prompt"
+        None, max_length=16000, description="Custom chat system prompt"
     )
     search_tool_description: Optional[str] = Field(
-        None, max_length=4000, description="Custom search_manuals tool description"
+        None, max_length=8000, description="Custom search_manuals tool description"
     )
     calendar_tool_description: Optional[str] = Field(
-        None, max_length=4000, description="Custom manage_calendar tool description"
+        None, max_length=8000, description="Custom manage_calendar tool description"
     )
     device_tool_description: Optional[str] = Field(
-        None, max_length=4000, description="Custom manage_devices tool description"
+        None, max_length=8000, description="Custom manage_devices tool description"
     )
     notify_enabled: Optional[bool] = None
     notify_check_interval_minutes: Optional[int] = Field(
