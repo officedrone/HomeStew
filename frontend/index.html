@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="/media/HomeStew-favicon.png" type="image/png">
+    <!-- Browser tab / bookmark icon. Served from the static mount (see
+         main.py: app.mount("/static", ...)), so the path must be
+         /static/media/... and match the real filename in frontend/media/. -->
+    <link rel="icon" type="image/png" href="/static/media/icon.png">
+    <link rel="apple-touch-icon" href="/static/media/icon.png">
 
     <title>HomeStew</title>
     <!-- Markdown rendering for chat answers (all assets vendored locally so
