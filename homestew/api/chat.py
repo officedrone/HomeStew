@@ -144,7 +144,12 @@ async def device_roster_note() -> str:
         "call manage_devices with action='search_devices' and the user's own "
         "words as query BEFORE answering - never pick a device from this "
         "list yourself and never ask the user which device they mean unless "
-        "that tool reports AMBIGUOUS:\n" + "\n".join(lines)
+        "that tool reports AMBIGUOUS.\n"
+        "Every answer about one of these devices MUST end with a reference "
+        "line 'Device: [name](#edit-device-<id>)' using that device's real "
+        "device_id from this list - you write it yourself, no tool call or "
+        "edit is required, and never tell the user a link needs an edit "
+        "first:\n" + "\n".join(lines)
     )
 
 
@@ -270,7 +275,9 @@ def device_filter_note(device: Dict[str, Any]) -> str:
     return (
         "\n\nThe user has filtered this conversation to one specific device, "
         f"device_id={device['id']}. Treat every question as being about this "
-        "device and search only its manuals.\n"
+        "device and search only its manuals. End EVERY answer with the "
+        f"reference line 'Device: [{device['name']}](#edit-device-{device['id']})' "
+        "- you write it yourself, no tool call or edit is required.\n"
         "Device entry - the custom attributes and warranty fields are facts "
         "the user recorded themselves and are just as important as the "
         "manuals. Check them FIRST: if one of them answers the question "

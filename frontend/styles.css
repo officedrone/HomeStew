@@ -245,13 +245,20 @@ body.sidebar-collapsed .sidebar {
     padding: 12px 8px;
 }
 
-/* Sidebar top row: toggle button (+ New Device in collapsed mode) */
+/* Sidebar top row: brand wordmark on the left, collapse chevron on the
+   right (in collapsed mode the logo hides and only the chevron remains). */
 .sidebar-top {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     gap: 8px;
     margin-bottom: 12px;
+}
+
+/* The brand block shares this row with the chevron, so it must not push
+   the button out of narrow sidebars. */
+.sidebar-top .logo {
+    min-width: 0;
 }
 
 body.sidebar-collapsed .sidebar-top {
@@ -344,12 +351,6 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
     margin-bottom: 5px;
     /* Brand wordmark pops against the dark sidebar in both themes */
     color: var(--primary-on-dark);
-}
-
-.tagline {
-    color: var(--sidebar-text-dim);
-    font-size: 0.875rem;
-    margin-bottom: 20px;
 }
 
 .section {
@@ -2824,7 +2825,8 @@ body.no-vision .chat-input-wrap textarea {
         transform: translateX(0);
     }
 
-    /* The desktop collapse chevron is meaningless in drawer mode. */
+    /* Drawer mode drops the whole sidebar brand row: the chevron is
+       meaningless here and the wordmark would duplicate the topbar title. */
     .sidebar-top {
         display: none;
     }

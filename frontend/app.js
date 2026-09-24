@@ -1461,11 +1461,13 @@ async function handleAddDevice(e) {
 // Open a device's edit modal from anywhere (chat links): make sure the
 // device list is fresh first — editDevice() reads the in-memory `devices`
 // array, which may predate a device the LLM just created.
+// Deliberately does NOT switch to the Devices tab: the edit modal is a
+// global overlay, so opening/saving/cancelling it keeps the user on
+// whatever page they came from (e.g. AI Chat) instead of punting them over.
 async function openDeviceEditorById(deviceId) {
     if (!devices.some(d => d.id === deviceId)) {
         await loadDevices();
     }
-    switchTab('devices');
     const device = devices.find(d => d.id === deviceId);
     if (!device) {
         showToast(`Device ${deviceId} no longer exists`, 'error');

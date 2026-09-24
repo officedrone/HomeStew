@@ -1,4 +1,4 @@
-"""HomeStew - Lightweight Home Device Manual Manager.
+"""HomeStew - Lightweight Home Appliance and Device Helper.
 
 A simple web application that helps you manage and search through device manuals.
 """
@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="Lightweight home device manual manager with AI chat",
+    description="Lightweight home Appliance and Device helper with AI chat",
     lifespan=lifespan
 )
 

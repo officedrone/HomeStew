@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HomeStew - Device Manual Manager</title>
+    <title>HomeStew</title>
     <!-- Markdown rendering for chat answers (all assets vendored locally so
          the app works fully offline). marked: MIT, DOMPurify: Apache-2.0,
          github-markdown-css: MIT. The vendor sheet loads BEFORE styles.css on
@@ -40,14 +40,16 @@
     <div class="app-container">
         <!-- Sidebar (docked rail on desktop, overlay drawer on mobile) -->
         <aside class="sidebar" id="sidebar">
+            <!-- Brand row: wordmark on the left, collapse chevron on the
+                 right. The logo carries .content-only so it disappears in
+                 the collapsed rail, leaving the chevron alone on its row. -->
             <div class="sidebar-top">
+                <div class="logo content-only">
+                    <h1>HomeStew</h1>
+                </div>
                 <button type="button" class="icon-btn" id="sidebar-toggle-btn" title="Collapse sidebar">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                 </button>
-            </div>
-            <div class="logo content-only">
-                <h1>HomeStew</h1>
-                <p class="tagline">Home Maintenance Helper</p>
             </div>
 
             <!-- Tab navigation: same icon-btn pattern as the Settings row -
