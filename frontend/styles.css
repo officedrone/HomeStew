@@ -286,8 +286,10 @@ summary:focus-visible {
 
 /* Sidebar (docked inline: always pushes the content, never overlays it) */
 .sidebar {
-    /* Fluid docked width: adapts continuously to the window size */
-    width: clamp(260px, 23vw, 340px);
+    /* Fluid docked width: adapts continuously to the window size.
+       Reduced 15% (fractions rounded up) so the nav buttons don't leave
+       dead space on the right when expanded. */
+    width: clamp(221px, 20vw, 289px);
     background: var(--bg-darker);
     color: white;
     padding: 12px;
@@ -491,6 +493,50 @@ body:not(.sidebar-collapsed) .sidebar-footer .icon-btn {
     color: var(--sidebar-text);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+}
+
+/* Collapsible sidebar sections (Recent Devices / Upcoming Events): the h3
+   holds a bare toggle button - flat and borderless like the rest of the
+   sidebar nav, label left, chevron right. Buttons don't inherit font or
+   colour by default, so restate them here. */
+.section-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 2px 4px;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+}
+
+.section-toggle:hover {
+    background: var(--sidebar-surface);
+}
+
+/* The chevron svg must be sized explicitly - an unsized <svg> falls back to
+   the 300x150 default replaced-element size and renders as a giant icon. */
+.section-chevron {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--sidebar-text-dim);
+    transition: transform 0.2s ease;
+}
+
+/* aria-expanded is kept truthful by applySectionCollapsed() in app.js. */
+.section-toggle[aria-expanded="false"] .section-chevron {
+    transform: rotate(-90deg);
+}
+
+.section-collapsed .section-body {
+    display: none;
 }
 
 /* Forms */

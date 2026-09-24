@@ -572,6 +572,7 @@ function setupEventListeners() {
     // mobile (hamburger + backdrop). Which mode applies is pure CSS; the JS
     // just manages the two independent body classes.
     applySidebarState();
+    initCollapsibleSections();
     document.getElementById('sidebar-toggle-btn').addEventListener('click', toggleSidebar);
     document.getElementById('menu-btn').addEventListener('click', openDrawer);
     document.getElementById('sidebar-backdrop').addEventListener('click', closeDrawer);
@@ -3053,6 +3054,35 @@ function toggleSidebar() {
     const collapsed = document.body.classList.toggle('sidebar-collapsed');
     localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
     updateSidebarToggle();
+}
+
+// ---------------------------------------------------------------------------
+// Collapsible sidebar sections (Recent Devices / Upcoming Events)
+// ---------------------------------------------------------------------------
+
+// Each .section header is a toggle button; the collapsed state of every
+// section is remembered per key in localStorage so the choice survives
+// reloads. Independent of the whole-sidebar collapse above.
+function initCollapsibleSections() {
+    document.querySelectorAll('.nav-sections .section-toggle').forEach((btn) => {
+        const key = `sectionCollapsed:${btn.dataset.collapseKey}`;
+        const section = btn.closest('.section');
+        let collapsed = false;
+        try { collapsed = localStorage.getItem(key) === '1'; } catch (e) { /* private mode */ }
+        applySectionCollapsed(section, btn, collapsed);
+
+        btn.addEventListener('click', () => {
+            const nowCollapsed = !section.classList.contains('section-collapsed');
+            applySectionCollapsed(section, btn, nowCollapsed);
+            try { localStorage.setItem(key, nowCollapsed ? '1' : '0'); } catch (e) { /* private mode */ }
+        });
+    });
+}
+
+function applySectionCollapsed(section, btn, collapsed) {
+    section.classList.toggle('section-collapsed', collapsed);
+    // aria-expanded drives the chevron rotation in CSS; keep it truthful.
+    btn.setAttribute('aria-expanded', String(!collapsed));
 }
 
 function updateSidebarToggle() {

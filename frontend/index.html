@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/media/HomeStew-favicon.png" type="image/png">
+
     <title>HomeStew</title>
     <!-- Markdown rendering for chat answers (all assets vendored locally so
          the app works fully offline). marked: MIT, DOMPurify: Apache-2.0,
@@ -80,18 +82,30 @@
             </nav>
 
             <nav class="nav-sections content-only">
-                <!-- Recent Devices: the 3 most recently created devices -->
-                <div class="section">
-                    <h3>Recent Devices</h3>
-                    <div id="device-list" class="device-list">
+                <!-- Recent Devices: the 3 most recently created devices.
+                     Collapsible: the header is a toggle button and the
+                     collapsed/expanded choice persists (localStorage). -->
+                <div class="section" id="recent-devices-section">
+                    <h3>
+                        <button type="button" class="section-toggle" data-collapse-key="recentDevices" aria-expanded="true" aria-controls="device-list">
+                            <span class="section-label">Recent Devices</span>
+                            <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        </button>
+                    </h3>
+                    <div id="device-list" class="device-list section-body">
                         <div class="loading">Loading devices...</div>
                     </div>
                 </div>
 
                 <!-- Upcoming maintenance: events due in the next 7 days -->
                 <div class="section" id="upcoming-section">
-                    <h3>Upcoming</h3>
-                    <div id="upcoming-events" class="upcoming-list">
+                    <h3>
+                        <button type="button" class="section-toggle" data-collapse-key="upcomingEvents" aria-expanded="true" aria-controls="upcoming-events">
+                            <span class="section-label">Upcoming</span>
+                            <svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        </button>
+                    </h3>
+                    <div id="upcoming-events" class="upcoming-list section-body">
                         <div class="loading">Loading...</div>
                     </div>
                 </div>
