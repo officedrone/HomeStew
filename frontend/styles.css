@@ -304,6 +304,41 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
     justify-content: flex-start;
 }
 
+/* App footer pinned to the very bottom of the sidebar (order 3, after
+   .nav-sections): version line, divider, then sign-out. margin-top:auto
+   absorbs the leftover space; it also keeps the footer at the bottom in the
+   collapsed rail and the mobile drawer, where .nav-sections is hidden and
+   its flex:1 spacer is gone. */
+.sidebar-footer {
+    order: 3;
+    margin-top: auto;
+    padding-top: 12px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sidebar-version {
+    font-size: 0.78rem;
+    color: var(--sidebar-text-dim);
+    letter-spacing: 0.04em;
+    text-align: center;
+}
+
+/* Horizontal rule between the version and the Log out button */
+.sidebar-divider {
+    border-top: 1px solid var(--sidebar-border);
+    margin-bottom: 6px;
+}
+
+body:not(.sidebar-collapsed) .sidebar-footer .icon-btn {
+    width: 100%;
+    gap: 10px;
+    font-size: 0.95rem;
+    justify-content: flex-start;
+}
+
 /* Icon buttons (gear, sidebar toggle, rail actions) */
 .icon-btn {
     min-width: 40px;
@@ -821,12 +856,14 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
     }
 
     body.sidebar-collapsed .side-tabs .icon-btn,
-    body.sidebar-collapsed .sidebar-bottom .icon-btn {
+    body.sidebar-collapsed .sidebar-bottom .icon-btn,
+    body.sidebar-collapsed .sidebar-footer .icon-btn {
         position: relative;
     }
 
     body.sidebar-collapsed .side-tabs .icon-btn::after,
-    body.sidebar-collapsed .sidebar-bottom .icon-btn::after {
+    body.sidebar-collapsed .sidebar-bottom .icon-btn::after,
+    body.sidebar-collapsed .sidebar-footer .icon-btn::after {
         content: attr(data-tip);
         position: absolute;
         left: calc(100% + 12px);
@@ -849,8 +886,10 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
 
     body.sidebar-collapsed .side-tabs .icon-btn:hover::after,
     body.sidebar-collapsed .sidebar-bottom .icon-btn:hover::after,
+    body.sidebar-collapsed .sidebar-footer .icon-btn:hover::after,
     body.sidebar-collapsed .side-tabs .icon-btn:focus-visible::after,
-    body.sidebar-collapsed .sidebar-bottom .icon-btn:focus-visible::after {
+    body.sidebar-collapsed .sidebar-bottom .icon-btn:focus-visible::after,
+    body.sidebar-collapsed .sidebar-footer .icon-btn:focus-visible::after {
         opacity: 1;
         transform: translate(0, -50%);
     }
@@ -2838,7 +2877,8 @@ body.no-vision .chat-input-wrap textarea {
     }
 
     .side-tabs .icon-btn,
-    .sidebar-bottom .icon-btn {
+    .sidebar-bottom .icon-btn,
+    .sidebar-footer .icon-btn {
         width: 100%;
         gap: 10px;
         font-size: 0.95rem;

@@ -4,8 +4,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auth gate listeners must exist before anything else can run: the rest
     // of setupEventListeners() only wires up once a session is confirmed.
     setupAuthGate();
+    loadAppVersion();
     initializeApp();
 });
+
+// Sidebar footer version line: "Version X.Y.Z" from /health, which is auth-
+// exempt, so it also fills in behind the login screen. Non-blocking; the
+// element keeps its static "HomeStew" fallback when offline.
+async function loadAppVersion() {
+    try {
+        const response = await fetch('/health');
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.version) {
+            document.getElementById('app-version').textContent = `Version ${data.version}`;
+        }
+    } catch (e) { /* keep the fallback label */ }
+}
 
 // ---------------------------------------------------------------------------
 // Authentication gate (single-user account, services/auth.py on the server)
@@ -1573,9 +1588,7 @@ async function loadDeviceAttributes(deviceId) {
         <div class="attribute-item">
             <span class="attribute-name">${escapeHtml(attr.attribute_name)}:</span>
             <span class="attribute-value">${escapeHtml(attr.attribute_value)}</span>
-            <button class="btn btn-danger btn-small" data-dedupe onclick="removeAttribute(${deviceId}, ${attr.id})">
-                ×
-            </button>
+            <button type="button" class="card-icon-btn card-icon-danger" title="Remove attribute" aria-label="Remove attribute" data-dedupe onclick="removeAttribute(${deviceId}, ${attr.id})">${CARD_ACTION_ICONS.trash}</button>
         </div>
     `).join('');
 }
@@ -1992,9 +2005,7 @@ async function loadManuals(deviceId) {
                    target="_blank" rel="noopener" title="Open ${escapeHtml(m.filename)} (stored at ${escapeHtml(m.filepath)})">
                     ${escapeHtml(m.filename)}
                 </a>
-                <button class="btn btn-danger btn-small" data-dedupe onclick="deleteManual(${deviceId}, ${m.id})">
-                    ×
-                </button>
+                <button type="button" class="card-icon-btn card-icon-danger" title="Delete manual" aria-label="Delete manual" data-dedupe onclick="deleteManual(${deviceId}, ${m.id})">${CARD_ACTION_ICONS.trash}</button>
             </div>
         `).join('');
     } catch (error) {
