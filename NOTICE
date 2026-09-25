@@ -1,0 +1,27 @@
+HomeStew
+Copyright 2026 HomeStew contributors
+
+This product includes software developed at
+https://github.com/officedrone/HomeStew (the "HomeStew" project).
+
+This product includes third-party software with separate copyright notices
+and license terms, listed below. Your use of this source code is subject to
+the terms and conditions for these third-party components.
+
+- FastAPI (MIT License) - https://fastapi.tiangolo.com
+- Uvicorn (BSD 3-Clause License) - https://www.uvicorn.org
+- Pydantic / pydantic-settings (MIT License) - https://pydantic.dev
+- python-multipart (Apache License 2.0) - https://github.com/Kludex/python-multipart
+- aiosqlite (MIT License) - https://github.com/omnilib/aiosqlite
+- pypdf (BSD 3-Clause License) - https://pypdf.readthedocs.io
+- requests (Apache License 2.0) - https://requests.readthedocs.io
+- ddgs (MIT License) - https://github.com/D-ddg/ddgs
+- primp (MIT License) - https://github.com/acoliver/primp
+- openai Python SDK (Apache License 2.0) - https://github.com/openai/openai-python
+- cryptography (Apache License 2.0 / BSD 3-Clause) - https://cryptography.io
+- marked (MIT License) - vendored in frontend/vendor/marked.min.js,
+  Copyright (c) 2011-2024 Christopher Jeffrey
+- DOMPurify (Apache License 2.0 / Mozilla Public License 2.0) -
+  vendored in frontend/vendor/purify.min.js, Copyright (c) Cure53 and other contributors
+- github-markdown-css (MIT License) - vendored in
+  frontend/vendor/github-markdown-light.css, Copyright (c) Sindre Sorhus

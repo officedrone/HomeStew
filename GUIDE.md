@@ -1,34 +1,13 @@
 # HomeStew
 
-A **super lightweight** home device manual manager with AI-powered search. Store, index, and search through your device manuals using natural language queries.
+A lightweight home appliance and device knowledge repository.
 
 ## Features
 
-- ✅ **Add devices** - Track your home devices (TVs, appliances, electronics, etc.)
-- ✅ **Auto-download manuals** - Automatically search and download PDF manuals from the internet
-- ✅ **Full-text search** - Lightning-fast keyword search across all manuals using SQLite FTS5
-- ✅ **AI chat interface** - Ask questions in natural language, AI searches manuals for answers
-- ✅ **Zero heavy dependencies** - No vector databases, no complex infrastructure
-- ✅ **Single Docker container** - ~60MB image, easy homelab deployment
-- ✅ **Persistent storage** - All data stored locally with volume mounts
-- ✅ **Password protected** - Single-user login gates every page and API call; resettable from the container CLI
-
-## Architecture
-
-```
-┌─────────────────────────────────────┐
-│          HomeStew Container          │
-│  ┌──────────┐  ┌──────────┐        │
-│  │ FastAPI  │  │ SQLite   │        │
-│  │ Backend  │◄─┤ FTS5     │        │
-│  └────┬─────┘  └──────────┘        │
-│       │                            │
-│  ┌────▼─────┐  ┌──────────┐       │
-│  │ HTMX Web │  │ LLM Chat │       │
-│  │ Frontend │  │ w/ Tools │       │
-│  └──────────┘  └──────────┘       │
-└─────────────────────────────────────┘
-```
+- **Add devices or appliances** - Track your home devices (TVs, appliances, electronics, etc.)
+- **Fetch device manuals** - Use the built-in manual fetch functionality to easily search for and download PDF manuals from the internet
+- **Full-text search** - Fast keyword search across all manuals using SQLite FTS5
+- **AI chat interface** - Ask questions in natural language, AI searches manuals for answers (requires self-hosted or cloud-based LLM)
 
 ## Quick Start
 
@@ -60,7 +39,7 @@ A **super lightweight** home device manual manager with AI-powered search. Store
 
 ### 1. Add a Device
 
-Click "Add New Device" in the sidebar:
+Click "Add New Device" in the sidebar or prompt your LLM to add a device from within the AI Chat page:
 
 - **Device name**: Living Room TV (your label)
 - **Brand**: Samsung
@@ -75,7 +54,7 @@ Click "Download Manuals" on any device:
 - Downloads up to 5 relevant PDFs (validated: real `%PDF` files only, size-capped)
 - Automatically indexes all text content
 
-### 3. Search Manuals
+### 3. Search Within Downloaded Manuals
 
 Use the search tab:
 
@@ -90,18 +69,18 @@ Switch to the chat tab and ask questions:
 - _"How do I connect my Samsung QN90A to WiFi?"_
 - _"What's the power consumption of this TV?"_
 - _"Where are the HDMI ports located?"_
+- The LLM can add/modify devices and calendar events if requested
 
 The AI will automatically search your manuals and provide answers based on the actual documentation.
 
-**Photos & vision models.** If your model can read images (e.g. `qwen3-vl`,
-`llava`, `gemma3`), tick **Model supports Vision** under **Settings → AI** (or
+**Photos & vision models.** If your model supports vision, tick **Model supports Vision** under **Settings → AI** (or
 in the first-run wizard's AI step). This reveals the photo-attach and camera
-buttons in the chat input so you can snap a nameplate or error screen and ask
-about it. With the box unchecked those controls stay hidden and the server
-rejects image uploads, so a text-only model never receives a photo it would
-refuse.
+buttons in the chat input so you can add new devices using the camera, or troubleshoot existing devices by snapping a nameplate or error screen and asking the LLM
+about it.
 
 ### 5. Backup & Restore
+
+HomeStew supports backup and Restore of Device and Calendar data.
 
 Open **Settings → General**:
 
@@ -156,7 +135,7 @@ environment:
 
 ## Secrets (API keys & tokens)
 
-Credentials - the LLM API key, webhook URL and webhook bearer token - are
+The LLM API key, Notificaiton webhook URL and webhook bearer token, as well as the user password - are
 encrypted with **AES-256-GCM** before being written to `settings.json` in the
 data volume. The Settings UI is _write-only_ for them: their values never
 leave the server (the API reports only whether each is configured), so they
@@ -167,11 +146,9 @@ create an encryption key, connect your AI model and add your first device.
 The key step generates a random 32-byte master key at `/data/.secrets_key`
 (mode `0600`) inside the `homestew_data` volume. Creating it turns encryption
 on for good - the key survives rebuilds and container recreation, and the
-step never appears again. _Every_ step can be skipped, and skipping (or
-saving) is remembered in the data volume, so a resolved step is not re-shown
-on later launches even after a restart. Steps whose condition no longer
-applies - a key already exists, an LLM was configured via env/Settings, or
-devices already exist - are skipped automatically. You can also manage the
+step never appears again.
+
+You can also manage the
 key later under **Settings > Advanced**, which lets you **delete** the
 managed key to troubleshoot or rotate it; AI settings live under
 **Settings > AI**.
@@ -223,21 +200,16 @@ For that threat use full-disk encryption or an external secrets manager.
 
 ## Authentication (single-user login)
 
-HomeStew is protected by **one password**. On the first page load — and on any
-existing install upgrading into a build that has authentication — you are shown
-a **create-account** screen before anything else. It cannot be skipped or
-dismissed (no close button, Escape is ignored): every page load and every API
-call requires a valid session, so there is no way to reach the app without it.
+HomeStew is protected by **one password** (for now). On the first start you will be presented with a one-time **create-account** screen before anything else. You create your password here.
 
-- **Sessions** are signed cookies (`HttpOnly`, `SameSite=Lax`). Sign in with
-  **"Remember me"** for a 30-day session; otherwise it ends when you close the
-  browser (and the token itself expires after 12 hours regardless). Log out any
+- **Sessions** You can tick the
+  **"Remember me"** checkbox for a 30-day session; otherwise each session ends when you close the browser. Logging out is available any
   time from the sidebar.
 - **The password hash** is stored in `settings.json` in the data volume, hashed
   with `scrypt`. It is deliberately _not_ encrypted with the secrets master key
   (deleting that key would otherwise disable login), and it never leaves the
   server — no endpoint returns it.
-- **Changing the password** under **Settings > Advanced** requires the current
+- **Changing the password** is available under **Settings > Advanced** requires the current
   one and immediately signs out every _other_ browser (the session signing key
   is derived from the hash). Your current browser stays signed in.
 - **Failed logins** are throttled: after `Max Failed Attempts` consecutive
@@ -259,71 +231,15 @@ variant: `docker exec -e HOMESTEW_PASSWORD='new-secret' homestew python -m homes
 Other subcommands: `status` (is a password set?) and `clear-password` (remove it
 and re-arm the create-account screen).
 
-## Project Structure
-
-```
-HomeStew/
-├── homestew/                  # Python backend
-│   ├── api/                   # FastAPI routes
-│   │   ├── devices.py         # Device CRUD endpoints
-│   │   ├── downloads.py       # Manual download triggers
-│   │   ├── search.py          # Search endpoints
-│   │   ├── chat.py            # Chat with LLM
-│   │   └── auth.py            # Login / account creation / password change
-│   ├── services/              # Business logic
-│   │   ├── pdf_extractor.py   # PDF text extraction (pypdf)
-│   │   ├── web_search.py         # ddgs wrapper (engine-agnostic web search)
-│   │   ├── manual_finder.py      # query building + PDF candidate ranking
-│   │   ├── manual_downloader.py  # PDF download + validation
-│   │   ├── indexer.py         # SQLite FTS5 indexing
-│   │   ├── search_engine.py   # Full-text search
-│   │   ├── auth.py            # scrypt hashing, signed sessions, lockout
-│   │   └── llm_client.py      # OpenAI-compatible client
-│   ├── auth_cli.py            # `python -m homestew.auth_cli` password reset
-│   ├── models/                # Pydantic schemas
-│   ├── config.py              # Configuration
-│   ├── db.py                  # Database setup
-│   └── main.py                # FastAPI app entry (auth middleware lives here)
-├── frontend/                  # Static web UI
-│   ├── index.html             # Single-page app
-│   ├── styles.css             # Minimal CSS
-│   └── app.js                 # HTMX + vanilla JS
-├── data/                      # Persistent storage (mounted volume)
-│   ├── homestew.db            # SQLite database
-│   └── devices/               # PDF manuals by device ID
-├── Dockerfile                 # Multi-stage build (~60MB)
-├── docker-compose.yml         # Container orchestration
-├── requirements.txt           # Python dependencies
-└── README.md                  # This file
-```
-
 ## Tech Stack
 
 - **Backend**: FastAPI (Python 3.12)
-- **Database**: SQLite with FTS5 (full-text search, zero deps)
-- **PDF Processing**: pypdf (pure Python, ~200KB)
+- **Database**: SQLite with FTS5
+- **PDF Processing**: pypdf
 - **Web Search**: ddgs (metasearch over bing/brave/duckduckgo/...) + requests
 - **LLM Integration**: openai library (works with any OpenAI-compatible API)
-- **Frontend**: HTMX + vanilla JavaScript (no build process)
-- **Deployment**: Docker multi-stage build (~60MB image)
-
-## Why So Lightweight?
-
-### No Vector Databases
-
-We use SQLite FTS5 for keyword search - it's built into Python, supports highlighting and ranking (BM25), and requires zero extra dependencies.
-
-### Tool-Based RAG
-
-Instead of complex vector embeddings, the LLM decides when to search using a simple tool call. This is more flexible and requires no embedding models.
-
-### Minimal Frontend
-
-HTMX handles AJAX without React/Vue build complexity. Single HTML file, no npm, no webpack.
-
-### Single Container
-
-Everything runs in one ~60MB container with persistent volumes for data.
+- **Frontend**: HTMX + vanilla JavaScript
+- **Deployment**: Docker multi-stage build
 
 ## API Endpoints
 
@@ -439,12 +355,23 @@ Potential additions if needed:
 
 ## License
 
-MIT License - feel free to use and modify!
+Copyright 2026 HomeStew contributors.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License at [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0).
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+
+See [LICENSE](LICENSE) for the full text and [NOTICE](NOTICE) for third-party
+attribution notices. If you redistribute this project or a modified version of
+it, please retain the copyright notice and give credit to the HomeStew project.
 
 ## Contributing
 
-This is a personal homelab project, but PRs are welcome if they align with the "super lightweight" philosophy!
+This is a personal homelab project, but PRs are welcome.
 
 ---
-
-**Built with ❤️ for homelab enthusiasts who hate running unnecessary databases.**

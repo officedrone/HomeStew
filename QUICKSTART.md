@@ -154,4 +154,4 @@ docker-compose down -v
 
 ---
 
-**Need help?** Check the full README.md or inspect container logs.
+**Need help?** Check the full guide (GUIDE.md) or inspect container logs.

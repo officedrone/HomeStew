@@ -69,6 +69,7 @@ out/
 
 # Docs and tests
 README.md
+GUIDE.md
 QUICKSTART.md
 docs/
 tests/
