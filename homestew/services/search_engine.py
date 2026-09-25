@@ -653,6 +653,7 @@ def _entry_result(entry: dict, rank_key: tuple) -> SearchResult:
     return SearchResult(
         manual_id=0,
         device_id=dev["id"],
+        device_name=dev.get("name") or "",
         filename=f"{dev['name']} ({label})" if label else dev["name"],
         page_number=0,
         snippet=" \u2026 ".join(_snippets_for_row(entry["text"], entry["qualified"])),
@@ -660,10 +661,25 @@ def _entry_result(entry: dict, rank_key: tuple) -> SearchResult:
     )
 
 
+async def _fetch_device_names(db, device_id: Optional[int]) -> Dict[int, str]:
+    """Map of device id -> name, used to label every search result.
+
+    Every hit (manual page or device entry) belongs to exactly one device,
+    and the UI shows that name under each result as a link back to it.
+    """
+    sql = "SELECT id, name FROM devices"
+    params: list = []
+    if device_id is not None:
+        sql += " WHERE id = ?"
+        params.append(device_id)
+    cursor = await db.execute(sql, params)
+    return {r["id"]: r["name"] for r in await cursor.fetchall()}
+
+
 async def search_manuals(
     query: str,
     device_id: Optional[int] = None,
-    limit: int = 10
+    limit: Optional[int] = 10
 ) -> List[SearchResult]:
     """
     Search indexed PDF content with candidate retrieval + Python re-ranking.
@@ -691,7 +707,8 @@ async def search_manuals(
     Args:
         query: Search query.
         device_id: Optional filter by device ID
-        limit: Maximum number of snippet results to return
+        limit: Maximum number of snippet results to return; None returns
+            every match (the search UI paginates the full list client-side)
 
     Returns:
         List of SearchResult objects, best matches first; a page with hits
@@ -720,6 +737,7 @@ async def search_manuals(
             candidates = await _fetch_candidates(
                 db, trigram_terms, short_terms, device_id, parsed.phrases
             )
+            names = await _fetch_device_names(db, device_id)
 
         # Verify + score every candidate manual row.
         scored_rows: List[tuple] = []  # (rank_key, "row", row, text, qualified)
@@ -764,7 +782,7 @@ async def search_manuals(
                 if not result.snippet:
                     continue
                 results.append(result)
-                if len(results) >= limit:
+                if limit is not None and len(results) >= limit:
                     break
                 continue
 
@@ -780,14 +798,15 @@ async def search_manuals(
                 results.append(SearchResult(
                     manual_id=row["manual_id"] or 0,
                     device_id=row["device_id"],
+                    device_name=names.get(row["device_id"], ""),
                     filename=row["filename"],
                     page_number=row["page_number"],
                     snippet=snippet,
                     score=score,
                 ))
-                if len(results) >= limit:
+                if limit is not None and len(results) >= limit:
                     break
-            if len(results) >= limit:
+            if limit is not None and len(results) >= limit:
                 break
 
         logger.info(

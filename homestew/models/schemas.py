@@ -96,13 +96,17 @@ class SearchRequest(BaseModel):
     """Search request model."""
     query: str = Field(..., min_length=1)
     device_id: Optional[int] = Field(None, description="Optional device filter")
-    limit: int = Field(10, ge=1, le=50)
+    # None (default) returns every match - the search UI pages results
+    # client-side. Callers that want a fixed budget (the chat tool) pass an
+    # explicit limit to the service directly.
+    limit: Optional[int] = Field(None, ge=1)
 
 
 class SearchResult(BaseModel):
     """Individual search result."""
     manual_id: int
     device_id: int
+    device_name: str = Field("", description="Name of the device the hit belongs to")
     filename: str
     page_number: int
     snippet: str

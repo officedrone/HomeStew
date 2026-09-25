@@ -1179,6 +1179,99 @@ a.result-page-link:hover {
     border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
 }
 
+/* Footer line on every result naming the device the hit belongs to; the
+   #edit-device-<id> link opens that device's Edit modal. */
+.result-device {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.result-device a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.result-device a:hover {
+    text-decoration: underline;
+}
+
+/* "Showing 1-10 of 57 results ..." line above the result cards */
+.search-results-count {
+    margin-bottom: 12px;
+    color: var(--text-secondary);
+}
+
+/* Pagination bar under the results: Prev / page numbers / Next + Per-page.
+   Wraps on narrow screens so the select never overlaps the buttons. */
+.search-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.page-btn {
+    min-width: 36px;
+    padding: 7px 10px;
+    border: 1.5px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.page-btn:hover:not(:disabled):not(.active) {
+    border-color: var(--primary-color);
+}
+
+.page-btn.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+    cursor: default;
+}
+
+.page-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.page-ellipsis {
+    padding: 0 2px;
+    color: var(--text-secondary);
+}
+
+.per-page-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.per-page-select {
+    padding: 6px 8px;
+    border: 1.5px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.per-page-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: var(--ring);
+}
+
 .empty-state {
     text-align: center;
     padding: 40px 20px;
