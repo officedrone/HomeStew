@@ -32,6 +32,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class _HealthAccessFilter(logging.Filter):
+    """Drop uvicorn access-log lines for GET/HEAD /health (issue #9).
+
+    The Docker HEALTHCHECK probes /health on a fixed interval forever, so its
+    access-log line is permanent noise - and every line costs a stdout write
+    through Docker's log pipe. Real requests stay logged. uvicorn.access logs
+    ``logger.info('%s - "%s %s HTTP/%s" %d', client_addr, method, path,
+    http_version, status)`` - the method and path are SEPARATE args (verified
+    against uvicorn's httptools_impl/h11_impl), not one request-line string.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            method = str(record.args[1])
+            path = str(record.args[2])
+        except Exception:
+            return True  # unexpected shape - keep the line rather than lose it
+        if method not in ("GET", "HEAD"):
+            return True
+        return not (path == "/health" or path.startswith("/health?"))
+
+
+def install_health_access_log_filter() -> None:
+    """Attach _HealthAccessFilter to uvicorn's access logger (idempotent).
+
+    Called from the lifespan startup, NOT at import time: uvicorn applies its
+    logging dictConfig around app import and dictConfig resets each named
+    logger's filter list - installing here guarantees it survives.
+    """
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _HealthAccessFilter) for f in access_logger.filters):
+        access_logger.addFilter(_HealthAccessFilter())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
@@ -40,6 +74,9 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info(f"Data directory: {settings.DATA_DIR}")
     logger.info(f"LLM model: {settings.LLM_MODEL}")
+
+    # Silence the per-healthcheck access-log line (Docker probes forever).
+    install_health_access_log_filter()
 
     # Background due-event notifier (services/notifier.py). uvicorn runs a
     # single process, so one task per container is enough; it re-reads the

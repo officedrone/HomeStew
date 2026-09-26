@@ -108,6 +108,31 @@ Open **Settings → General**:
 | `SECRETS_KEY_FILE`      | `/run/secrets/homestew_secret_key` | Master-key file for secret encryption (see Secrets)     |
 | `EXTRA_ALLOWED_ORIGINS` | _(empty - same-origin only)_       | Comma-separated origins allowed cross-origin API access |
 
+Note: `HEALTHCHECK_INTERVAL` below is **not** in this table on purpose - it is
+read by the `docker compose` CLI itself (host env / `.env`), never inside the
+container. See "Container Health Check".
+
+### Container Health Check
+
+Docker probes `/health` on a fixed interval to mark the container healthy.
+The image default is every 60 s; with Compose you can change it without a
+rebuild (`docker-compose.yml` has `interval: ${HEALTHCHECK_INTERVAL:-60s}`):
+
+```powershell
+# PowerShell
+$env:HEALTHCHECK_INTERVAL = "120s"; docker compose up -d
+```
+
+```bash
+# Linux/macOS (or a .env file next to docker-compose.yml)
+HEALTHCHECK_INTERVAL=120s docker compose up -d
+```
+
+The probe is a stdlib-only Python one-liner on purpose: the old healthcheck
+ran `import requests` every 30 s inside the container, and that repeated
+cold import was the periodic idle CPU spike (issue #9). It also verifies the
+status code is 200 - the old command accepted any HTTP response.
+
 ### Example: Using with Ollama
 
 ```bash
