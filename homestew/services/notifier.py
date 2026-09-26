@@ -109,6 +109,14 @@ async def _already_sent() -> Set[Tuple[int, str, str]]:
 
 async def run_tick(now: Optional[datetime] = None) -> int:
     """One scan-and-notify pass. Returns the number of notifications sent."""
+    # Resolve channels FIRST (issue #9): with nothing enabled no alert can be
+    # delivered, so return before touching the database at all. The old order
+    # ran a full calendar scan on every tick even when notifications could
+    # never fire (e.g. NOTIFY_ENABLED on but no webhook URL configured).
+    channels: List[Any] = [c for c in CHANNELS if c.enabled()]
+    if not channels:
+        return 0
+
     now = now or datetime.now()
     lead = lead_timedelta()
 
@@ -118,10 +126,6 @@ async def run_tick(now: Optional[datetime] = None) -> int:
     # pre-filter; the exact cutoff incl. start_time is applied below.
     window_days = max(1, math.ceil(lead.total_seconds() / 86400))
     events = await calendar_service.list_notify_candidates(window_days)
-
-    channels: List[Any] = [c for c in CHANNELS if c.enabled()]
-    if not channels:
-        return 0
 
     sent = await _already_sent()
     fired = 0

@@ -50,6 +50,21 @@ services:
       # - LLM_MODEL=gpt-4o-mini
     
     restart: unless-stopped
+
+    # Container health check (issue #9). This block overrides the HEALTHCHECK
+    # baked into the image so the probe interval is configurable WITHOUT a
+    # rebuild - docker compose reads it from your shell env or a .env file:
+    #   PowerShell:  $env:HEALTHCHECK_INTERVAL="120s"; docker compose up -d
+    #   Linux/macOS: HEALTHCHECK_INTERVAL=120s docker compose up -d
+    # The command mirrors the Dockerfile's stdlib-only probe on purpose: the
+    # old `import requests` healthcheck re-imported a heavy package every
+    # 30 s inside the container, which WAS the periodic idle CPU spike.
+    healthcheck:
+      interval: ${HEALTHCHECK_INTERVAL:-60s}
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+      test: ["CMD-SHELL", "python -c \"import sys,http.client as h; r=h.HTTPConnection('127.0.0.1',8000,timeout=5); r.request('GET','/health'); sys.exit(0 if r.getresponse().status==200 else 1)\""]
     
     # Resource limits (optional, adjust based on your hardware)
     deploy:
