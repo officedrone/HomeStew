@@ -58,6 +58,10 @@ EDITABLE_SETTINGS = (
     # Login brute-force lockout tuning (in-memory, per client IP).
     "AUTH_MAX_FAILED_ATTEMPTS",
     "AUTH_LOCKOUT_MINUTES",
+    # Search index tuning (Settings > Search): chunk size applied by the
+    # indexer at run time, and whether uploads/fetches index immediately.
+    "INDEX_MAX_CHUNK_SIZE",
+    "INDEX_AUTO_ON_UPLOAD",
 )
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
@@ -152,6 +156,16 @@ class Settings(BaseSettings):
     # Settings > Advanced so a household can tune (or effectively widen) it.
     AUTH_MAX_FAILED_ATTEMPTS: int = 8
     AUTH_LOCKOUT_MINUTES: int = 5
+
+    # Search index (Settings > Search). Long PDF pages are split into chunks
+    # of at most this many characters before being inserted as FTS rows:
+    # smaller gives finer-grained snippets, larger means fewer rows. Read at
+    # indexing time, so a save applies to the next re-index without restart.
+    INDEX_MAX_CHUNK_SIZE: int = 4000
+    # Index manuals for search immediately when they are uploaded or fetched.
+    # Off means new manuals stay unsearchable until Re-index is pressed in
+    # Settings > Search - useful only to defer CPU work on weak hosts.
+    INDEX_AUTO_ON_UPLOAD: bool = True
     
     # Manual fetching (services/manual_finder.py + manual_downloader.py).
     # Env-only knobs (not UI-editable): MANUAL_SEARCH_BACKENDS is a comma-list

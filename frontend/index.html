@@ -3,11 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Browser tab / bookmark icon. Served from the static mount (see
-         main.py: app.mount("/static", ...)), so the path must be
-         /static/media/... and match the real filename in frontend/media/. -->
-    <link rel="icon" type="image/png" href="/static/media/icon.png">
-    <link rel="apple-touch-icon" href="/static/media/icon.png">
+    <link rel="icon" href="/media/HomeStew-favicon.png" type="image/png">
 
     <title>HomeStew</title>
     <!-- Markdown rendering for chat answers (all assets vendored locally so
@@ -300,6 +296,7 @@
                         <button type="button" class="settings-tab-btn active" data-settings-section="general">General</button>
                         <button type="button" class="settings-tab-btn" data-settings-section="ai">AI</button>
                         <button type="button" class="settings-tab-btn" data-settings-section="notifications">Notifications</button>
+                        <button type="button" class="settings-tab-btn" data-settings-section="search">Search</button>
                         <button type="button" class="settings-tab-btn" data-settings-section="backups">Backups</button>
                         <button type="button" class="settings-tab-btn" data-settings-section="authentication">Authentication</button>
                         <button type="button" class="settings-tab-btn" data-settings-section="advanced">Advanced</button>
@@ -473,6 +470,57 @@
                                     <button type="button" class="btn btn-secondary" id="test-webhook-btn">Send Test</button>
                                 </div>
                                 <p class="settings-hint" id="webhook-test-hint"></p>
+                            </div>
+                        </section>
+
+                        <!-- Search index: stats, manual re-index / rebuild and
+                             the two tuning options. The read-only stats line is
+                             filled from GET /api/search/stats; Re-index and
+                             Rebuild queue a background job whose progress shows
+                             in a persistent toast (see monitorIndexJob). -->
+                        <section id="settings-panel-search" class="settings-panel" hidden>
+                            <h4 class="settings-subheading">Search Index</h4>
+                            <div class="settings-field">
+                                <!-- Filled by loadSettingsPage() from /api/search/stats. -->
+                                <p class="settings-hint" id="search-index-stats">Loading index stats…</p>
+                                <p class="settings-hint">Re-index re-reads every stored manual and refreshes its search
+                                    entries - use it when a manual failed to index or the extractor changed. Progress
+                                    appears in a notification that stays until you dismiss it.</p>
+                                <div class="model-row">
+                                    <button type="button" class="btn btn-secondary" id="search-reindex-btn">Re-index</button>
+                                    <button type="button" class="btn btn-danger" id="search-rebuild-btn">Rebuild Index</button>
+                                </div>
+                                <p class="settings-hint" id="search-index-hint"></p>
+                            </div>
+
+                            <!-- Rebuild is destructive (it drops the FTS table), so it
+                                 needs a second confirming click. Hidden until the first
+                                 click arms it; both buttons are type=button so the
+                                 surrounding settings form never submits. -->
+                            <div class="settings-field" id="search-rebuild-confirm" hidden>
+                                <p class="settings-hint">Rebuilding deletes the entire search index and re-reads every
+                                    manual from disk. This can take a while on a large library. Continue?</p>
+                                <div class="model-row">
+                                    <button type="button" class="btn btn-danger" id="search-rebuild-confirm-btn">Yes, rebuild</button>
+                                    <button type="button" class="btn btn-secondary" id="search-rebuild-cancel-btn">Cancel</button>
+                                </div>
+                            </div>
+
+                            <h4 class="settings-subheading">Indexing Options</h4>
+                            <div class="settings-field">
+                                <label for="settings-index-chunk-size">Max chunk size (characters)</label>
+                                <input type="number" id="settings-index-chunk-size" min="200" max="20000" step="100" value="4000">
+                                <p class="settings-hint">Long PDF pages are split into chunks of at most this many
+                                    characters before being indexed. Smaller gives finer-grained snippets, larger means
+                                    fewer rows. Applies to the next re-index - no restart needed.</p>
+                            </div>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-index-auto-on-upload">
+                                    <input type="checkbox" id="settings-index-auto-on-upload">
+                                    Index manuals automatically when uploaded or fetched
+                                </label>
+                                <p class="settings-hint">Turn off to defer indexing on a slow host: new manuals stay
+                                    unsearchable until you press Re-index here.</p>
                             </div>
                         </section>
 

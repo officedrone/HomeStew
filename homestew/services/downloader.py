@@ -369,11 +369,12 @@ async def store_manual_for_device(
         await db.commit()
 
     indexed = False
-    try:
-        indexed = await index_manual(
-            manual_id=manual_id, device_id=device_id, pdf_path=str(save_path), filename=filename
-        )
-    except Exception as exc:  # indexing failure must not lose the download
-        logger.error(f"Failed to index stored manual {filename}: {exc}")
+    if settings.INDEX_AUTO_ON_UPLOAD:
+        try:
+            indexed = await index_manual(
+                manual_id=manual_id, device_id=device_id, pdf_path=str(save_path), filename=filename
+            )
+        except Exception as exc:  # indexing failure must not lose the download
+            logger.error(f"Failed to index stored manual {filename}: {exc}")
 
     return {"manual_id": manual_id, "filename": filename, "replaced": bool(existing), "indexed": indexed}

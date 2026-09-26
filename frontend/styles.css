@@ -1861,10 +1861,62 @@ body.no-vision .chat-input-wrap textarea {
     max-width: calc(100vw - 40px);
 }
 
+/* Informational toasts (index progress monitor): brand-colored, and always
+   persistent, so they also carry a close button and progress bar. */
+.toast.info {
+    background: var(--primary-color);
+    color: white;
+    position: relative;
+}
+
 .toast-message {
     padding-right: 35px;
     word-wrap: break-word;
     overflow-wrap: break-word;
+}
+
+/* Close button for persistent toasts (index progress). Sits where the
+   error-details toggle would, top-aligned so it stays put as text wraps. */
+.toast-close {
+    position: absolute;
+    right: 8px;
+    top: 8px;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+    padding: 0;
+}
+
+.toast-close:hover {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+/* Thin progress track inside persistent job toasts; the fill's width % is
+   set from JS (done/total). */
+.toast-progress {
+    margin-top: 8px;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.25);
+    overflow: hidden;
+}
+
+.toast-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: white;
+    border-radius: 3px;
+    transition: width 0.4s ease;
 }
 
 .toast-toggle {

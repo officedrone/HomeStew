@@ -403,6 +403,9 @@ async function initializeApp() {
     // last tab persisted to localStorage) so F5 no longer dumps the user on
     // the Search tab.
     restoreActiveTab();
+    // A background index job may still be running from before a refresh (or
+    // started in another tab): resume its progress toast if so.
+    resumeIndexMonitorIfRunning();
     // One-time setup wizard (encryption key / AI model / first device).
     // Runs after loadDevices() so the "first device" step can see whether
     // any devices exist yet; skipped/saved steps are persisted server-side.
@@ -604,6 +607,19 @@ function setupEventListeners() {
     document.getElementById('backup-create-btn').addEventListener('click', createBackup);
     document.getElementById('restore-btn').addEventListener('click', triggerRestoreFilePick);
     document.getElementById('restore-file-input').addEventListener('change', handleRestoreFileSelected);
+
+    // Search index (Settings > Search). Re-index fires straight away; Rebuild
+    // arms a confirm row first because it drops the FTS table. Progress for
+    // both shows in the shared persistent toast (monitorIndexJob).
+    document.getElementById('search-reindex-btn').addEventListener(
+        'click', () => startIndexJob('reindex',
+            document.getElementById('search-reindex-btn'), 'Re-index queued:'));
+    document.getElementById('search-rebuild-btn').addEventListener('click', handleSearchRebuildClick);
+    document.getElementById('search-rebuild-confirm-btn').addEventListener(
+        'click', handleSearchRebuildConfirm);
+    document.getElementById('search-rebuild-cancel-btn').addEventListener(
+        'click', () => { document.getElementById('search-rebuild-confirm').hidden = true; });
+
     // "Remove" buttons next to the write-only secret fields schedule deletion
     // for save; typing into a cleared field cancels that removal (without
     // re-rendering, so the in-progress value survives).
@@ -3083,47 +3099,97 @@ async function handleChatModelChange() {
     }
 }
 
-function showToast(message, type = 'success', detailedError = null) {
+// Show a transient notification. With options.persistent the toast gets a ✕
+// button and stays until dismissed (used by the index progress monitor); all
+// other call sites keep the auto-remove timer. options.id reuses an existing
+// toast with that id instead of stacking a new one - the progress monitor
+// updates its single toast in place via updateToast().
+function showToast(message, type = 'success', detailedError = null, options = {}) {
     const container = document.getElementById('toast-container');
-    
+
+    // Same-id persistent toasts are updated rather than duplicated.
+    if (options.id) {
+        const existing = container.querySelector(`[data-toast-id="${CSS.escape(options.id)}"]`);
+        if (existing) return updateToast(existing, message);
+    }
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    
+    if (options.id) toast.dataset.toastId = options.id;
+
     // Create message content
     const messageDiv = document.createElement('div');
     messageDiv.className = 'toast-message';
     messageDiv.textContent = message;
     toast.appendChild(messageDiv);
-    
+
+    // Optional progress bar (index jobs): a thin track whose fill width is the
+    // done/total percentage. Created up-front so updateToast() only nudges it.
+    if (options.progress) {
+        const track = document.createElement('div');
+        track.className = 'toast-progress';
+        const fill = document.createElement('div');
+        fill.className = 'toast-progress-fill';
+        fill.style.width = '0%';
+        track.appendChild(fill);
+        toast.appendChild(track);
+    }
+
     // Add expandable error details if available
     if (type === 'error' && detailedError) {
         const toggleBtn = document.createElement('button');
         toggleBtn.className = 'toast-toggle';
         toggleBtn.innerHTML = '▼';
         toggleBtn.title = 'View details';
-        
+
         const detailsDiv = document.createElement('div');
         detailsDiv.className = 'toast-details';
         detailsDiv.style.display = 'none';
         detailsDiv.textContent = detailedError;
-        
+
         toggleBtn.addEventListener('click', () => {
             const isVisible = detailsDiv.style.display === 'block';
             detailsDiv.style.display = isVisible ? 'none' : 'block';
             toggleBtn.innerHTML = isVisible ? '▼' : '▲';
         });
-        
+
         toast.appendChild(toggleBtn);
         toast.appendChild(detailsDiv);
     }
-    
+
+    // Persistent toasts never time out; they get a close button instead.
+    if (options.persistent) {
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'toast-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.setAttribute('aria-label', 'Dismiss');
+        closeBtn.addEventListener('click', () => toast.remove());
+        toast.appendChild(closeBtn);
+    }
+
     container.appendChild(toast);
-    
-    // Auto-remove after 5 seconds for errors with details, 3 seconds otherwise
-    const timeout = (type === 'error' && detailedError) ? 5000 : 3000;
-    setTimeout(() => {
-        toast.remove();
-    }, timeout);
+
+    if (!options.persistent) {
+        // Auto-remove after 5 seconds for errors with details, 3 seconds otherwise
+        const timeout = (type === 'error' && detailedError) ? 5000 : 3000;
+        setTimeout(() => {
+            toast.remove();
+        }, timeout);
+    }
+
+    return toast;
+}
+
+// Replace the text (and optional progress-bar width) of an existing toast,
+// used by the index monitor to keep one persistent toast current. Returns the
+// element so callers can chain further updates.
+function updateToast(toast, message, percent = null) {
+    const msgEl = toast.querySelector('.toast-message');
+    if (msgEl) msgEl.textContent = message;
+    if (percent !== null) {
+        const fill = toast.querySelector('.toast-progress-fill');
+        if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    }
+    return toast;
 }
 
 function escapeHtml(text) {
@@ -3504,6 +3570,18 @@ async function loadSettingsPage() {
     document.getElementById('settings-auth-lockout-minutes').value =
         settings.auth_lockout_minutes ?? 5;
 
+    // Search panel: index tuning options + a fresh stats line. The stats come
+    // from their own endpoint and must never block the rest of the page, so
+    // they load in the background (loadSearchIndexStats paints or blanks it).
+    document.getElementById('settings-index-chunk-size').value =
+        settings.index_max_chunk_size ?? 4000;
+    document.getElementById('settings-index-auto-on-upload').checked =
+        settings.index_auto_on_upload !== false;
+    document.getElementById('search-index-hint').textContent = '';
+    document.getElementById('search-rebuild-confirm').hidden = true;
+    loadSearchIndexStats();
+
+
     // Webhook bearer token: same placeholder treatment as the LLM API key -
     // the value is never sent to the client, blank on save keeps it.
     const tokenInput = document.getElementById('settings-notify-webhook-token');
@@ -3877,7 +3955,13 @@ async function handleRestoreFileSelected(event) {
             loadCalendarEvents();
         }
 
-        if (result.index_total > 0) pollRestoreIndex(hint);
+        if (result.index_total > 0) {
+            // The shared persistent toast follows the restore's background
+            // re-index just like a manual Re-index from Settings > Search.
+            hint.textContent = 'Restored - re-indexing the search index in the ' +
+                'background (see the notification).';
+            monitorIndexJob();
+        }
     } catch (error) {
         console.error('Restore failed:', error);
         hint.textContent = '';
@@ -3888,28 +3972,141 @@ async function handleRestoreFileSelected(event) {
     }
 }
 
-// Poll the background search re-index that follows a restore until it finishes,
-// showing progress in the restore hint line.
-function pollRestoreIndex(hint) {
-    const tick = async () => {
-        try {
-            const response = await fetch('/api/backup/restore-status');
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const status = await response.json();
-            if (status.total === 0) return; // nothing to wait for
+// ---------------------------------------------------------------------------
+// Search index progress monitor (Settings > Search, restore re-index)
+// ---------------------------------------------------------------------------
 
-            hint.textContent = `Rebuilding search index... ${status.done}/${status.total}`;
-            if (status.running) {
-                setTimeout(tick, 1500);
-            } else {
-                hint.textContent = `Restore complete - search index rebuilt (${status.done}/${status.total}).`;
-            }
+// Every long-running index job (Re-index, Rebuild, post-restore re-index)
+// reports through GET /api/search/index-status; a single persistent toast
+// follows it with "done/total (N%) - current file" plus a progress bar. The
+// recursive setTimeout(1000ms) pattern matches the old restore poller: no
+// request overlaps, and polling stops by simply not scheduling the next tick.
+const INDEX_TOAST_ID = 'index-progress';
+let indexMonitorTimer = null;
+
+function indexToastEl() {
+    return document.querySelector(`[data-toast-id="${CSS.escape(INDEX_TOAST_ID)}"]`);
+}
+
+// Poll once per second while a job runs; on completion swap the toast to a
+// final summary that stays until dismissed. Safe to call repeatedly - a second
+// caller joins the existing poller instead of starting a parallel one.
+function monitorIndexJob() {
+    if (indexMonitorTimer) return;
+
+    const tick = async () => {
+        indexMonitorTimer = null;
+        let status;
+        try {
+            const response = await fetch('/api/search/index-status');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            status = await response.json();
         } catch (e) {
-            // A lost status request must not strand the spinner text.
-            hint.textContent = 'Restore complete.';
+            // A transient status failure must not kill the monitor - retry.
+            indexMonitorTimer = setTimeout(tick, 2000);
+            return;
+        }
+
+        if (status.running) {
+            const pct = status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
+            const file = status.current_file ? ` - ${status.current_file}` : '';
+            const message = `Indexing... ${status.done}/${status.total} (${pct}%)${file}`;
+            let toast = indexToastEl();
+            if (!toast) {
+                showToast(message, 'info', null,
+                    { persistent: true, progress: true, id: INDEX_TOAST_ID });
+            } else {
+                // Reusing a finished summary toast (new job started without
+                // dismissing the old one): reset it to the in-progress look.
+                if (!toast.classList.contains('info')) toast.className = 'toast info';
+                updateToast(toast, message, pct);
+            }
+            indexMonitorTimer = setTimeout(tick, 1000);
+        } else {
+            // Job over: turn the monitor's own toast into a final summary.
+            // (No toast => this poller was only joining to check; nothing to do.)
+            const toast = indexToastEl();
+            if (toast) {
+                const okCount = Math.max(0, status.done - status.failed);
+                const failedNote = status.failed ? ` (${status.failed} failed)` : '';
+                updateToast(toast,
+                    `Indexing complete: ${okCount}/${status.total} manual(s) indexed${failedNote}.`, 100);
+                toast.className = `toast ${status.failed ? 'error' : 'success'}`;
+            }
         }
     };
-    setTimeout(tick, 500);
+    tick();
+}
+
+// Page load / tab open while a job is still running server-side (the user hit
+// F5 mid-index, or opened HomeStew in a second tab): resume the toast so
+// progress never disappears until the job actually ends.
+async function resumeIndexMonitorIfRunning() {
+    try {
+        const response = await fetch('/api/search/index-status');
+        if (!response.ok) return;
+        const status = await response.json();
+        if (status.running) monitorIndexJob();
+    } catch (e) { /* offline or no session yet - nothing to resume */ }
+}
+
+// Read-only stats line for Settings > Search ("N manuals, M indexed pages").
+// Fired on every visit to the panel; a failure only blanks the line.
+async function loadSearchIndexStats() {
+    const el = document.getElementById('search-index-stats');
+    try {
+        const response = await fetch('/api/search/stats');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const stats = await response.json();
+        const manuals = Number(stats.manuals ?? 0);
+        const pages = Number(stats.indexed_documents ?? 0);
+        el.textContent = `${manuals} manual${manuals === 1 ? '' : 's'}, ` +
+            `${pages.toLocaleString()} indexed page${pages === 1 ? '' : 's'}.`;
+    } catch (e) {
+        console.error('Failed to load search stats:', e);
+        el.textContent = '';
+    }
+}
+
+// Queue POST /api/search/<path> (reindex | rebuild). 202 returns immediately
+// with the queued count; a 409 means another job owns the slot, so just join
+// its progress toast instead of erroring out.
+async function startIndexJob(path, btn, doneHint) {
+    if (!beginOp('search-index-job')) return;
+
+    const hint = document.getElementById('search-index-hint');
+    btn.disabled = true;
+    try {
+        const response = await fetch(`/api/search/${path}`, { method: 'POST' });
+        if (response.status === 409) {
+            showToast('An indexing job is already running', 'error');
+            monitorIndexJob();
+            return;
+        }
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to queue indexing job'));
+
+        const info = await response.json();
+        hint.textContent = `${doneHint} ${info.queued} manual(s) queued.`;
+        monitorIndexJob();
+    } catch (error) {
+        console.error('Failed to queue index job:', error);
+        showToast(error.message || 'Failed to start indexing', 'error');
+    } finally {
+        btn.disabled = false;
+        endOp('search-index-job');
+    }
+}
+
+// Rebuild drops the whole FTS table first, so it arms a confirm row instead of
+// firing straight away (same two-step spirit as Replace-mode restore).
+function handleSearchRebuildClick() {
+    document.getElementById('search-rebuild-confirm').hidden = false;
+}
+
+async function handleSearchRebuildConfirm() {
+    document.getElementById('search-rebuild-confirm').hidden = true;
+    await startIndexJob('rebuild',
+        document.getElementById('search-rebuild-btn'), 'Index rebuild queued:');
 }
 
 // Clicking (or keyboard-opening) the model dropdown refreshes its options
@@ -3965,6 +4162,11 @@ async function handleSettingsSave(event) {
             clampInt(document.getElementById('settings-auth-max-attempts').value, 1, 100, 8),
         auth_lockout_minutes:
             clampInt(document.getElementById('settings-auth-lockout-minutes').value, 1, 240, 5),
+        // Search index tuning (Settings > Search). Both always sent: the chunk
+        // size is clamped client-side to the same range the server enforces.
+        index_max_chunk_size:
+            clampInt(document.getElementById('settings-index-chunk-size').value, 200, 20000, 4000),
+        index_auto_on_upload: document.getElementById('settings-index-auto-on-upload').checked,
     };
     // The webhook URL is write-only like the key: only a freshly typed value
     // is sent; blank keeps the stored one (removal goes through clear_secrets).

@@ -115,8 +115,10 @@ container. See "Container Health Check".
 ### Container Health Check
 
 Docker probes `/health` on a fixed interval to mark the container healthy.
-The image default is every 60 s; with Compose you can change it without a
-rebuild (`docker-compose.yml` has `interval: ${HEALTHCHECK_INTERVAL:-60s}`):
+The image default is every 5 minutes (nothing auto-restarts an unhealthy
+container here, so the probe is just a status badge); with Compose you can
+change it without a rebuild (`docker-compose.yml` has
+`interval: ${HEALTHCHECK_INTERVAL:-300s}`):
 
 ```powershell
 # PowerShell

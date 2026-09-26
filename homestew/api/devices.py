@@ -432,15 +432,21 @@ async def upload_manual(device_id: int, file: UploadFile = File(...)):
         await db.commit()
 
     manual_id = row["id"]
-    try:
-        await index_manual(
-            manual_id=manual_id,
-            device_id=device_id,
-            pdf_path=str(filepath),
-            filename=safe_name,
+    if settings.INDEX_AUTO_ON_UPLOAD:
+        try:
+            await index_manual(
+                manual_id=manual_id,
+                device_id=device_id,
+                pdf_path=str(filepath),
+                filename=safe_name,
+            )
+        except Exception as exc:  # indexing failure shouldn't lose the upload
+            logger.error(f"Failed to index uploaded manual {safe_name}: {exc}")
+    else:
+        logger.info(
+            f"Auto-indexing is off; uploaded manual {safe_name} needs a "
+            "re-index from Settings > Search to become searchable"
         )
-    except Exception as exc:  # indexing failure shouldn't lose the upload
-        logger.error(f"Failed to index uploaded manual {safe_name}: {exc}")
 
     return Manual(
         id=row["id"],
