@@ -286,10 +286,11 @@ summary:focus-visible {
 
 /* Sidebar (docked inline: always pushes the content, never overlays it) */
 .sidebar {
-    /* Fluid docked width: adapts continuously to the window size.
-       Reduced 15% (fractions rounded up) so the nav buttons don't leave
-       dead space on the right when expanded. */
-    width: clamp(221px, 20vw, 289px);
+    /* Fixed docked width at every window size: the old fluid clamp grew to
+       289px on wide screens; users wanted the "mid width" look everywhere,
+       which is what the clamp floored to (221px) just above the drawer
+       breakpoint. The mobile drawer matches this same width. */
+    width: 221px;
     background: var(--bg-darker);
     color: white;
     padding: 12px;
@@ -3331,7 +3332,9 @@ body.no-vision .chat-input-wrap textarea {
         left: 0;
         bottom: 0;
         z-index: 1700;
-        width: min(320px, 86vw);
+        /* Same fixed width as the docked sidebar (86vw only caps it on
+           phones narrower than the sidebar itself). */
+        width: min(221px, 86vw);
         padding: 14px max(14px, env(safe-area-inset-right)) 14px max(14px, env(safe-area-inset-left));
         transform: translateX(-105%);
         box-shadow: var(--shadow-lg);
