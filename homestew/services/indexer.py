@@ -135,6 +135,48 @@ async def list_manual_items() -> List[dict]:
     ]
 
 
+async def get_manual_item(manual_id: int) -> Optional[dict]:
+    """One stored manual as index_manual kwargs, or None if it no longer exists."""
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT id, device_id, filepath, filename FROM manuals WHERE id = ?",
+            (manual_id,),
+        )
+        row = await cursor.fetchone()
+    if not row:
+        return None
+    return {
+        "manual_id": row["id"],
+        "device_id": row["device_id"],
+        "pdf_path": row["filepath"],
+        "filename": row["filename"],
+    }
+
+
+async def list_manual_index_status() -> List[dict]:
+    """Every stored manual with its device name and current indexed-page count.
+
+    Powers the Settings > Search manuals table: a manual with 0 rows in
+    pdf_index never indexed (or failed to) and is shown as such so the user
+    can re-index just that file.
+    """
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            """
+            SELECT m.id AS manual_id,
+                   m.filename AS filename,
+                   m.device_id AS device_id,
+                   COALESCE(d.name, '#' || m.device_id) AS device_name,
+                   (SELECT COUNT(*) FROM pdf_index p WHERE p.manual_id = m.id) AS pages
+            FROM manuals m
+            LEFT JOIN devices d ON d.id = m.device_id
+            ORDER BY device_name COLLATE NOCASE, m.filename COLLATE NOCASE
+            """
+        )
+        rows = await cursor.fetchall()
+    return [dict(row) for row in rows]
+
+
 async def reindex_all_manuals():
     """Re-index all manuals in the database (blocking; startup path only).
 

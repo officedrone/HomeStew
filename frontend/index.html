@@ -506,6 +506,27 @@
                                 </div>
                             </div>
 
+                            <!-- Per-manual index overview: fixed-height scrollable table
+                                 (filename | device | status | re-index). Filled by
+                                 loadSearchManuals() from GET /api/search/manuals; the
+                                 per-row button posts /api/search/manuals/{id}/reindex. -->
+                            <h4 class="settings-subheading">Indexed Manuals</h4>
+                            <div class="manuals-index-wrap">
+                                <table class="manuals-index-table" id="search-manuals-table" hidden>
+                                    <thead>
+                                        <tr>
+                                            <th class="col-file">Filename</th>
+                                            <th class="col-device">Device</th>
+                                            <th class="col-status">Index Status</th>
+                                            <th class="col-action"><span class="sr-only">Action</span></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="search-manuals-tbody"></tbody>
+                                </table>
+                                <p class="settings-hint manuals-index-empty" id="search-manuals-empty" hidden>
+                                    No manuals stored yet.</p>
+                            </div>
+
                             <h4 class="settings-subheading">Indexing Options</h4>
                             <div class="settings-field">
                                 <label for="settings-index-chunk-size">Max chunk size (characters)</label>

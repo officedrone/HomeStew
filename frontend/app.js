@@ -620,6 +620,13 @@ function setupEventListeners() {
     document.getElementById('search-rebuild-cancel-btn').addEventListener(
         'click', () => { document.getElementById('search-rebuild-confirm').hidden = true; });
 
+    // Per-manual Re-index buttons are rendered dynamically, so one delegated
+    // listener covers every row and survives table re-renders.
+    document.getElementById('search-manuals-tbody').addEventListener('click', (e) => {
+        const btn = e.target.closest('.reindex-one-btn');
+        if (btn && !btn.disabled) reindexOneManual(btn);
+    });
+
     // "Remove" buttons next to the write-only secret fields schedule deletion
     // for save; typing into a cleared field cancels that removal (without
     // re-rendering, so the in-progress value survives).
@@ -3580,6 +3587,7 @@ async function loadSettingsPage() {
     document.getElementById('search-index-hint').textContent = '';
     document.getElementById('search-rebuild-confirm').hidden = true;
     loadSearchIndexStats();
+    loadSearchManuals();
 
 
     // Webhook bearer token: same placeholder treatment as the LLM API key -
@@ -4033,6 +4041,10 @@ function monitorIndexJob() {
                     `Indexing complete: ${okCount}/${status.total} manual(s) indexed${failedNote}.`, 100);
                 toast.className = `toast ${status.failed ? 'error' : 'success'}`;
             }
+            // Index counts changed - repaint the Settings > Search stats line
+            // and manual table (also clears any "Queued..." row buttons).
+            loadSearchIndexStats();
+            loadSearchManuals();
         }
     };
     tick();
@@ -4065,6 +4077,78 @@ async function loadSearchIndexStats() {
     } catch (e) {
         console.error('Failed to load search stats:', e);
         el.textContent = '';
+    }
+}
+
+// Settings > Search manual table: one row per stored manual showing filename,
+// owning device and how many pages it currently has in the search index
+// (0 = never indexed or a failed extraction). Fired alongside the stats line
+// on every visit to the panel; failures keep the previous rows on screen.
+async function loadSearchManuals() {
+    const tbody = document.getElementById('search-manuals-tbody');
+    const table = document.getElementById('search-manuals-table');
+    const empty = document.getElementById('search-manuals-empty');
+    let data;
+    try {
+        const response = await fetch('/api/search/manuals');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        data = await response.json();
+    } catch (e) {
+        console.error('Failed to load manuals index list:', e);
+        return;
+    }
+    const rows = data.manuals || [];
+    tbody.innerHTML = rows.map((m) => {
+        const status = m.pages > 0
+            ? `<span class="idx-chip idx-ok">Indexed · ${Number(m.pages).toLocaleString()} page${m.pages === 1 ? '' : 's'}</span>`
+            : '<span class="idx-chip idx-missing">Not indexed</span>';
+        // Clickable preview: the same inline FileResponse endpoint search
+        // citations use, so it opens the PDF in a new tab. The URL text is
+        // shown (truncated) under the filename and links there.
+        const fileUrl = `/api/downloads/manuals/${m.manual_id}/file`;
+        return `<tr data-manual-id="${m.manual_id}">
+            <td class="col-file">
+                <span class="manual-index-name" title="${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</span>
+                <a class="manual-file-link" href="${fileUrl}" target="_blank" rel="noopener noreferrer"
+                    title="${escapeHtml(fileUrl)}">${escapeHtml(fileUrl)}</a>
+            </td>
+            <td class="col-device"><span class="manual-device-name" title="${escapeHtml(m.device_name)}">${escapeHtml(m.device_name)}</span></td>
+            <td class="col-status">${status}</td>
+            <td class="col-action">
+                <button type="button" class="btn btn-secondary btn-small reindex-one-btn"
+                    data-reindex-id="${m.manual_id}">Re-index</button>
+            </td>
+        </tr>`;
+    }).join('');
+    table.hidden = rows.length === 0;
+    empty.hidden = rows.length !== 0;
+}
+
+// Per-row Re-index: queue a single-manual job. The shared job slot means a
+// click while any index job runs gets 409 - we join that job's toast instead
+// of erroring. On success the row flips to "Queued..." and stays disabled;
+// monitorIndexJob repaints the whole table when the job finishes.
+async function reindexOneManual(btn) {
+    const id = btn.dataset.reindexId;
+    if (!beginOp(`search-reindex-${id}`)) return;
+    btn.disabled = true;
+    try {
+        const response = await fetch(`/api/search/manuals/${id}/reindex`, { method: 'POST' });
+        if (response.status === 409) {
+            showToast('An indexing job is already running', 'error');
+            monitorIndexJob();
+            btn.disabled = false;
+            return;
+        }
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to queue re-index'));
+        btn.textContent = 'Queued\u2026';
+        monitorIndexJob();
+    } catch (error) {
+        console.error('Failed to queue manual re-index:', error);
+        showToast(error.message || 'Failed to start re-index', 'error');
+        btn.disabled = false;
+    } finally {
+        endOp(`search-reindex-${id}`);
     }
 }
 

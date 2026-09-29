@@ -4,6 +4,7 @@ from typing import List
 
 from homestew.models.schemas import (
     IndexStatusResponse,
+    ManualIndexListResponse,
     ReindexQueuedResponse,
     SearchRequest,
     SearchResponse,
@@ -13,6 +14,8 @@ from homestew.services.search_engine import search_manuals, count_indexed_docume
 from homestew.services.indexer import (
     count_manuals as indexer_count_manuals,
     get_index_status,
+    get_manual_item,
+    list_manual_index_status,
     list_manual_items,
     start_background_reindex,
 )
@@ -94,3 +97,42 @@ async def rebuild_index():
 async def index_status():
     """Progress of the current (or most recent) background indexing job."""
     return IndexStatusResponse(**get_index_status())
+
+
+@router.get("/manuals", response_model=ManualIndexListResponse)
+async def list_manuals_index_status():
+    """Every stored manual with its device and current index status.
+
+    Feeds the Settings > Search table: filename, owning device, how many
+    pages are in the search index (0 = never indexed / failed), and a
+    per-row Re-index button targeting POST /search/manuals/{id}/reindex.
+    """
+    rows = await list_manual_index_status()
+    return ManualIndexListResponse(manuals=rows)
+
+
+@router.post(
+    "/manuals/{manual_id}/reindex",
+    response_model=ReindexQueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def reindex_single_manual(manual_id: int):
+    """Queue a background re-index of one manual (Settings > Search table).
+
+    Uses the same shared job slot as the full Re-index/Rebuild actions, so a
+    per-manual click while another job runs gets 409 and the UI joins that
+    job's progress toast instead of starting a parallel index.
+    """
+    item = await get_manual_item(manual_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Manual not found",
+        )
+    queued = start_background_reindex([item])
+    if queued < 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An indexing job is already running",
+        )
+    return ReindexQueuedResponse(queued=1, rebuild=False)

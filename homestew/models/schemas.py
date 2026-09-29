@@ -130,6 +130,24 @@ class ReindexQueuedResponse(BaseModel):
     )
 
 
+class ManualIndexRow(BaseModel):
+    """One stored manual with its device and current indexed-page count."""
+    manual_id: int = Field(..., description="Manual row id")
+    filename: str = Field(..., description="Stored PDF filename")
+    device_id: int = Field(..., description="Owning device id")
+    device_name: str = Field(
+        ..., description="Owning device name (fallback '#<id>' if the device is gone)"
+    )
+    pages: int = Field(
+        0, description="Rows this manual currently has in the search index (0 = not indexed)"
+    )
+
+
+class ManualIndexListResponse(BaseModel):
+    """All stored manuals for the Settings > Search index table."""
+    manuals: list[ManualIndexRow]
+
+
 class IndexStatusResponse(BaseModel):
     """Progress of the current (or most recent) background indexing job.
 

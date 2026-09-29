@@ -3009,6 +3009,175 @@ body.no-vision .chat-input-wrap textarea {
     vertical-align: bottom;
 }
 
+/* ---------------------------------------------------------------------------
+   Settings > Search: per-manual index table.
+   Height adapts to the viewport (clamp) so a large manual library never
+   stretches the settings page, and a fixed table layout with hard column
+   widths keeps a giant vendor filename truncating instead of blowing the row
+   out (full name stays available on hover via title). Header sticks while
+   scrolling. Column widths shrink on narrow screens via the media query so
+   the table stays usable down to phone widths.
+
+   NOTE: truncation is done on inner <span> elements, never with display:block
+   on the <td> itself - a block-level cell drops out of the row's grid and
+   misaligns every column (this "mangled" the table before).
+   --------------------------------------------------------------------------- */
+.manuals-index-wrap {
+    max-height: clamp(240px, 45vh, 520px);
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+}
+
+.manuals-index-table {
+    width: 100%;
+    /* Fixed layout is what actually constrains the filename column - with the
+       default auto layout a long unbreakable name widens the whole table. */
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.manuals-index-table th,
+.manuals-index-table td {
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+    overflow: hidden;
+}
+
+.manuals-index-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-weight: 600;
+    z-index: 1;
+}
+
+.manuals-index-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Column widths: filename gets the flexible remainder, the rest are fixed. */
+.manuals-index-table .col-file {
+    width: auto;
+}
+
+.manuals-index-table .col-device {
+    width: 24%;
+}
+
+.manuals-index-table .col-status {
+    width: 138px;
+}
+
+.manuals-index-table .col-action {
+    width: 96px;
+    text-align: right;
+}
+
+/* Truncating spans (inside their cells): filename, device name and the PDF
+   preview URL all clamp to one line with an ellipsis. */
+.manual-index-name,
+.manual-device-name,
+.manual-file-link {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.manual-index-name {
+    color: var(--text-primary);
+}
+
+.manual-device-name {
+    color: var(--text-secondary);
+}
+
+/* Clickable PDF preview link under the filename - smaller, dimmer, and it
+   shows the truncated URL so users can open the manual inline. */
+.manual-file-link {
+    font-size: 0.75rem;
+    margin-top: 2px;
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.manual-file-link:hover {
+    text-decoration: underline;
+}
+
+/* Screen-reader-only label for the action column (no visible header text). */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.idx-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.idx-chip.idx-ok {
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
+}
+
+.idx-chip.idx-missing {
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    color: var(--error);
+}
+
+.manuals-index-empty {
+    padding: 14px;
+    margin: 0;
+}
+
+/* Narrow screens: reclaim horizontal space for the filename by shrinking the
+   fixed columns and dropping the status chip to a compact form. */
+@media (max-width: 640px) {
+    .manuals-index-table {
+        font-size: 0.8rem;
+    }
+
+    .manuals-index-table th,
+    .manuals-index-table td {
+        padding: 6px 7px;
+    }
+
+    .manuals-index-table .col-device {
+        width: 20%;
+    }
+
+    .manuals-index-table .col-status {
+        width: 92px;
+    }
+
+    .manuals-index-table .col-action {
+        width: 74px;
+    }
+
+    .idx-chip {
+        font-size: 0.68rem;
+        padding: 2px 6px;
+    }
+}
+
 /* Manual names are preview links: open the source PDF in a new tab so the
    user can verify it before approving the download. */
 .fetch-preview-link {

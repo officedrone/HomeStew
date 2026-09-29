@@ -320,3 +320,95 @@ def test_upload_skips_indexing_when_auto_off(client, monkeypatch):
     )
     assert r_off.status_code == 201
     assert len(calls) == 1  # no additional index call
+
+
+# ---------------------------------------------------------------------------
+# Settings > Search manual table: GET /search/manuals + per-manual re-index
+# ---------------------------------------------------------------------------
+
+def _seed_manual(device_name="Boiler", filename="m.pdf"):
+    """Create a device + manual row directly; returns (device_id, manual_id)."""
+    async def seed():
+        async with get_db_context() as db:
+            cur = await db.execute(
+                "INSERT INTO devices (name, brand, model) VALUES (?, 'Bosch', 'GB1') "
+                "RETURNING id",
+                (device_name,),
+            )
+            did = (await cur.fetchone())["id"]
+            cur = await db.execute(
+                "INSERT INTO manuals (device_id, filename, filepath) "
+                "VALUES (?, ?, ?) RETURNING id",
+                (did, filename, f"/nope/{filename}"),
+            )
+            mid = (await cur.fetchone())["id"]
+            await db.commit()
+        return did, mid
+
+    return asyncio.run(seed())
+
+
+def test_search_manuals_lists_status_and_device(client, monkeypatch):
+    did1, mid1 = _seed_manual("Boiler", "boiler_guide.pdf")
+    did2, mid2 = _seed_manual("Fridge", "fridge manual.pdf")
+
+    rows = client.get("/api/search/manuals").json()["manuals"]
+    by_id = {r["manual_id"]: r for r in rows}
+    assert set(by_id) == {mid1, mid2}
+    # Nothing indexed yet -> every row reports 0 pages ("Not indexed" in the UI).
+    assert by_id[mid1]["pages"] == 0 and by_id[mid2]["pages"] == 0
+    assert by_id[mid1]["device_name"] == "Boiler"
+    assert by_id[mid1]["filename"] == "boiler_guide.pdf"
+
+    # Indexing manual 1 flips only its row to a page count > 0.
+    async def index_one():
+        await indexer.index_manual(
+            manual_id=mid1, device_id=did1, pdf_path="ignored", filename="boiler_guide.pdf"
+        )
+
+    monkeypatch.setattr(indexer, "extract_pages_from_pdf", lambda p: ["burner service interval"])
+    asyncio.run(index_one())
+
+    rows = client.get("/api/search/manuals").json()["manuals"]
+    by_id = {r["manual_id"]: r for r in rows}
+    assert by_id[mid1]["pages"] >= 1
+    assert by_id[mid2]["pages"] == 0
+
+
+def test_single_manual_reindex_indexes_only_that_manual(client, monkeypatch):
+    did1, mid1 = _seed_manual("Boiler", "one.pdf")
+    _, mid2 = _seed_manual("Fridge", "two.pdf")
+
+    indexed_files = []
+
+    def fake_extract(path):
+        indexed_files.append(path)
+        return ["unique torque spec content"]
+
+    monkeypatch.setattr(indexer, "extract_pages_from_pdf", fake_extract)
+
+    r = client.post(f"/api/search/manuals/{mid1}/reindex")
+    assert r.status_code == 202
+    assert r.json() == {"queued": 1, "rebuild": False}
+
+    assert _wait_idle(client), "single-manual re-index did not finish"
+    st = client.get("/api/search/index-status").json()
+    assert st["running"] is False and st["done"] == 1 and st["failed"] == 0
+
+    # Only the targeted manual's PDF was read.
+    assert indexed_files == [f"/nope/one.pdf"]
+
+    rows = {r["manual_id"]: r for r in client.get("/api/search/manuals").json()["manuals"]}
+    assert rows[mid1]["pages"] >= 1
+    assert rows[mid2]["pages"] == 0
+
+
+def test_single_manual_reindex_unknown_id_404(client):
+    assert client.post("/api/search/manuals/9999/reindex").status_code == 404
+
+
+def test_single_manual_reindex_conflict_when_job_running(client, monkeypatch):
+    monkeypatch.setattr(search_api, "start_background_reindex", lambda *a, **k: -1)
+    _, mid = _seed_manual()
+    assert client.post(f"/api/search/manuals/{mid}/reindex").status_code == 409
+
