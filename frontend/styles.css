@@ -954,6 +954,13 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     color: #fca5a5;
 }
 
+/* Sidebar device names match the "Upcoming" event titles (.upcoming-title,
+   0.82rem) so the two sidebar feeds read at the same size. Scoped to the
+   Recent Devices section so the Devices tab cards keep their larger name. */
+#recent-devices-section .device-name {
+    font-size: 0.82rem;
+}
+
 /* Main Content */
 .main-content {
     flex: 1;

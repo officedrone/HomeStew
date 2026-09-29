@@ -4602,6 +4602,10 @@ function advanceWizard() {
         return;
     }
     document.getElementById('setup-wizard-modal').style.display = 'none';
+    // Hard refresh so the freshly loaded page reflects everything the wizard
+    // just configured (e.g. a master key created in step 1 would otherwise
+    // still show as "no key configured" on the stale original page).
+    window.location.reload();
 }
 
 async function handleWizardSkip() {

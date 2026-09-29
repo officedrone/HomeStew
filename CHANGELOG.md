@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.4]
+
+- UPDATE: Sidebar "Recent Devices" names now match the smaller font size of the "Upcoming" event titles, so both sidebar feeds read at the same size. Device cards on the Devices tab keep their larger name.
+- FIX: Hard refresh the page after completing the first-run wizard, so freshly configured state (e.g. a master key created during setup) is reflected immediately instead of showing the stale pre-wizard view.
+
 ## [0.1.3]
 
 - NEW: "Reasoning" checkbox in the first-run wizard and Settings > AI (checked by default).
