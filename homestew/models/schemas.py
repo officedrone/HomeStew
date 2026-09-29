@@ -136,7 +136,14 @@ class ManualIndexRow(BaseModel):
     filename: str = Field(..., description="Stored PDF filename")
     device_id: int = Field(..., description="Owning device id")
     device_name: str = Field(
-        ..., description="Owning device name (fallback '#<id>' if the device is gone)"
+        ...,
+        description="Owning device label: friendly name, else 'Brand Model', "
+        "else '#<id>' when nothing usable exists",
+    )
+    orphaned: bool = Field(
+        False,
+        description="True when the owning device row no longer exists (a manual "
+        "left behind by a pre-cascade delete); the UI flags it and allows deletion.",
     )
     pages: int = Field(
         0, description="Rows this manual currently has in the search index (0 = not indexed)"

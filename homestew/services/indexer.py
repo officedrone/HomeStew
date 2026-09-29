@@ -159,6 +159,11 @@ async def list_manual_index_status() -> List[dict]:
     Powers the Settings > Search manuals table: a manual with 0 rows in
     pdf_index never indexed (or failed to) and is shown as such so the user
     can re-index just that file.
+
+    The device label always identifies the device: its friendly name when set,
+    otherwise "Brand Model" combined, and only as a last resort '#<id>'. A
+    manual whose owning device row is gone (a leftover from before device deletes
+    cascaded) gets orphaned=True so the UI can flag it and offer deletion.
     """
     async with get_db_context() as db:
         cursor = await db.execute(
@@ -166,7 +171,15 @@ async def list_manual_index_status() -> List[dict]:
             SELECT m.id AS manual_id,
                    m.filename AS filename,
                    m.device_id AS device_id,
-                   COALESCE(d.name, '#' || m.device_id) AS device_name,
+                   CASE
+                       WHEN TRIM(COALESCE(d.name, '')) <> '' THEN d.name
+                       WHEN TRIM(COALESCE(d.brand, '') || ' '
+                                 || COALESCE(d.model, '')) <> ''
+                           THEN TRIM(COALESCE(d.brand, '') || ' '
+                                     || COALESCE(d.model, ''))
+                       ELSE '#' || m.device_id
+                   END AS device_name,
+                   (d.id IS NULL) AS orphaned,
                    (SELECT COUNT(*) FROM pdf_index p WHERE p.manual_id = m.id) AS pages
             FROM manuals m
             LEFT JOIN devices d ON d.id = m.device_id

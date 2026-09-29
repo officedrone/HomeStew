@@ -897,6 +897,19 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     color: var(--text-primary);
 }
 
+/* Disabled icon buttons (e.g. a per-row Re-index queued while its job runs):
+   dimmed and non-interactive, but still visible in place. */
+.card-icon-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.card-icon-btn:disabled:hover {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-secondary);
+}
+
 /* Delete gets a subtle red tint on hover instead of a solid danger fill. */
 .card-icon-danger:hover {
     background: color-mix(in srgb, var(--error) 10%, transparent);
@@ -1862,11 +1875,14 @@ body.no-vision .chat-input-wrap textarea {
 }
 
 /* Informational toasts (index progress monitor): brand-colored, and always
-   persistent, so they also carry a close button and progress bar. */
+   persistent, so they also carry a close button and progress bar. Fixed width
+   so a long manual filename wraps inside the toast instead of stretching it
+   toward the full viewport (min() keeps it on-screen on narrow displays). */
 .toast.info {
     background: var(--primary-color);
     color: white;
     position: relative;
+    width: min(360px, calc(100vw - 40px));
 }
 
 .toast-message {
@@ -3074,54 +3090,47 @@ body.no-vision .chat-input-wrap textarea {
     width: 138px;
 }
 
+/* The Re-index column holds one icon button (plus a trashcan on orphan
+   rows); centred so the refresh icon lines up under its header. */
 .manuals-index-table .col-action {
     width: 96px;
-    text-align: right;
+    text-align: center;
 }
 
-/* Truncating spans (inside their cells): filename, device name and the PDF
-   preview URL all clamp to one line with an ellipsis. */
+/* Truncating cells (inside their <td>): the filename link and device name
+   both clamp to one line with an ellipsis. */
 .manual-index-name,
-.manual-device-name,
-.manual-file-link {
+.manual-device-name {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+/* The filename doubles as the link that opens the stored PDF in a new tab, so
+   it takes the link colour (no underline until hover) instead of plain text. */
 .manual-index-name {
-    color: var(--text-primary);
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.manual-index-name:hover {
+    text-decoration: underline;
 }
 
 .manual-device-name {
     color: var(--text-secondary);
 }
 
-/* Clickable PDF preview link under the filename - smaller, dimmer, and it
-   shows the truncated URL so users can open the manual inline. */
-.manual-file-link {
-    font-size: 0.75rem;
-    margin-top: 2px;
-    color: var(--primary-color);
-    text-decoration: none;
-}
-
-.manual-file-link:hover {
-    text-decoration: underline;
-}
-
-/* Screen-reader-only label for the action column (no visible header text). */
-.sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
+/* Orphaned manuals (owning device row is gone): amber, italic label so the
+   row reads as broken data to clean up rather than a normal entry. */
+.manual-device-orphan {
+    display: block;
     overflow: hidden;
-    clip: rect(0, 0, 0, 0);
+    text-overflow: ellipsis;
     white-space: nowrap;
-    border: 0;
+    color: var(--warn-text);
+    font-style: italic;
 }
 
 .idx-chip {
@@ -3170,6 +3179,7 @@ body.no-vision .chat-input-wrap textarea {
 
     .manuals-index-table .col-action {
         width: 74px;
+        text-align: center;
     }
 
     .idx-chip {

@@ -620,11 +620,13 @@ function setupEventListeners() {
     document.getElementById('search-rebuild-cancel-btn').addEventListener(
         'click', () => { document.getElementById('search-rebuild-confirm').hidden = true; });
 
-    // Per-manual Re-index buttons are rendered dynamically, so one delegated
-    // listener covers every row and survives table re-renders.
+    // Per-manual Re-index / orphan-delete buttons are rendered dynamically,
+    // so one delegated listener covers every row and survives table re-renders.
     document.getElementById('search-manuals-tbody').addEventListener('click', (e) => {
         const btn = e.target.closest('.reindex-one-btn');
-        if (btn && !btn.disabled) reindexOneManual(btn);
+        if (btn && !btn.disabled) { reindexOneManual(btn); return; }
+        const del = e.target.closest('.delete-orphan-btn');
+        if (del && !del.disabled) deleteOrphanManual(del);
     });
 
     // "Remove" buttons next to the write-only secret fields schedule deletion
@@ -849,6 +851,7 @@ const CARD_ACTION_ICONS = {
     edit: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>',
     trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>',
     check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>',
+    refresh: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>',
     download: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>'
 };
 
@@ -4107,21 +4110,33 @@ async function loadSearchManuals() {
         const status = m.pages > 0
             ? `<span class="idx-chip idx-ok">Indexed · ${Number(m.pages).toLocaleString()} page${m.pages === 1 ? '' : 's'}</span>`
             : '<span class="idx-chip idx-missing">Not indexed</span>';
-        // Clickable preview: the same inline FileResponse endpoint search
-        // citations use, so it opens the PDF in a new tab. The URL text is
-        // shown (truncated) under the filename and links there.
+        // The filename itself is the link: the same inline FileResponse
+        // endpoint search citations use, so it opens the PDF in a new tab.
         const fileUrl = `/api/downloads/manuals/${m.manual_id}/file`;
+        // device_name is always a usable label server-side (friendly name,
+        // else "Brand Model", else '#<id>'). Manuals whose device row is gone
+        // are labelled as orphans and get a trashcan - they can never be
+        // re-indexed into anything useful, only cleaned up.
+        const deviceLabel = m.orphaned ? `Orphaned, Device #${m.device_id}` : m.device_name;
+        const deleteBtn = m.orphaned
+            ? `<button type="button" class="card-icon-btn card-icon-danger delete-orphan-btn"
+                    title="Delete this orphaned manual" aria-label="Delete this orphaned manual"
+                    data-manual-id="${m.manual_id}" data-device-id="${m.device_id}"
+                    data-filename="${escapeHtml(m.filename)}" data-dedupe>${CARD_ACTION_ICONS.trash}</button>`
+            : '';
         return `<tr data-manual-id="${m.manual_id}">
             <td class="col-file">
-                <span class="manual-index-name" title="${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</span>
-                <a class="manual-file-link" href="${fileUrl}" target="_blank" rel="noopener noreferrer"
-                    title="${escapeHtml(fileUrl)}">${escapeHtml(fileUrl)}</a>
+                <a class="manual-index-name" href="${fileUrl}" target="_blank"
+                    rel="noopener noreferrer" title="Open ${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</a>
             </td>
-            <td class="col-device"><span class="manual-device-name" title="${escapeHtml(m.device_name)}">${escapeHtml(m.device_name)}</span></td>
+            <td class="col-device"><span class="${m.orphaned ? 'manual-device-orphan' : 'manual-device-name'}"
+                title="${escapeHtml(deviceLabel)}">${escapeHtml(deviceLabel)}</span></td>
             <td class="col-status">${status}</td>
             <td class="col-action">
-                <button type="button" class="btn btn-secondary btn-small reindex-one-btn"
-                    data-reindex-id="${m.manual_id}">Re-index</button>
+                ${deleteBtn}
+                <button type="button" class="card-icon-btn reindex-one-btn"
+                    title="Re-index this manual" aria-label="Re-index this manual"
+                    data-reindex-id="${m.manual_id}" data-dedupe>${CARD_ACTION_ICONS.refresh}</button>
             </td>
         </tr>`;
     }).join('');
@@ -4129,10 +4144,39 @@ async function loadSearchManuals() {
     empty.hidden = rows.length !== 0;
 }
 
+// Delete an orphaned manual (its device row is gone, so nothing links to it
+// any more). Reuses the same DELETE /api/devices/{device_id}/manuals/{id}
+// endpoint as the Edit Device modal - it matches on the manual's stored
+// device_id and never joins devices, so it deletes orphans fine. Afterwards
+// only the Settings > Search table/stats need a repaint (no device views to
+// refresh - there is no device).
+async function deleteOrphanManual(btn) {
+    const manualId = btn.dataset.manualId;
+    const deviceId = btn.dataset.deviceId;
+    const label = btn.dataset.filename || `manual ${manualId}`;
+    if (!confirm(`Delete "${label}"? It belongs to a device that no longer exists.`)) return;
+    if (!beginOp(`delete-orphan-${manualId}`)) return;
+    btn.disabled = true;
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/manuals/${manualId}`,
+            { method: 'DELETE' });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to delete manual'));
+        showToast('Orphaned manual deleted', 'success');
+        loadSearchIndexStats();
+        await loadSearchManuals(); // repaints the table without the row
+    } catch (error) {
+        console.error('Failed to delete orphaned manual:', error);
+        showToast(error.message || 'Failed to delete manual', 'error');
+        btn.disabled = false;
+    } finally {
+        endOp(`delete-orphan-${manualId}`);
+    }
+}
+
 // Per-row Re-index: queue a single-manual job. The shared job slot means a
 // click while any index job runs gets 409 - we join that job's toast instead
-// of erroring. On success the row flips to "Queued..." and stays disabled;
-// monitorIndexJob repaints the whole table when the job finishes.
+// of erroring. On success the icon button stays disabled (dimmed) while the
+// job runs; monitorIndexJob repaints the whole table when it finishes.
 async function reindexOneManual(btn) {
     const id = btn.dataset.reindexId;
     if (!beginOp(`search-reindex-${id}`)) return;
@@ -4146,7 +4190,6 @@ async function reindexOneManual(btn) {
             return;
         }
         if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to queue re-index'));
-        btn.textContent = 'Queued\u2026';
         monitorIndexJob();
     } catch (error) {
         console.error('Failed to queue manual re-index:', error);

@@ -480,12 +480,31 @@
                             </div>
                         </section>
 
-                        <!-- Search index: stats, manual re-index / rebuild and
-                             the two tuning options. The read-only stats line is
-                             filled from GET /api/search/stats; Re-index and
-                             Rebuild queue a background job whose progress shows
-                             in a persistent toast (see monitorIndexJob). -->
+                        <!-- Search index. Layout top-to-bottom: Indexing Options
+                             (chunk size, auto-index), then the re-index / rebuild
+                             actions, then the per-manual overview table last so it
+                             can grow without pushing the controls around. The stats
+                             line is filled from GET /api/search/stats; Re-index and
+                             Rebuild queue a background job whose progress shows in a
+                             persistent toast (see monitorIndexJob). -->
                         <section id="settings-panel-search" class="settings-panel" hidden>
+                            <h4 class="settings-subheading">Indexing Options</h4>
+                            <div class="settings-field">
+                                <label for="settings-index-chunk-size">Max chunk size (characters)</label>
+                                <input type="number" id="settings-index-chunk-size" min="200" max="20000" step="100" value="4000">
+                                <p class="settings-hint">Long PDF pages are split into chunks of at most this many
+                                    characters before being indexed. Smaller gives finer-grained snippets, larger means
+                                    fewer rows. Applies to the next re-index - no restart needed.</p>
+                            </div>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-index-auto-on-upload">
+                                    <input type="checkbox" id="settings-index-auto-on-upload">
+                                    Index manuals automatically when uploaded or fetched
+                                </label>
+                                <p class="settings-hint">Turn off to defer indexing on a slow host: new manuals stay
+                                    unsearchable until you press Re-index below.</p>
+                            </div>
+
                             <h4 class="settings-subheading">Search Index</h4>
                             <div class="settings-field">
                                 <!-- Filled by loadSettingsPage() from /api/search/stats. -->
@@ -514,9 +533,10 @@
                             </div>
 
                             <!-- Per-manual index overview: fixed-height scrollable table
-                                 (filename | device | status | re-index). Filled by
+                                 (filename | device | index status | re-index). Filled by
                                  loadSearchManuals() from GET /api/search/manuals; the
-                                 per-row button posts /api/search/manuals/{id}/reindex. -->
+                                 filename links to the stored PDF and the per-row refresh
+                                 icon posts /api/search/manuals/{id}/reindex. -->
                             <h4 class="settings-subheading">Indexed Manuals</h4>
                             <div class="manuals-index-wrap">
                                 <table class="manuals-index-table" id="search-manuals-table" hidden>
@@ -525,30 +545,13 @@
                                             <th class="col-file">Filename</th>
                                             <th class="col-device">Device</th>
                                             <th class="col-status">Index Status</th>
-                                            <th class="col-action"><span class="sr-only">Action</span></th>
+                                            <th class="col-action">Re-index</th>
                                         </tr>
                                     </thead>
                                     <tbody id="search-manuals-tbody"></tbody>
                                 </table>
                                 <p class="settings-hint manuals-index-empty" id="search-manuals-empty" hidden>
                                     No manuals stored yet.</p>
-                            </div>
-
-                            <h4 class="settings-subheading">Indexing Options</h4>
-                            <div class="settings-field">
-                                <label for="settings-index-chunk-size">Max chunk size (characters)</label>
-                                <input type="number" id="settings-index-chunk-size" min="200" max="20000" step="100" value="4000">
-                                <p class="settings-hint">Long PDF pages are split into chunks of at most this many
-                                    characters before being indexed. Smaller gives finer-grained snippets, larger means
-                                    fewer rows. Applies to the next re-index - no restart needed.</p>
-                            </div>
-                            <div class="settings-field">
-                                <label class="checkbox-option" for="settings-index-auto-on-upload">
-                                    <input type="checkbox" id="settings-index-auto-on-upload">
-                                    Index manuals automatically when uploaded or fetched
-                                </label>
-                                <p class="settings-hint">Turn off to defer indexing on a slow host: new manuals stay
-                                    unsearchable until you press Re-index here.</p>
                             </div>
                         </section>
 

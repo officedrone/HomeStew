@@ -328,6 +328,7 @@ def test_upload_skips_indexing_when_auto_off(client, monkeypatch):
 
 def _seed_manual(device_name="Boiler", filename="m.pdf"):
     """Create a device + manual row directly; returns (device_id, manual_id)."""
+
     async def seed():
         async with get_db_context() as db:
             cur = await db.execute(
@@ -373,6 +374,73 @@ def test_search_manuals_lists_status_and_device(client, monkeypatch):
     by_id = {r["manual_id"]: r for r in rows}
     assert by_id[mid1]["pages"] >= 1
     assert by_id[mid2]["pages"] == 0
+
+
+def test_search_manuals_device_label_falls_back_to_brand_model(client):
+    """The Device column must always identify the device: friendly name first,
+    else 'Brand Model', else '#<id>' - never a blank or bare '#13' when a
+    brand/model exists."""
+
+    async def seed():
+        async with get_db_context() as db:
+            # Nameless device -> label must become "Bosch GB1".
+            cur = await db.execute(
+                "INSERT INTO devices (name, brand, model) VALUES ('', 'Bosch', 'GB1') "
+                "RETURNING id"
+            )
+            did_blank = (await cur.fetchone())["id"]
+            # Whitespace-only name + blank brand/model -> '#<id>'.
+            cur = await db.execute(
+                "INSERT INTO devices (name, brand, model) VALUES ('  ', '', '') "
+                "RETURNING id"
+            )
+            did_none = (await cur.fetchone())["id"]
+            for did in (did_blank, did_none):
+                await db.execute(
+                    "INSERT INTO manuals (device_id, filename, filepath) "
+                    "VALUES (?, ?, ?)",
+                    (did, f"m{did}.pdf", f"/nope/m{did}.pdf"),
+                )
+            await db.commit()
+        return did_blank, did_none
+
+    did_blank, did_none = asyncio.run(seed())
+    rows = client.get("/api/search/manuals").json()["manuals"]
+    by_device = {r["device_id"]: r["device_name"] for r in rows}
+    assert by_device[did_blank] == "Bosch GB1"
+    assert by_device[did_none] == f"#{did_none}"
+    # Both devices exist, so neither row is an orphan.
+    assert all(not r["orphaned"] for r in rows)
+
+
+def test_orphaned_manual_flagged_and_deletable(client):
+    """A manual whose device row is gone (leftover from before deletes cascaded)
+    must be flagged 'orphaned' with a '#<id>' label, and the existing device-
+    scoped DELETE endpoint must still remove it - it matches on the manual's
+    stored device_id without joining devices."""
+
+    async def seed():
+        async with get_db_context() as db:
+            cur = await db.execute(
+                "INSERT INTO manuals (device_id, filename, filepath) "
+                "VALUES (?, ?, ?) RETURNING id",
+                (999, "ghost.pdf", "/nope/ghost.pdf"),
+            )
+            mid = (await cur.fetchone())["id"]
+            await db.commit()
+        return mid
+
+    mid = asyncio.run(seed())
+    rows = client.get("/api/search/manuals").json()["manuals"]
+    row = next(r for r in rows if r["manual_id"] == mid)
+    assert row["orphaned"] is True
+    assert row["device_name"] == "#999"
+
+    # Same endpoint the Edit Device modal uses - works for orphans unchanged.
+    r = client.delete("/api/devices/999/manuals/" + str(mid))
+    assert r.status_code == 204
+    rows = client.get("/api/search/manuals").json()["manuals"]
+    assert all(r["manual_id"] != mid for r in rows)
 
 
 def test_single_manual_reindex_indexes_only_that_manual(client, monkeypatch):
