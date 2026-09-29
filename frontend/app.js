@@ -3529,6 +3529,11 @@ async function loadSettingsPage() {
     document.getElementById('settings-llm-vision').checked =
         settings.llm_supports_vision === true;
 
+    // Reasoning toggle: on by default, so only an explicit false unticks it
+    // (a missing key from an older server still means "reasoning allowed").
+    document.getElementById('settings-llm-reasoning').checked =
+        settings.llm_reasoning_enabled !== false;
+
     // Advanced settings: current prompts + built-in defaults (for Restore).
     promptDefaults = {
         chat_system_prompt: settings.chat_system_prompt_default || '',
@@ -4226,6 +4231,7 @@ async function handleSettingsSave(event) {
         llm_model: document.getElementById('settings-llm-model').value.trim(),
         // Always sent: a plain boolean, so unchecking must persist too.
         llm_supports_vision: document.getElementById('settings-llm-vision').checked,
+        llm_reasoning_enabled: document.getElementById('settings-llm-reasoning').checked,
         // Prompts are always sent; the server treats a blank value as
         // "restore the built-in default".
         chat_system_prompt: document.getElementById('settings-chat-system-prompt').value.trim(),
@@ -4481,6 +4487,10 @@ async function checkSetupWizard() {
         chatVisionEnabled = !!s.llm_supports_vision;
         updateChatImageControls();
         document.getElementById('wizard-llm-vision').checked = chatVisionEnabled;
+        // Seed the wizard's reasoning checkbox from the saved config too
+        // (default on: only an explicit false unticks it).
+        document.getElementById('wizard-llm-reasoning').checked =
+            s.llm_reasoning_enabled !== false;
         if (!wizardQueue.length) return;
         // Prefill the AI step from what the server has (defaults or env).
         document.getElementById('wizard-llm-base-url').value = s.llm_base_url || '';
@@ -4702,6 +4712,7 @@ async function wizardSaveLlm() {
         llm_model: model,
         // Always sent so unchecking in the wizard persists too.
         llm_supports_vision: document.getElementById('wizard-llm-vision').checked,
+        llm_reasoning_enabled: document.getElementById('wizard-llm-reasoning').checked,
     };
     // Blank key = none configured (local servers ignore it); omitted so the
     // server keeps any stored key untouched.

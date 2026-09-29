@@ -78,6 +78,12 @@ in the first-run wizard's AI step). This reveals the photo-attach and camera
 buttons in the chat input so you can add new devices using the camera, or troubleshoot existing devices by snapping a nameplate or error screen and asking the LLM
 about it.
 
+**Model reasoning.** The **Reasoning** checkbox (same places: **Settings → AI** and the wizard's AI step) is ticked by
+default, letting thinking models reason before answering. Untick it to send explicit "do not think" parameters with
+every request (`chat_template_kwargs.enable_thinking`/`thinking` for llama.cpp & vLLM, `think: false` for Ollama) -
+needed for models that always reason unless told otherwise (e.g. Qwen3), or simply to get faster answers. Servers
+that don't understand the parameters ignore them, so leaving it unticked is harmless for non-thinking models.
+
 ### 5. Backup & Restore
 
 HomeStew supports backup and Restore of Device and Calendar data.

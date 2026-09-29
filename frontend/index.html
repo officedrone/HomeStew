@@ -355,6 +355,13 @@
                                 </label>
                                 <p class="settings-hint">Tick this if the selected model can read images (e.g. qwen3-vl, llava, gemma3). It enables the photo attach and camera buttons in AI Chat.</p>
                             </div>
+                            <div class="settings-field">
+                                <label class="checkbox-option" for="settings-llm-reasoning">
+                                    <input type="checkbox" id="settings-llm-reasoning" checked>
+                                    Reasoning
+                                </label>
+                                <p class="settings-hint">Enable or Disable model reasoning.</p>
+                            </div>
 
                             <!-- Prompt customization (collapsed by default). The
                                  master-key tools live under the Advanced tab. -->
@@ -939,6 +946,13 @@
                         Model supports Vision
                     </label>
                     <p class="settings-hint">Tick this if your model can read images (e.g. qwen3-vl, llava, gemma3). It enables the photo attach and camera buttons in AI Chat.</p>
+                </div>
+                <div class="settings-field">
+                    <label class="checkbox-option" for="wizard-llm-reasoning">
+                        <input type="checkbox" id="wizard-llm-reasoning" checked>
+                        Reasoning
+                    </label>
+                    <p class="settings-hint">Enable or Disable model reasoning. Leave ticked to let the model think before answering; untick to tell it not to reason (required by some models, e.g. Qwen3 thinking mode).</p>
                 </div>
             </section>
 

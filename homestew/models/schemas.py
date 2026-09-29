@@ -277,6 +277,11 @@ class SettingsResponse(BaseModel):
         description="True when the selected model is marked as able to read "
         "images (enables the chat photo attach / camera controls)",
     )
+    llm_reasoning_enabled: bool = Field(
+        True,
+        description="True when model reasoning is allowed; when false every "
+        "chat request carries explicit 'do not think' parameters",
+    )
     llm_api_key_set: bool = Field(
         ..., description="True if an LLM API key is configured (value not exposed)"
     )
@@ -418,6 +423,12 @@ class SettingsUpdate(BaseModel):
         None,
         description="Mark the selected model as able to read images; enables "
         "the chat photo attach / camera controls",
+    )
+    # Plain boolean toggle as well - unchecking reasoning must persist too.
+    llm_reasoning_enabled: Optional[bool] = Field(
+        None,
+        description="Enable or disable model reasoning; when disabled, chat "
+        "requests explicitly tell the model not to think",
     )
     chat_system_prompt: Optional[str] = Field(
         None, max_length=16000, description="Custom chat system prompt"

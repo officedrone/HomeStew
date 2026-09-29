@@ -34,6 +34,10 @@ EDITABLE_SETTINGS = (
     # camera controls (and image uploads server-side) so a text-only model
     # never receives an image it would reject.
     "LLM_SUPPORTS_VISION",
+    # Whether the model may use extended reasoning ("thinking") before
+    # answering. On by default; when off, every chat request carries the
+    # explicit disable parameters servers understand (see llm_client).
+    "LLM_REASONING_ENABLED",
     "CHAT_SYSTEM_PROMPT",
     "SEARCH_TOOL_DESCRIPTION",
     "CALENDAR_TOOL_DESCRIPTION",
@@ -109,6 +113,12 @@ class Settings(BaseSettings):
     # controls on. The chat API rejects images while this is off, so the UI
     # gate is cosmetic as well as defensive.
     LLM_SUPPORTS_VISION: bool = False
+    # Allow the model to reason ("think") before answering. On by default so
+    # thinking models behave natively; when off, HomeStew adds explicit
+    # "do not think" parameters to every chat request for models that always
+    # reason unless told otherwise (qwen3 and friends). The checkbox lives in
+    # Settings > AI and the first-run wizard.
+    LLM_REASONING_ENABLED: bool = True
 
     # LLM prompts (editable under Settings > Advanced Settings). Defaults are
     # the built-in prompt texts from homestew.default_prompts.
