@@ -25,6 +25,31 @@ from homestew.default_prompts import (
 logger = logging.getLogger(__name__)
 
 
+def _reasoning_params() -> Dict[str, Any]:
+    """Extra request-body fields controlling model reasoning ("thinking").
+
+    Driven by the "Reasoning" checkbox (Settings > AI / first-run wizard),
+    persisted as ``settings.LLM_REASONING_ENABLED`` and read live on every
+    request so toggling it applies without a restart:
+
+      - Checked (the default): nothing is added; the server/model decides
+        natively whether to think.
+      - Unchecked: every chat request carries the explicit "do not reason"
+        switches understood by the common OpenAI-compatible servers -
+        ``chat_template_kwargs`` with ``enable_thinking``/``thinking`` false
+        (llama.cpp and vLLM forward these into the Jinja chat template, e.g.
+        Qwen3) and top-level ``think: false`` (Ollama's OpenAI-compat
+        endpoint). Servers that know neither field ignore them, so models
+        without reasoning are unaffected either way.
+    """
+    if getattr(settings, "LLM_REASONING_ENABLED", True):
+        return {}
+    return {
+        "chat_template_kwargs": {"enable_thinking": False, "thinking": False},
+        "think": False,
+    }
+
+
 class LLMClient:
     """Client for OpenAI-compatible LLM APIs."""
     
@@ -93,7 +118,13 @@ class LLMClient:
         
         if tools:
             kwargs["tools"] = tools
-        
+
+        # Non-standard reasoning switches go through extra_body so the SDK
+        # merges them into the JSON request (see _reasoning_params).
+        reasoning = _reasoning_params()
+        if reasoning:
+            kwargs["extra_body"] = reasoning
+
         return self.client.chat.completions.create(**kwargs)
     
     def _requests_chat_completion(
@@ -115,7 +146,9 @@ class LLMClient:
         
         if tools:
             payload["tools"] = tools
-        
+
+        payload.update(_reasoning_params())
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
@@ -177,6 +210,9 @@ class LLMClient:
             }
             if tools:
                 kwargs["tools"] = tools
+            reasoning = _reasoning_params()
+            if reasoning:
+                kwargs["extra_body"] = reasoning
             raw_chunks = self.client.chat.completions.create(**kwargs)
 
             def _close():
@@ -196,6 +232,7 @@ class LLMClient:
             }
             if tools:
                 payload["tools"] = tools
+            payload.update(_reasoning_params())
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",

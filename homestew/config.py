@@ -34,6 +34,10 @@ EDITABLE_SETTINGS = (
     # camera controls (and image uploads server-side) so a text-only model
     # never receives an image it would reject.
     "LLM_SUPPORTS_VISION",
+    # Whether the model may use extended reasoning ("thinking") before
+    # answering. On by default; when off, every chat request carries the
+    # explicit disable parameters servers understand (see llm_client).
+    "LLM_REASONING_ENABLED",
     "CHAT_SYSTEM_PROMPT",
     "SEARCH_TOOL_DESCRIPTION",
     "CALENDAR_TOOL_DESCRIPTION",
@@ -58,6 +62,10 @@ EDITABLE_SETTINGS = (
     # Login brute-force lockout tuning (in-memory, per client IP).
     "AUTH_MAX_FAILED_ATTEMPTS",
     "AUTH_LOCKOUT_MINUTES",
+    # Search index tuning (Settings > Search): chunk size applied by the
+    # indexer at run time, and whether uploads/fetches index immediately.
+    "INDEX_MAX_CHUNK_SIZE",
+    "INDEX_AUTO_ON_UPLOAD",
 )
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
@@ -105,6 +113,12 @@ class Settings(BaseSettings):
     # controls on. The chat API rejects images while this is off, so the UI
     # gate is cosmetic as well as defensive.
     LLM_SUPPORTS_VISION: bool = False
+    # Allow the model to reason ("think") before answering. On by default so
+    # thinking models behave natively; when off, HomeStew adds explicit
+    # "do not think" parameters to every chat request for models that always
+    # reason unless told otherwise (qwen3 and friends). The checkbox lives in
+    # Settings > AI and the first-run wizard.
+    LLM_REASONING_ENABLED: bool = True
 
     # LLM prompts (editable under Settings > Advanced Settings). Defaults are
     # the built-in prompt texts from homestew.default_prompts.
@@ -152,6 +166,16 @@ class Settings(BaseSettings):
     # Settings > Advanced so a household can tune (or effectively widen) it.
     AUTH_MAX_FAILED_ATTEMPTS: int = 8
     AUTH_LOCKOUT_MINUTES: int = 5
+
+    # Search index (Settings > Search). Long PDF pages are split into chunks
+    # of at most this many characters before being inserted as FTS rows:
+    # smaller gives finer-grained snippets, larger means fewer rows. Read at
+    # indexing time, so a save applies to the next re-index without restart.
+    INDEX_MAX_CHUNK_SIZE: int = 4000
+    # Index manuals for search immediately when they are uploaded or fetched.
+    # Off means new manuals stay unsearchable until Re-index is pressed in
+    # Settings > Search - useful only to defer CPU work on weak hosts.
+    INDEX_AUTO_ON_UPLOAD: bool = True
     
     # Manual fetching (services/manual_finder.py + manual_downloader.py).
     # Env-only knobs (not UI-editable): MANUAL_SEARCH_BACKENDS is a comma-list

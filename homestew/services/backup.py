@@ -19,7 +19,6 @@ Settings and secrets are deliberately out of scope: the persisted settings file
 holds API keys / webhook tokens encrypted with ``/data/.secrets_key``, so a
 downloadable archive must never contain them.
 """
-import asyncio
 import logging
 import re
 import shutil
@@ -33,7 +32,10 @@ from fastapi.concurrency import run_in_threadpool
 from homestew.config import settings
 from homestew.db import get_db_context
 from homestew.models.schemas import BackupData
-from homestew.services.indexer import index_manual
+from homestew.services.indexer import (
+    get_index_status,
+    start_background_reindex,
+)
 from homestew.services.warranty import compute_warranty_end
 
 logger = logging.getLogger(__name__)
@@ -643,38 +645,26 @@ def _apply_files(zip_path: Path, writes, deletes) -> None:
 # ---------------------------------------------------------------------------
 # Background search re-index after a restore
 # ---------------------------------------------------------------------------
-
-# Single-process uvicorn, so one module-global is enough to expose progress.
-_RESTORE_STATE = {"running": False, "done": 0, "total": 0}
+#
+# Progress lives in the indexer's shared state (services/indexer.py) so the
+# same persistent toast can follow a restore re-index, a manual re-index or a
+# full rebuild. get_restore_index_status() stays as the /api/backup/
+# restore-status read path for backwards compatibility.
 
 
 def get_restore_index_status() -> dict:
-    return dict(_RESTORE_STATE)
+    return get_index_status()
 
 
 async def start_reindex(pending: List[dict]) -> None:
     """Re-index restored manuals in the background so the UI stays responsive."""
     if not pending:
-        _RESTORE_STATE.update({"running": False, "done": 0, "total": 0})
         return
-
-    async def _run():
-        _RESTORE_STATE.update({"running": True, "done": 0, "total": len(pending)})
-        done = 0
-        try:
-            for item in pending:
-                try:
-                    await index_manual(
-                        manual_id=item["manual_id"],
-                        device_id=item["device_id"],
-                        pdf_path=item["pdf_path"],
-                        filename=item["filename"],
-                    )
-                except Exception as exc:  # one bad PDF must not abort the rest
-                    logger.error("Restore re-index failed for %s: %s", item["pdf_path"], exc)
-                done += 1
-                _RESTORE_STATE["done"] = done
-        finally:
-            _RESTORE_STATE["running"] = False
-
-    asyncio.create_task(_run())
+    queued = start_background_reindex(pending)
+    if queued < 0:
+        # Another indexing job is already running; its progress covers this
+        # window, and a manual re-index from Settings can fill any gap.
+        logger.warning(
+            "Restore re-index skipped: another index job is running (%d manuals)",
+            len(pending),
+        )

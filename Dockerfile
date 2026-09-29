@@ -46,8 +46,10 @@ EXPOSE 8000
 # code (the old command accepted ANY HTTP response, even a 500). 127.0.0.1
 # instead of localhost avoids a wasted IPv6 ::1 connect attempt first.
 # Compose users can override the interval without a rebuild via
-# HEALTHCHECK_INTERVAL - see docker-compose.yml.
-HEALTHCHECK --interval=60s --timeout=10s --start-period=15s --retries=3 \
+# HEALTHCHECK_INTERVAL - see docker-compose.yml. 5-minute default: nothing
+# auto-restarts on "unhealthy" here, so the probe is only a status badge -
+# it does not need to be frequent.
+HEALTHCHECK --interval=300s --timeout=10s --start-period=15s --retries=3 \
   CMD python -c "import sys,http.client as h; r=h.HTTPConnection('127.0.0.1',8000,timeout=5); r.request('GET','/health'); sys.exit(0 if r.getresponse().status==200 else 1)" || exit 1
 
 # Run the application

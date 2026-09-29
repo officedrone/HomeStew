@@ -60,7 +60,7 @@ services:
     # old `import requests` healthcheck re-imported a heavy package every
     # 30 s inside the container, which WAS the periodic idle CPU spike.
     healthcheck:
-      interval: ${HEALTHCHECK_INTERVAL:-60s}
+      interval: ${HEALTHCHECK_INTERVAL:-300s}
       timeout: 10s
       retries: 3
       start_period: 15s

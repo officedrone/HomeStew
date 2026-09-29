@@ -80,6 +80,7 @@ def _current_settings() -> SettingsResponse:
         llm_base_url=settings.LLM_BASE_URL,
         llm_model=settings.LLM_MODEL,
         llm_supports_vision=bool(getattr(settings, "LLM_SUPPORTS_VISION", False)),
+        llm_reasoning_enabled=bool(getattr(settings, "LLM_REASONING_ENABLED", True)),
         llm_api_key_set=bool(settings.LLM_API_KEY),
         chat_system_prompt=settings.CHAT_SYSTEM_PROMPT,
         search_tool_description=settings.SEARCH_TOOL_DESCRIPTION,
@@ -114,6 +115,8 @@ def _current_settings() -> SettingsResponse:
         password_configured=auth.password_configured(),
         auth_max_failed_attempts=settings.AUTH_MAX_FAILED_ATTEMPTS,
         auth_lockout_minutes=settings.AUTH_LOCKOUT_MINUTES,
+        index_max_chunk_size=settings.INDEX_MAX_CHUNK_SIZE,
+        index_auto_on_upload=settings.INDEX_AUTO_ON_UPLOAD,
     )
 
 
@@ -164,6 +167,12 @@ async def update_settings(update: SettingsUpdate):
     # means "unchanged", which the Optional schema already gives us).
     if update.llm_supports_vision is not None:
         changes["LLM_SUPPORTS_VISION"] = update.llm_supports_vision
+
+    # Reasoning toggle: same plain-boolean semantics as vision. The LLM
+    # client reads the live value per request, so saving applies to the very
+    # next chat completion without waiting for the client rebuild below.
+    if update.llm_reasoning_enabled is not None:
+        changes["LLM_REASONING_ENABLED"] = update.llm_reasoning_enabled
 
     if update.llm_api_key is not None and update.llm_api_key.strip():
         changes["LLM_API_KEY"] = update.llm_api_key.strip()
@@ -231,6 +240,14 @@ async def update_settings(update: SettingsUpdate):
         changes["AUTH_MAX_FAILED_ATTEMPTS"] = update.auth_max_failed_attempts
     if update.auth_lockout_minutes is not None:
         changes["AUTH_LOCKOUT_MINUTES"] = update.auth_lockout_minutes
+
+    # Search index tuning (Settings > Search). The indexer reads the chunk
+    # size at run time, so saving applies to the next indexing job; the
+    # auto-index toggle gates upload/fetch indexing immediately.
+    if update.index_max_chunk_size is not None:
+        changes["INDEX_MAX_CHUNK_SIZE"] = update.index_max_chunk_size
+    if update.index_auto_on_upload is not None:
+        changes["INDEX_AUTO_ON_UPLOAD"] = update.index_auto_on_upload
 
     # Explicit secret removal (UI Remove buttons). Applied after the updates
     # above; an empty string persists as "cleared" (load treats it as unset).

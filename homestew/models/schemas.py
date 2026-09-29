@@ -120,6 +120,57 @@ class SearchResponse(BaseModel):
     results: list[SearchResult]
 
 
+class ReindexQueuedResponse(BaseModel):
+    """Acknowledgement of a queued background indexing job (HTTP 202)."""
+    queued: int = Field(..., description="Number of manuals queued for indexing")
+    rebuild: bool = Field(
+        False,
+        description="True when the FTS table was dropped and recreated first "
+        "(POST /search/rebuild), purging rows of deleted manuals",
+    )
+
+
+class ManualIndexRow(BaseModel):
+    """One stored manual with its device and current indexed-page count."""
+    manual_id: int = Field(..., description="Manual row id")
+    filename: str = Field(..., description="Stored PDF filename")
+    device_id: int = Field(..., description="Owning device id")
+    device_name: str = Field(
+        ...,
+        description="Owning device label: friendly name, else 'Brand Model', "
+        "else '#<id>' when nothing usable exists",
+    )
+    orphaned: bool = Field(
+        False,
+        description="True when the owning device row no longer exists (a manual "
+        "left behind by a pre-cascade delete); the UI flags it and allows deletion.",
+    )
+    pages: int = Field(
+        0, description="Rows this manual currently has in the search index (0 = not indexed)"
+    )
+
+
+class ManualIndexListResponse(BaseModel):
+    """All stored manuals for the Settings > Search index table."""
+    manuals: list[ManualIndexRow]
+
+
+class IndexStatusResponse(BaseModel):
+    """Progress of the current (or most recent) background indexing job.
+
+    Every long-running index job - manual re-index, full rebuild, and the
+    re-index following a restore - reports through this single shared state,
+    so one poll endpoint covers all of them.
+    """
+    running: bool = Field(..., description="True while a job is in flight")
+    done: int = Field(0, description="Manuals processed so far")
+    total: int = Field(0, description="Manuals in the current job (0 until known)")
+    failed: int = Field(0, description="Of those processed, how many failed to index")
+    current_file: str = Field(
+        "", description="Filename being indexed right now (empty when idle)"
+    )
+
+
 class ManualCandidate(BaseModel):
     """A found PDF manual offered to the user for approval (not downloaded)."""
     name: str = Field(..., description="PDF file name shown in the table")
@@ -233,6 +284,11 @@ class SettingsResponse(BaseModel):
         description="True when the selected model is marked as able to read "
         "images (enables the chat photo attach / camera controls)",
     )
+    llm_reasoning_enabled: bool = Field(
+        True,
+        description="True when model reasoning is allowed; when false every "
+        "chat request carries explicit 'do not think' parameters",
+    )
     llm_api_key_set: bool = Field(
         ..., description="True if an LLM API key is configured (value not exposed)"
     )
@@ -333,6 +389,16 @@ class SettingsResponse(BaseModel):
         description="How long a locked-out client IP must wait before it may "
         "try logging in again",
     )
+    index_max_chunk_size: int = Field(
+        4000, ge=200, le=20000,
+        description="Maximum characters per indexed FTS chunk (Settings > "
+        "Search). Applied by the next indexing job, no restart needed.",
+    )
+    index_auto_on_upload: bool = Field(
+        True,
+        description="Index manuals for search immediately when they are "
+        "uploaded or fetched; off until a manual Re-index otherwise",
+    )
 
 
 class SecretsKeyActionResponse(BaseModel):
@@ -364,6 +430,12 @@ class SettingsUpdate(BaseModel):
         None,
         description="Mark the selected model as able to read images; enables "
         "the chat photo attach / camera controls",
+    )
+    # Plain boolean toggle as well - unchecking reasoning must persist too.
+    llm_reasoning_enabled: Optional[bool] = Field(
+        None,
+        description="Enable or disable model reasoning; when disabled, chat "
+        "requests explicitly tell the model not to think",
     )
     chat_system_prompt: Optional[str] = Field(
         None, max_length=16000, description="Custom chat system prompt"
@@ -419,6 +491,16 @@ class SettingsUpdate(BaseModel):
     auth_lockout_minutes: Optional[int] = Field(
         None, ge=1, le=240,
         description="Lockout duration in minutes once the limit is reached",
+    )
+    index_max_chunk_size: Optional[int] = Field(
+        None, ge=200, le=20000,
+        description="Max characters per indexed FTS chunk; the indexer clamps "
+        "to this range at run time too (Settings > Search)",
+    )
+    index_auto_on_upload: Optional[bool] = Field(
+        None,
+        description="Index manuals on upload/fetch immediately (False defers "
+        "until Re-index is pressed in Settings > Search)",
     )
 
 

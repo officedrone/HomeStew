@@ -897,6 +897,19 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     color: var(--text-primary);
 }
 
+/* Disabled icon buttons (e.g. a per-row Re-index queued while its job runs):
+   dimmed and non-interactive, but still visible in place. */
+.card-icon-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.card-icon-btn:disabled:hover {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-secondary);
+}
+
 /* Delete gets a subtle red tint on hover instead of a solid danger fill. */
 .card-icon-danger:hover {
     background: color-mix(in srgb, var(--error) 10%, transparent);
@@ -1861,10 +1874,65 @@ body.no-vision .chat-input-wrap textarea {
     max-width: calc(100vw - 40px);
 }
 
+/* Informational toasts (index progress monitor): brand-colored, and always
+   persistent, so they also carry a close button and progress bar. Fixed width
+   so a long manual filename wraps inside the toast instead of stretching it
+   toward the full viewport (min() keeps it on-screen on narrow displays). */
+.toast.info {
+    background: var(--primary-color);
+    color: white;
+    position: relative;
+    width: min(360px, calc(100vw - 40px));
+}
+
 .toast-message {
     padding-right: 35px;
     word-wrap: break-word;
     overflow-wrap: break-word;
+}
+
+/* Close button for persistent toasts (index progress). Sits where the
+   error-details toggle would, top-aligned so it stays put as text wraps. */
+.toast-close {
+    position: absolute;
+    right: 8px;
+    top: 8px;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+    padding: 0;
+}
+
+.toast-close:hover {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+/* Thin progress track inside persistent job toasts; the fill's width % is
+   set from JS (done/total). */
+.toast-progress {
+    margin-top: 8px;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.25);
+    overflow: hidden;
+}
+
+.toast-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: white;
+    border-radius: 3px;
+    transition: width 0.4s ease;
 }
 
 .toast-toggle {
@@ -2955,6 +3023,169 @@ body.no-vision .chat-input-wrap textarea {
     text-overflow: ellipsis;
     white-space: nowrap;
     vertical-align: bottom;
+}
+
+/* ---------------------------------------------------------------------------
+   Settings > Search: per-manual index table.
+   Height adapts to the viewport (clamp) so a large manual library never
+   stretches the settings page, and a fixed table layout with hard column
+   widths keeps a giant vendor filename truncating instead of blowing the row
+   out (full name stays available on hover via title). Header sticks while
+   scrolling. Column widths shrink on narrow screens via the media query so
+   the table stays usable down to phone widths.
+
+   NOTE: truncation is done on inner <span> elements, never with display:block
+   on the <td> itself - a block-level cell drops out of the row's grid and
+   misaligns every column (this "mangled" the table before).
+   --------------------------------------------------------------------------- */
+.manuals-index-wrap {
+    max-height: clamp(240px, 45vh, 520px);
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+}
+
+.manuals-index-table {
+    width: 100%;
+    /* Fixed layout is what actually constrains the filename column - with the
+       default auto layout a long unbreakable name widens the whole table. */
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.manuals-index-table th,
+.manuals-index-table td {
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+    overflow: hidden;
+}
+
+.manuals-index-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-weight: 600;
+    z-index: 1;
+}
+
+.manuals-index-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Column widths: filename gets the flexible remainder, the rest are fixed. */
+.manuals-index-table .col-file {
+    width: auto;
+}
+
+.manuals-index-table .col-device {
+    width: 24%;
+}
+
+.manuals-index-table .col-status {
+    width: 138px;
+}
+
+/* The Re-index column holds one icon button (plus a trashcan on orphan
+   rows); centred so the refresh icon lines up under its header. */
+.manuals-index-table .col-action {
+    width: 96px;
+    text-align: center;
+}
+
+/* Truncating cells (inside their <td>): the filename link and device name
+   both clamp to one line with an ellipsis. */
+.manual-index-name,
+.manual-device-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The filename doubles as the link that opens the stored PDF in a new tab, so
+   it takes the link colour (no underline until hover) instead of plain text. */
+.manual-index-name {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+.manual-index-name:hover {
+    text-decoration: underline;
+}
+
+.manual-device-name {
+    color: var(--text-secondary);
+}
+
+/* Orphaned manuals (owning device row is gone): amber, italic label so the
+   row reads as broken data to clean up rather than a normal entry. */
+.manual-device-orphan {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--warn-text);
+    font-style: italic;
+}
+
+.idx-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.idx-chip.idx-ok {
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
+}
+
+.idx-chip.idx-missing {
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    color: var(--error);
+}
+
+.manuals-index-empty {
+    padding: 14px;
+    margin: 0;
+}
+
+/* Narrow screens: reclaim horizontal space for the filename by shrinking the
+   fixed columns and dropping the status chip to a compact form. */
+@media (max-width: 640px) {
+    .manuals-index-table {
+        font-size: 0.8rem;
+    }
+
+    .manuals-index-table th,
+    .manuals-index-table td {
+        padding: 6px 7px;
+    }
+
+    .manuals-index-table .col-device {
+        width: 20%;
+    }
+
+    .manuals-index-table .col-status {
+        width: 92px;
+    }
+
+    .manuals-index-table .col-action {
+        width: 74px;
+        text-align: center;
+    }
+
+    .idx-chip {
+        font-size: 0.68rem;
+        padding: 2px 6px;
+    }
 }
 
 /* Manual names are preview links: open the source PDF in a new tab so the
