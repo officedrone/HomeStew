@@ -3054,16 +3054,29 @@ function addMessageToChat(role, content, images = []) {
     scrollToBottom();
 }
 
-function switchTab(tabName) {
+// Name of the tab currently rendered. Used to tell a real navigation apart
+// from a re-activation of the tab we are already on (which must not push a
+// duplicate history entry).
+let currentTabName = null;
+
+function switchTab(tabName, pushHistory = true) {
     // On phones the tab was picked from the drawer - dismiss it so the
     // content is visible right away.
     closeDrawer();
 
-    // Remember the active tab across page refreshes: the hash survives F5,
-    // localStorage also covers in-app revisits where the URL never changed.
-    if (history.replaceState) history.replaceState(null, '', `#${tabName}`);
-    else location.hash = tabName;
-    try { localStorage.setItem('activeTab', tabName); } catch (e) { /* private mode */ }
+    // Keep the URL hash in sync with the active tab: it survives F5 and lets
+    // browser back/forward walk through the tabs visited this session. A real
+    // navigation PUSHES a new history entry (so Back returns to the previous
+    // HomeStew tab instead of leaving the app); re-activating the current tab,
+    // or activating one we arrived at via Back/Forward (pushHistory=false),
+    // never adds an entry.
+    const newHash = `#${tabName}`;
+    if (location.hash !== newHash) {
+        if (history.pushState && pushHistory) history.pushState(null, '', newHash);
+        else if (history.replaceState) history.replaceState(null, '', newHash);
+        else location.hash = tabName;
+    }
+    currentTabName = tabName;
 
     // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -3102,17 +3115,34 @@ function switchTab(tabName) {
 // Valid tab names, in markup order - also the fallback used by restoreActiveTab.
 const TAB_NAMES = ['dashboard', 'chat', 'devices', 'calendar', 'search', 'settings'];
 
-// Re-activate the tab from the URL hash (set by switchTab) or, if absent,
-// the last one persisted to localStorage; a first visit lands on Dashboard.
-// Always routes through switchTab() so the restored tab runs its load hooks.
-function restoreActiveTab() {
+// Resolve the tab to show from the current URL. The hash is the single source
+// of truth: with no (or an unknown) hash we always land on Dashboard, so a
+// bare '/' or '/index.html' open never drops the user on some stale tab.
+function tabFromLocation() {
     const hash = location.hash.replace('#', '');
-    const stored = (() => { try { return localStorage.getItem('activeTab'); } catch (e) { return null; } })();
-    const tab = TAB_NAMES.includes(hash) ? hash
-              : TAB_NAMES.includes(stored) ? stored
-              : 'dashboard';
-    switchTab(tab);
+    return TAB_NAMES.includes(hash) ? hash : 'dashboard';
 }
+
+// Re-activate the tab named by the URL, defaulting to Dashboard when there is
+// no usable hash. Always routes through switchTab() so the restored tab runs
+// its load hooks; pushHistory=false because we are syncing TO the URL, not
+// navigating within it (this must not add a history entry on first paint).
+function restoreActiveTab() {
+    switchTab(tabFromLocation(), false);
+}
+
+// Browser Back / Forward change the hash without running our click handlers,
+// so render whichever tab the new URL names. pushHistory=false: we arrived via
+// history and must not push another entry (that would corrupt the back-stack).
+window.addEventListener('popstate', () => {
+    switchTab(tabFromLocation(), false);
+});
+// Older browsers / manual hash edits fire hashchange instead of popstate.
+window.addEventListener('hashchange', () => {
+    if (location.hash.replace('#', '') !== currentTabName) {
+        switchTab(tabFromLocation(), false);
+    }
+});
 
 // Ask the backend to probe the saved LLM connection (the same model-list call
 // the Settings "Fetch Models" button uses) and reflect the outcome in the chat:
