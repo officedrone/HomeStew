@@ -726,6 +726,9 @@ async function loadDevices() {
         renderDevicesGrid();
         updateDeviceFilter();
         loadUpcomingEvents();
+        // The dashboard's Recent Devices feed and device/manual totals live
+        // off the same list, so every device refresh updates them too.
+        refreshDashboard();
     } catch (error) {
         console.error('Failed to load devices:', error);
         showToast('Failed to load devices', 'error');
@@ -787,7 +790,7 @@ function warrantyDetailLines(device) {
     return lines;
 }
 
-// Sidebar "Recent Devices": only the three most recently created devices,
+// Dashboard "Recent Devices": the five most recently created devices,
 // newest first. Each is a single collapsed line with square Edit / Delete
 // icon buttons beside the name; clicking the header expands an animated
 // panel with the model, configured details (serial / product / custom
@@ -805,7 +808,7 @@ function renderDeviceList() {
     // comparison sorts chronologically.
     const recent = [...devices]
         .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
-        .slice(0, 3);
+        .slice(0, 5);
     
     container.innerHTML = recent.map(device => {
         const open = expandedDeviceIds.has(device.id);
@@ -921,6 +924,149 @@ function updateDeviceFilter() {
     if (currentEventDevice) {
         eventSelect.value = currentEventDevice;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard tab (stat cards above the Recent Devices / Upcoming feeds)
+// ---------------------------------------------------------------------------
+
+// Recompute both dashboard cards: device/manual totals come from the cached
+// device list, the reminder buckets from a fresh calendar fetch. Called by
+// loadDevices() and whenever the Dashboard tab is opened.
+function refreshDashboard() {
+    const set = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value);
+    };
+    set('dash-device-count', devices.length);
+    set('dash-manual-count', devices.reduce((n, d) => n + (d.manual_count || 0), 0));
+    loadDashboardStats();
+    refreshSystemStatus();
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard system-status strip (LLM integration / notifications)
+// ---------------------------------------------------------------------------
+
+// Paint one status value and its colour class. States: on (green), warn
+// (amber - configured but broken), off (neutral).
+function setDashStatus(id, text, state) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('status-on', 'status-warn', 'status-off');
+    if (state) el.classList.add(`status-${state}`);
+}
+
+// Fill the status strip from GET /api/settings. The LLM row needs a live
+// connectivity probe, so it shows "Checking..." until /model-status answers:
+//   no URL configured            -> Disabled (neutral)
+//   URL set + server reachable   -> Enabled  (green)
+//   URL set + probe fails        -> Warning  (amber)
+async function refreshSystemStatus() {
+    let settings;
+    try {
+        const response = await fetch('/api/settings');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        settings = await response.json();
+    } catch (error) {
+        console.error('Failed to load system status:', error);
+        setDashStatus('status-llm', 'Unknown', null);
+        setDashStatus('status-notifications', 'Unknown', null);
+        setDashStatus('status-notify-type', 'Unknown', null);
+        return;
+    }
+
+    // Notifications: the master toggle, plus the delivery channel's type.
+    const notifyOn = !!settings.notify_enabled;
+    setDashStatus('status-notifications', notifyOn ? 'On' : 'Off', notifyOn ? 'on' : 'off');
+    let typeName = 'None';
+    if (settings.notify_webhook_enabled) {
+        typeName = settings.notify_webhook_type === 'synology'
+            ? 'Synology Chat'
+            : 'Generic (JSON POST)';
+    }
+    setDashStatus('status-notify-type', typeName, settings.notify_webhook_enabled ? 'on' : 'off');
+
+    // LLM integration: configured URL is the gate; when present, probe it.
+    if (!(settings.llm_base_url || '').trim()) {
+        setDashStatus('status-llm', 'Disabled', 'off');
+        return;
+    }
+    setDashStatus('status-llm', 'Checking...', null);
+    try {
+        const response = await fetch('/api/settings/model-status');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const status = await response.json();
+        if (status.reachable) setDashStatus('status-llm', 'Enabled', 'on');
+        else setDashStatus('status-llm', 'Warning - server unreachable', 'warn');
+    } catch (error) {
+        // Probe request failed: same meaning as an unreachable server.
+        console.error('LLM status probe failed:', error);
+        setDashStatus('status-llm', 'Warning - server unreachable', 'warn');
+    }
+}
+
+// Section requested by a deep link before loadSettingsPage() runs. That
+// function ends by resetting to General, so the pending name is applied (and
+// cleared) there instead of being overwritten after its async fetch.
+let pendingSettingsSection = null;
+
+// Deep link from the dashboard status strip into a Settings section
+// ("ai", "notifications", ...). switchTab loads the page; the section tab is
+// activated immediately and re-asserted once loadSettingsPage() finishes.
+function openSettingsSection(name) {
+    pendingSettingsSection = name;
+    switchTab('settings');
+    showSettingsSection(name);
+}
+
+// Event buckets for the Events card, counted client-side from GET /api/calendar
+// (which already returns each event's computed next_due_date). An "active"
+// reminder is any event with a due date - completed one-time events report
+// null and are excluded. The 7/30-day buckets include overdue and today,
+// matching the backend within_days semantics (due <= today + N).
+async function loadDashboardStats() {
+    try {
+        const response = await fetch('/api/calendar');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const events = await response.json();
+
+        // Local-midnight day diff, the same convention as dueLabel().
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        let total = 0;
+        let week = 0;
+        let month = 0;
+        for (const ev of events) {
+            if (!ev.next_due_date) continue;
+            total++;
+            const days = Math.round((new Date(`${ev.next_due_date}T00:00:00`) - today) / 86400000);
+            if (days <= 7) week++;
+            if (days <= 30) month++;
+        }
+
+        const set = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = String(value);
+        };
+        set('dash-total-events', total);
+        set('dash-week', week);
+        set('dash-month', month);
+    } catch (error) {
+        console.error('Failed to load dashboard stats:', error);
+    }
+}
+
+// Deep link from a stat number into the Calendar tab with its range filter
+// selected. Month maps to the existing 31-day ("Next Month") horizon.
+// switchTab's calendar hook reloads the list with the new range.
+function openCalendarRange(bucket) {
+    const ranges = { all: 'all', week: '7', month: '31' };
+    currentCalendarRange = ranges[bucket] ?? 'all';
+    const select = document.getElementById('calendar-range-filter');
+    if (select) select.value = currentCalendarRange;
+    switchTab('calendar');
 }
 
 // ---------------------------------------------------------------------------
@@ -1059,6 +1205,7 @@ async function completeEvent(eventId) {
         showToast('Marked as done');
         loadCalendarEvents();
         loadUpcomingEvents();
+        loadDashboardStats();
     } catch (error) {
         showToast(`Failed to update event: ${error.message}`, 'error');
     } finally {
@@ -1075,6 +1222,7 @@ async function deleteCalendarEvent(eventId) {
         showToast('Event deleted');
         loadCalendarEvents();
         loadUpcomingEvents();
+        loadDashboardStats();
     } catch (error) {
         showToast(`Failed to delete event: ${error.message}`, 'error');
     } finally {
@@ -1164,6 +1312,7 @@ async function handleSaveEvent(e) {
         showToast(eventId ? 'Event updated' : 'Event created');
         loadCalendarEvents();
         loadUpcomingEvents();
+        loadDashboardStats();
     } catch (error) {
         showToast(`Failed to save event: ${error.message}`, 'error');
     } finally {
@@ -2728,9 +2877,11 @@ function createStreamRenderer() {
                 if (event.ok) {
                     entry.resultLine.textContent = event.summary || 'Done';
                     entry.resultLine.classList.remove('pending');
-                    // The calendar changed: refresh the sidebar feed and, if
-                    // that tab is open behind the chat, its list too.
+                    // The calendar changed: refresh the dashboard feed and
+                    // stat cards and, if that tab is open behind the chat,
+                    // its list too.
                     loadUpcomingEvents();
+                    loadDashboardStats();
                     const calTab = document.getElementById('calendar-tab');
                     if (calTab && calTab.classList.contains('active')) {
                         loadCalendarEvents();
@@ -2924,6 +3075,12 @@ function switchTab(tabName) {
         content.classList.toggle('active', content.id === `${tabName}-tab`);
     });
 
+    // The Dashboard recomputes its stat cards on every visit so the numbers
+    // never go stale between device/event changes made elsewhere in the app.
+    if (tabName === 'dashboard') {
+        refreshDashboard();
+    }
+
     // Opening the chat re-runs the settings "model refresh" probe against the
     // saved configuration so a broken/unconfigured LLM is surfaced up front.
     if (tabName === 'chat') {
@@ -2943,17 +3100,18 @@ function switchTab(tabName) {
 }
 
 // Valid tab names, in markup order - also the fallback used by restoreActiveTab.
-const TAB_NAMES = ['search', 'chat', 'devices', 'calendar', 'settings'];
+const TAB_NAMES = ['dashboard', 'chat', 'devices', 'calendar', 'search', 'settings'];
 
 // Re-activate the tab from the URL hash (set by switchTab) or, if absent,
-// the last one persisted to localStorage. Called once during startup.
+// the last one persisted to localStorage; a first visit lands on Dashboard.
+// Always routes through switchTab() so the restored tab runs its load hooks.
 function restoreActiveTab() {
     const hash = location.hash.replace('#', '');
     const stored = (() => { try { return localStorage.getItem('activeTab'); } catch (e) { return null; } })();
     const tab = TAB_NAMES.includes(hash) ? hash
               : TAB_NAMES.includes(stored) ? stored
-              : 'search';
-    if (tab !== 'search') switchTab(tab);
+              : 'dashboard';
+    switchTab(tab);
 }
 
 // Ask the backend to probe the saved LLM connection (the same model-list call
@@ -3238,14 +3396,16 @@ function toggleSidebar() {
 }
 
 // ---------------------------------------------------------------------------
-// Collapsible sidebar sections (Recent Devices / Upcoming Events)
+// Collapsible sections (Dashboard's Recent Devices / Upcoming feeds)
 // ---------------------------------------------------------------------------
 
 // Each .section header is a toggle button; the collapsed state of every
 // section is remembered per key in localStorage so the choice survives
-// reloads. Independent of the whole-sidebar collapse above.
+// reloads. Independent of the whole-sidebar collapse above. The sections now
+// live inside the Dashboard cards, so the selector is no longer scoped to a
+// sidebar container - the stored sectionCollapsed:* keys carry over as-is.
 function initCollapsibleSections() {
-    document.querySelectorAll('.nav-sections .section-toggle').forEach((btn) => {
+    document.querySelectorAll('.section-toggle').forEach((btn) => {
         const key = `sectionCollapsed:${btn.dataset.collapseKey}`;
         const section = btn.closest('.section');
         let collapsed = false;
@@ -3491,6 +3651,7 @@ async function loadSettingsPage() {
     } catch (error) {
         console.error('Failed to load settings:', error);
         showToast('Failed to load settings', 'error');
+        pendingSettingsSection = null;
         return;
     }
 
@@ -3618,9 +3779,11 @@ async function loadSettingsPage() {
     // Advanced: master-key status + create/delete buttons.
     renderAdvancedKeyPanel(settings);
 
-    // Always land on the General tab with the prompt accordion collapsed.
+    // Always land on the General tab with the prompt accordion collapsed -
+    // unless a deep link (dashboard status strip) asked for another section.
     document.getElementById('advanced-settings-section').open = false;
-    showSettingsSection('general');
+    showSettingsSection(pendingSettingsSection || 'general');
+    pendingSettingsSection = null;
 }
 
 // Per-type help text for the webhook fields. Synology Chat incoming webhooks

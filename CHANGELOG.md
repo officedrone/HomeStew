@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [0.1.4]
 
+- ADD: Dashboard page
 - UPDATE: Styling updates - Sidebar width, Recent devices/upcoming events font size, whitespace around the logo
 - FIX: Hard refresh the page after completing the first-run wizard, so freshly configured state (e.g. a master key created during setup) is reflected immediately instead of showing the stale pre-wizard view.
 

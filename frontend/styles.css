@@ -301,15 +301,6 @@ summary:focus-visible {
     flex-direction: column;
 }
 
-/* Recent Devices / Upcoming sit below the Settings button - which lives at
-   the end of the markup but is flex-ordered up next to the main nav - and
-   absorb any leftover vertical space. */
-.nav-sections {
-    order: 2;
-    margin-top: 12px;
-    flex: 1;
-}
-
 /* Collapsed mode: a narrow icon rail at the left edge of the screen */
 body.sidebar-collapsed .sidebar {
     width: 64px;
@@ -394,11 +385,11 @@ body:not(.sidebar-collapsed) .sidebar-bottom .icon-btn {
     justify-content: flex-start;
 }
 
-/* App footer pinned to the very bottom of the sidebar (order 3, after
-   .nav-sections): version line, divider, then sign-out. margin-top:auto
-   absorbs the leftover space; it also keeps the footer at the bottom in the
-   collapsed rail and the mobile drawer, where .nav-sections is hidden and
-   its flex:1 spacer is gone. */
+/* App footer pinned to the very bottom of the sidebar (order 3, after the
+   Settings row): version line, divider, then sign-out. margin-top:auto
+   absorbs all leftover vertical space - the only flex-grow item is gone
+   since the nav sections moved to the Dashboard tab - so this alone keeps
+   the footer at the bottom in every mode (expanded, rail, drawer). */
 .sidebar-footer {
     order: 3;
     margin-top: auto;
@@ -487,22 +478,21 @@ body:not(.sidebar-collapsed) .sidebar-footer .icon-btn {
     margin-bottom: 16px;
 }
 
-/* Sidebar section headers only ("Recent Devices" / "Upcoming Events"). The
-   wizard's <h3>s are styled separately by .wizard-step h3, so this rule is
-   already scoped to the two collapsible sidebar sections - no extra class
-   needed. Sized below the 0.95rem nav buttons so they read as group labels. */
+/* Collapsible section headers ("Recent Devices" / "Upcoming") inside the
+   Dashboard cards. The wizard's <h3>s are styled separately by
+   .wizard-step h3, so this rule is scoped to the two feeds - no extra class
+   needed. Sized below the card titles so they read as group labels. */
 .section h3 {
     font-size: 0.82rem;
     margin-bottom: 8px;
-    color: var(--sidebar-text);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
 
-/* Collapsible sidebar sections (Recent Devices / Upcoming Events): the h3
-   holds a bare toggle button - flat and borderless like the rest of the
-   sidebar nav, label left, chevron right. Buttons don't inherit font or
-   colour by default, so restate them here. */
+/* Collapsible Dashboard sections (Recent Devices / Upcoming): the h3 holds a
+   bare toggle button - flat and borderless, label left, chevron right.
+   Buttons don't inherit font or colour by default, so restate them here. */
 .section-toggle {
     display: flex;
     align-items: center;
@@ -521,7 +511,7 @@ body:not(.sidebar-collapsed) .sidebar-footer .icon-btn {
 }
 
 .section-toggle:hover {
-    background: var(--sidebar-surface);
+    background: var(--bg-light);
 }
 
 /* The chevron svg must be sized explicitly - an unsized <svg> falls back to
@@ -530,7 +520,7 @@ body:not(.sidebar-collapsed) .sidebar-footer .icon-btn {
     width: 14px;
     height: 14px;
     flex-shrink: 0;
-    color: var(--sidebar-text-dim);
+    color: var(--text-secondary);
     transition: transform 0.2s ease;
 }
 
@@ -541,6 +531,168 @@ body:not(.sidebar-collapsed) .sidebar-footer .icon-btn {
 
 .section-collapsed .section-body {
     display: none;
+}
+
+/* ==========================================================================
+   Dashboard tab - stat cards above the Recent Devices / Upcoming feeds.
+   Flat surfaces on --surface with the shared radius/shadow tokens; the two
+   feeds inside keep their original classes and ids (see .device-accordion
+   and .upcoming-* below, retargeted from sidebar to card colors).
+   ========================================================================== */
+.dashboard-grid {
+    display: grid;
+    /* auto-fit + minmax so the cards sit side by side on wide screens and
+       stack into one column before they get cramped. align-items:start
+       keeps a short card from stretching to its taller neighbour. */
+    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+    align-items: start;
+    gap: clamp(10px, 1.5vw, 14px);
+    max-width: 1200px;
+}
+
+/* System status strip above the Devices/Events cards: one line per system
+   state (LLM integration, notifications). Labels link into Settings; values
+   are colour-coded by refreshSystemStatus() in app.js (.status-on/.warn/.off). */
+.dash-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 28px;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 9px 14px;
+    margin-bottom: clamp(10px, 1.5vw, 14px);
+    box-shadow: var(--shadow-sm);
+    font-size: 0.82rem;
+    max-width: 1200px;
+}
+
+.dash-status-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+}
+
+/* Links use the main colour like the stat numbers, so they read as clickable. */
+.dash-status-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.dash-status-link:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+.dash-status-value {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.status-on {
+    color: var(--success);
+}
+
+/* --warn-text is defined per theme (dark amber on light, light amber on dark). */
+.status-warn {
+    color: var(--warn-text);
+}
+
+.status-off {
+    color: var(--text-secondary);
+}
+
+/* #15803d green is muddy on near-black surfaces; brighten it in dark mode. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .status-on {
+        color: #4ade80;
+    }
+}
+
+[data-theme="dark"] .status-on {
+    color: #4ade80;
+}
+
+.dash-card {
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 13px 14px;
+    /* Compact stacked rows, matching the device/event cards. */
+    line-height: 1.45;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Card title doubles as a link to its full page (Devices / Calendar). */
+.dash-card-title {
+    margin: 0 0 8px;
+    font-size: 1rem;
+}
+
+/* Rendered in the primary colour (like the a.dash-stat-value number links)
+   so the title reads as clickable, not just on hover. */
+.dash-card-link {
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--primary-color);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.dash-card-link:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+/* One label/number row per stat; a hairline separates the stats from the
+   feed below. */
+.dash-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dash-stat {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+}
+
+.dash-stat-label {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The numbers are links into the matching filtered view, so they carry the
+   primary colour; plain values (Manuals) stay neutral. */
+.dash-stat-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text-primary);
+}
+
+a.dash-stat-value {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+a.dash-stat-value:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
 }
 
 /* Forms */
@@ -682,14 +834,14 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     background: color-mix(in srgb, var(--error) 85%, black);
 }
 
-/* Device List (sidebar accordion) */
+/* Recent Devices feed (Dashboard card accordion) */
 .device-list {
     max-height: 400px;
     overflow-y: auto;
 }
 
 .device-accordion {
-    /* Flat and borderless like the sidebar nav buttons: rows are defined by
+    /* Flat and borderless inside the dashboard card: rows are defined by
        their hover/expanded background instead of a card outline. */
     background: transparent;
     border: none;
@@ -700,14 +852,14 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 }
 
 .device-accordion:hover {
-    background: var(--sidebar-surface);
+    background: var(--bg-light);
 }
 
-/* An open accordion keeps a raised background so it stays distinct
-   (no border, matching the no-chrome sidebar style). */
+/* An open accordion gets a slightly stronger tint so it stays distinct
+   from the closed rows above and below it. */
 .device-accordion.open,
 .device-accordion.open:hover {
-    background: var(--sidebar-surface-hover);
+    background: color-mix(in srgb, var(--primary-color) 9%, var(--surface));
 }
 
 /* Collapsed header row: caret + name + brand/model on one line */
@@ -730,7 +882,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     flex-shrink: 0;
     font-size: 1rem;
     line-height: 1;
-    color: var(--sidebar-text-dim);
+    color: var(--text-secondary);
     transition: transform 0.25s ease;
 }
 
@@ -785,7 +937,7 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 
 .device-meta {
     font-size: 0.8rem;
-    color: var(--sidebar-text-dim);
+    color: var(--text-secondary);
 }
 
 /* Unified tab header: shown at the top of every tab (Search, AI Chat,
@@ -933,36 +1085,34 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     margin-left: auto;
 }
 
-/* The same icon buttons on the dark sidebar (Recent Devices rows): dimmer by
-   default, brighter on hover, keeping the red delete tint. */
-.sidebar .card-icon-btn {
-    width: 26px;
-    height: 26px;
-    color: var(--sidebar-text-dim);
-}
-
-.sidebar .card-icon-btn svg {
-    width: 14px;
-    height: 14px;
-}
-
-.sidebar .card-icon-btn:hover {
-    background: color-mix(in srgb, white 10%, transparent);
-    border-color: var(--sidebar-border);
-    color: var(--sidebar-text);
-}
-
-.sidebar .card-icon-danger:hover {
-    background: color-mix(in srgb, var(--error) 22%, transparent);
-    border-color: transparent;
-    color: #fca5a5;
-}
-
-/* Sidebar device names match the "Upcoming" event titles (.upcoming-title,
-   0.75rem) so the two sidebar feeds read at the same size. Scoped to the
-   Recent Devices section so the Devices tab cards keep their larger name. */
+/* Device names in the Dashboard's Recent Devices feed match the "Upcoming"
+   event titles (.upcoming-title, 0.75rem) so the two card feeds read at the
+   same size. Scoped to the section so the Devices tab cards keep their
+   larger name. */
 #recent-devices-section .device-name {
     font-size: 0.75rem;
+}
+
+/* Recent Devices feed: rows are single-line, so keep them tighter than the
+   two-line Upcoming items. The 30px action buttons were forcing each row to
+   ~44px tall; shrinking them (plus less padding/margin) lets five devices fit
+   without a tall card (user: "too much vertical space between recent devices"). */
+#recent-devices-section .device-accordion {
+    margin-bottom: 2px;
+}
+
+#recent-devices-section .device-row {
+    padding: 4px 10px;
+}
+
+#recent-devices-section .card-icon-btn {
+    width: 24px;
+    height: 24px;
+}
+
+#recent-devices-section .card-icon-btn svg {
+    width: 14px;
+    height: 14px;
 }
 
 /* Main Content */
@@ -1014,8 +1164,9 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
 }
 
 /* Collapsed rail (desktop only): hovering an icon button reveals its label
-   as a flyout chip to the right of the rail. The sidebar must not clip it,
-   and .nav-sections is hidden in this mode, so losing scroll costs nothing.
+   as a flyout chip to the right of the rail. The sidebar must not clip it;
+   with the nav sections gone to the Dashboard there is nothing left to
+   scroll in rail mode, so losing overflow costs nothing.
    Labels come from each button's data-tip attribute. */
 @media (min-width: 769px) {
     body.sidebar-collapsed .sidebar {
@@ -1071,6 +1222,7 @@ body:not(.sidebar-collapsed) .side-tabs .tab-btn {
     display: block;
 }
 
+#dashboard-tab.active,
 #search-tab.active,
 #devices-tab.active,
 #calendar-tab.active,
@@ -2672,11 +2824,11 @@ body.no-vision .chat-input-wrap textarea {
 }
 
 /* ==========================================================================
-   Calendar - maintenance reminders (sidebar feed + Calendar tab)
+   Calendar - maintenance reminders (Dashboard feed + Calendar tab)
    ========================================================================== */
 
-/* Sidebar "Upcoming" notification area, under My Devices. Compact rows so a
-   busy week still fits without pushing the device list off screen. */
+/* "Upcoming" notification area inside the Events card. Compact rows so a
+   busy week still fits without pushing the stats out of view. */
 #upcoming-section .section h3 {
     margin-bottom: 8px;
 }
@@ -2693,14 +2845,15 @@ body.no-vision .chat-input-wrap textarea {
     display: flex;
     align-items: stretch;
     gap: 8px;
-    background: var(--sidebar-surface);
-    border-left: 3px solid var(--primary-on-dark);
+    /* Recessed chip on the card surface; the status stripe carries colour. */
+    background: var(--bg-light);
+    border-left: 3px solid var(--primary-color);
     border-radius: 4px;
     padding: 7px 9px;
 }
 
 .upcoming-item:hover {
-    background: var(--sidebar-surface-hover);
+    background: color-mix(in srgb, var(--primary-color) 10%, var(--bg-light));
 }
 
 .upcoming-item.today {
@@ -2718,9 +2871,9 @@ body.no-vision .chat-input-wrap textarea {
     height: 22px;
     align-self: center;
     border-radius: 50%;
-    border: 1px solid var(--sidebar-border);
+    border: 1px solid var(--border-color);
     background: transparent;
-    color: var(--sidebar-text-dim);
+    color: var(--text-secondary);
     font-size: 0.7rem;
     line-height: 1;
     cursor: pointer;
@@ -2741,7 +2894,7 @@ body.no-vision .chat-input-wrap textarea {
 .upcoming-title {
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--sidebar-text);
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2749,19 +2902,20 @@ body.no-vision .chat-input-wrap textarea {
 
 .upcoming-meta {
     font-size: 0.72rem;
-    color: var(--sidebar-text-dim);
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+/* Status tints readable on the light chip, matching .event-card. */
 .upcoming-item.overdue .upcoming-when {
-    color: #f87171;
+    color: var(--error);
     font-weight: 600;
 }
 
 .upcoming-item.today .upcoming-when {
-    color: #fcd38a;
+    color: #b45309;
     font-weight: 600;
 }
 
