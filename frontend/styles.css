@@ -257,11 +257,10 @@ summary:focus-visible {
     border-bottom: 1px solid color-mix(in srgb, white 10%, transparent);
 }
 
-/* Brand logo in the mobile top bar — sized like the sidebar logo before it
-   grew to 133% (a 120x80 box for this 3:2 image). */
+/* Brand logo in the mobile top bar  */
 .topbar-logo {
     display: block;
-    height: 80px;
+    height: 35px;
     width: auto;
     max-width: calc(100vw - 90px);
     object-fit: contain;
