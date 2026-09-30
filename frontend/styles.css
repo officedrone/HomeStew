@@ -488,8 +488,12 @@ body:not(.sidebar-collapsed) .sidebar-footer .icon-btn {
     margin-bottom: 16px;
 }
 
+/* Sidebar section headers only ("Recent Devices" / "Upcoming Events"). The
+   wizard's <h3>s are styled separately by .wizard-step h3, so this rule is
+   already scoped to the two collapsible sidebar sections - no extra class
+   needed. Sized below the 0.95rem nav buttons so they read as group labels. */
 .section h3 {
-    font-size: 0.92rem;
+    font-size: 0.82rem;
     margin-bottom: 8px;
     color: var(--sidebar-text);
     text-transform: uppercase;
@@ -956,10 +960,10 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 }
 
 /* Sidebar device names match the "Upcoming" event titles (.upcoming-title,
-   0.82rem) so the two sidebar feeds read at the same size. Scoped to the
+   0.75rem) so the two sidebar feeds read at the same size. Scoped to the
    Recent Devices section so the Devices tab cards keep their larger name. */
 #recent-devices-section .device-name {
-    font-size: 0.82rem;
+    font-size: 0.75rem;
 }
 
 /* Main Content */
@@ -2736,7 +2740,7 @@ body.no-vision .chat-input-wrap textarea {
 }
 
 .upcoming-title {
-    font-size: 0.82rem;
+    font-size: 0.75rem;
     font-weight: 600;
     color: var(--sidebar-text);
     white-space: nowrap;
