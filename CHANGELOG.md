@@ -5,6 +5,7 @@ All notable changes to this project are documented in this file.
 ## [0.1.5]
 
 - UPDATE: Change Settings > AI and Fist Start Wizard > AI model refresh behaviour
+- UPDATE: For Settings pages, move setting/field descriptions to tool-tips instead of in page body.
 
 ## [0.1.4]
 

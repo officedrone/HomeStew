@@ -2513,6 +2513,149 @@ body.no-vision .chat-input-wrap textarea {
     margin-top: 6px;
 }
 
+/* --------------------------------------------------------------------------
+   Settings info icons: each labelled field/subheading that used to carry a
+   visible description hint now shows a circled "i" next to its label, and the
+   hint lives in a popover shown on hover / focus / click (see initInfoPopovers
+   in app.js - JS adds .open for touch/click, CSS :hover/:focus-within covers
+   pointer users). The popover is positioned with position:fixed by JS so it
+   never gets clipped by scrolling containers.
+   -------------------------------------------------------------------------- */
+.label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* A label + icon pair inside the space-between prompt rows: shrink to fit,
+   keep the "Restore Default" button pinned right. */
+.prompt-label-row .label-row {
+    margin-bottom: 0;
+    min-width: 0;
+}
+
+.label-row > label:first-child {
+    margin-bottom: 0;
+}
+
+/* The label used to carry the 6 px gap above its control itself; inside a
+   label row the control that follows has to take it over instead. */
+.label-row + input,
+.label-row + select,
+.label-row + .model-row,
+.label-row + .radio-row {
+    margin-top: 6px;
+}
+
+.info-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+}
+
+/* The explicit display above would otherwise beat the UA [hidden] rule. */
+.info-wrap[hidden] {
+    display: none;
+}
+
+.info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+.info-btn:hover,
+.info-wrap.open .info-btn {
+    color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
+.info-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+
+.info-popover {
+    display: none;
+    position: fixed;
+    z-index: 2500; /* above modals (2000) so popovers work inside dialogs */
+    max-width: min(320px, calc(100vw - 24px));
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+    /* Popovers under a .settings-subheading (Authentication / Advanced /
+       Search Index) would inherit its uppercase bold heading style - reset to
+       regular body text everywhere so every tooltip looks the same. */
+    font-weight: 400;
+    font-style: normal;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* Transparent bridges across the 6 px icon-to-popover gap (both sides, since
+   the popover flips above when there is no room below). They are DOM children
+   of .info-wrap, so hovering them keeps the parent's :hover / mouse state. */
+.info-popover::before,
+.info-popover::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 8px;
+}
+
+.info-popover::before {
+    top: -8px;
+}
+
+.info-popover::after {
+    bottom: -8px;
+}
+
+/* Click/tap state, for every device. Touch screens report (hover: none), so
+   the hover rules below never apply there and .open is the only way to reveal
+   a popover; JS always positions it in the same click handler before adding
+   the class, hence no data-placed guard needed here. */
+.info-wrap.open > .info-popover {
+    display: block;
+}
+
+/* Pointer users get the popover on hover / keyboard focus too, without JS.
+   [data-placed] is set by placeInfoPopover() (on mouseenter/focus) so a
+   popover never flashes at an unpositioned spot before JS pins it. */
+@media (hover: hover) {
+    .info-wrap:hover > .info-popover[data-placed],
+    .info-btn:focus-visible + .info-popover[data-placed] {
+        display: block;
+    }
+}
+
+.info-popover .settings-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+/* Subheadings host their icon inline after the title text. */
+.settings-subheading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 /* Secrets-at-rest warning above the Settings tabs (plaintext mode or
    undecryptable stored secrets - see renderSecretsBanner in app.js). */
 .secret-banner {

@@ -593,6 +593,7 @@ function setupEventListeners() {
     document.querySelectorAll('.settings-tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => showSettingsSection(btn.dataset.settingsSection));
     });
+    initInfoPopovers();
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
     document.getElementById('test-connection-btn').addEventListener('click', () => testLlmConnection({
@@ -641,7 +642,10 @@ function setupEventListeners() {
             if (!secretsState.cleared.delete(name)) return;
             const btn = document.querySelector(`.secret-remove-btn[data-clear-secret="${name}"]`);
             if (btn) btn.hidden = !(secretsState.configured[name]);
-            document.getElementById(field.hintId).textContent = secretHintText(name);
+            const hint = document.getElementById(field.hintId);
+            hint.textContent = secretHintText(name);
+            const infoWrap = hint.closest('.info-wrap');
+            if (infoWrap) infoWrap.hidden = !hint.textContent.trim();
         });
     }
     // Switching webhook type updates the URL hint and hides the bearer-token
@@ -695,6 +699,13 @@ function setupEventListeners() {
     // Escape closes any open modal, or the mobile drawer when none is open.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
+        // An open settings info popover dismisses first.
+        const openPop = document.querySelector('.info-wrap.open');
+        if (openPop) {
+            closeInfoPopover(openPop);
+            openPop.querySelector('.info-btn')?.focus();
+            return;
+        }
         // The fetch dialog needs its close function (releases the op lock),
         // so it is handled before the generic display:none loop below.
         const fetchModal = document.getElementById('fetch-manuals-modal');
@@ -3604,6 +3615,9 @@ function renderSecretField(name) {
             name === 'notify_webhook_url' ? 'https://example.com/hooks/homestew' : '';
     }
     hint.textContent = secretHintText(name);
+    // When the hint lives behind an info icon, hide the icon while empty.
+    const infoWrap = hint.closest('.info-wrap');
+    if (infoWrap) infoWrap.hidden = !hint.textContent.trim();
     if (removeBtn) {
         removeBtn.hidden = !(secretsState.configured[name] && !secretsState.cleared.has(name));
     }
@@ -3827,10 +3841,95 @@ async function loadSettingsPage() {
 // carries the configured/cleared status of the write-only URL field.
 function updateWebhookTypeHints() {
     const type = document.getElementById('settings-notify-webhook-type').value;
-    document.getElementById('webhook-url-hint').textContent = webhookUrlHintText();
+    const urlHint = document.getElementById('webhook-url-hint');
+    urlHint.textContent = webhookUrlHintText();
+    // The URL help now lives in the field's info popover: keep the icon
+    // visible only while there is text to show.
+    const urlInfo = urlHint.closest('.info-wrap');
+    if (urlInfo) urlInfo.hidden = !urlHint.textContent.trim();
     const tokenField = document.getElementById(
         'settings-notify-webhook-token').closest('.settings-field');
     tokenField.style.display = type === 'synology' ? 'none' : '';
+}
+
+// ---------------------------------------------------------------------------
+// Settings info popovers (the circled "i" next to a label or subheading).
+// The description text lives inside .info-popover; CSS shows it on hover /
+// focus for pointer users, while click/tap toggles the .open class here so
+// touch devices get the same information. Popovers are position:fixed and
+// placed by JS so they never clip against scrolling containers.
+// ---------------------------------------------------------------------------
+function placeInfoPopover(wrap) {
+    const btn = wrap.querySelector('.info-btn');
+    const pop = wrap.querySelector('.info-popover');
+    if (!btn || !pop) return;
+    // The popover may be display:none when measuring (click path); force it
+    // visible but invisible just long enough to read its size.
+    const wasHidden = getComputedStyle(pop).display === 'none';
+    if (wasHidden) {
+        pop.style.visibility = 'hidden';
+        pop.style.display = 'block';
+    }
+    const r = btn.getBoundingClientRect();
+    const pw = pop.offsetWidth;
+    const ph = pop.offsetHeight;
+    let left = r.left + r.width / 2 - pw / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+    let top = r.bottom + 6;
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+    // CSS only reveals hover-popovers once they carry this marker, so the box
+    // can never flash at its unpositioned static location for one frame.
+    pop.dataset.placed = '1';
+    if (wasHidden) {
+        pop.style.display = '';
+        pop.style.visibility = '';
+    }
+}
+
+function closeInfoPopover(wrap) {
+    wrap.classList.remove('open');
+}
+
+function closeAllInfoPopovers() {
+    document.querySelectorAll('.info-wrap.open').forEach(closeInfoPopover);
+}
+
+function initInfoPopovers() {
+    const wraps = Array.from(document.querySelectorAll('.info-wrap'));
+    if (!wraps.length) return;
+    for (const wrap of wraps) {
+        const btn = wrap.querySelector('.info-btn');
+        if (!btn) continue;
+        // Hover/focus display is pure CSS; JS only needs to position the box
+        // before it appears.
+        wrap.addEventListener('mouseenter', () => placeInfoPopover(wrap));
+        btn.addEventListener('focus', () => placeInfoPopover(wrap));
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const willOpen = !wrap.classList.contains('open');
+            closeAllInfoPopovers();
+            if (willOpen) {
+                wrap.classList.add('open');
+                placeInfoPopover(wrap);
+            }
+        });
+    }
+    // Clicking anywhere outside an icon/popover dismisses a click-opened
+    // popover. Clicks inside stay live so the text can be selected/copied.
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest || e.target.closest('.info-wrap')) return;
+        closeAllInfoPopovers();
+    });
+    // Keep fixed-position popovers glued to their icon while scrolling or
+    // after a resize (the settings page scrolls inside the main content).
+    const reposition = () => {
+        document.querySelectorAll('.info-wrap.open, .info-wrap:hover')
+            .forEach(placeInfoPopover);
+    };
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
 }
 
 // Fill a model <select> from a model id list. The currently selected value is
