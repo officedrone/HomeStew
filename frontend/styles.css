@@ -2708,6 +2708,12 @@ body.no-vision .chat-input-wrap textarea {
     flex-shrink: 0;
 }
 
+/* Inline refresh icon on the "Refresh Models" button (Settings > AI / wizard). */
+.model-row .btn svg {
+    vertical-align: -2px;
+    margin-right: 6px;
+}
+
 /* "Test Connection" button + inline result label under the LLM key field */
 .conn-test-row {
     display: flex;

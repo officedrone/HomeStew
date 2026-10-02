@@ -109,7 +109,7 @@ Open **Settings → General**:
 | ----------------------- | ---------------------------------- | ------------------------------------------------------- |
 | `LLM_BASE_URL`          | `http://localhost:11434/v1`        | LLM API endpoint (Ollama, vLLM, etc.)                   |
 | `LLM_API_KEY`           | _(empty)_                          | API key (ignored by local servers)                      |
-| `LLM_MODEL`             | `llama3.2`                         | Model name to use                                       |
+| `LLM_MODEL`             | _(empty)_                          | Model name (pick one in the wizard or Settings > AI)    |
 | `DATA_DIR`              | `/data`                            | Persistent data directory                               |
 | `SECRETS_KEY_FILE`      | `/run/secrets/homestew_secret_key` | Master-key file for secret encryption (see Secrets)     |
 | `EXTRA_ALLOWED_ORIGINS` | _(empty - same-origin only)_       | Comma-separated origins allowed cross-origin API access |

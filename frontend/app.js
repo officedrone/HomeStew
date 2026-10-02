@@ -598,6 +598,7 @@ function setupEventListeners() {
     document.getElementById('test-connection-btn').addEventListener('click', () => testLlmConnection({
         urlId: 'settings-llm-base-url', keyId: 'settings-llm-api-key',
         btnId: 'test-connection-btn', resultId: 'settings-conn-test-result',
+        modelSelectId: 'settings-llm-model', hintId: 'model-list-hint',
     }));
     resetConnTestOnEdit('settings-llm-base-url', 'settings-llm-api-key', 'settings-conn-test-result');
     document.getElementById('test-webhook-btn').addEventListener('click', () => sendTestNotification());
@@ -687,6 +688,7 @@ function setupEventListeners() {
     document.getElementById('wizard-test-connection-btn').addEventListener('click', () => testLlmConnection({
         urlId: 'wizard-llm-base-url', keyId: 'wizard-llm-api-key',
         btnId: 'wizard-test-connection-btn', resultId: 'wizard-conn-test-result',
+        modelSelectId: 'wizard-llm-model', hintId: 'wizard-model-list-hint',
     }));
     resetConnTestOnEdit('wizard-llm-base-url', 'wizard-llm-api-key', 'wizard-conn-test-result');
 
@@ -3145,7 +3147,7 @@ window.addEventListener('hashchange', () => {
 });
 
 // Ask the backend to probe the saved LLM connection (the same model-list call
-// the Settings "Fetch Models" button uses) and reflect the outcome in the chat:
+// the Settings "Refresh Models" button uses) and reflect the outcome in the chat:
 //  - endpoint unreachable            -> warn + point to Settings, block sending
 //  - selected model missing          -> warn + point to Settings, block sending
 //  - reachable and model present      -> clear any warning, allow chatting
@@ -3709,11 +3711,14 @@ async function loadSettingsPage() {
 
     // The model field is a plain <select>: seed it with the saved value so it
     // displays before any refresh; clicking the dropdown loads fresh options.
+    // With no saved model it shows the disabled 'Select Model' placeholder -
+    // there is no built-in default model anymore.
     const modelSelect = document.getElementById('settings-llm-model');
     modelSelect.innerHTML = '';
     const savedModelOption = document.createElement('option');
     savedModelOption.value = settings.llm_model || '';
-    savedModelOption.textContent = settings.llm_model || 'No model selected';
+    savedModelOption.textContent = settings.llm_model || 'Select Model';
+    savedModelOption.disabled = !settings.llm_model;
     modelSelect.appendChild(savedModelOption);
 
     document.getElementById('model-list-hint').textContent =
@@ -3828,14 +3833,21 @@ function updateWebhookTypeHints() {
     tokenField.style.display = type === 'synology' ? 'none' : '';
 }
 
-// Fill the LLM Model <select> from a model id list. The currently selected
-// value is preserved; if the server no longer offers it, it stays visible
-// (marked) so saving does not silently drop the configured model.
-function populateModelSelect(modelIds) {
-    const select = document.getElementById('settings-llm-model');
+// Fill a model <select> from a model id list. The currently selected value is
+// preserved; if the server no longer offers it, it stays visible (marked) so
+// saving does not silently drop the configured model. A leading disabled
+// 'Select Model' option acts as the placeholder while nothing is picked -
+// there is no built-in default model, and its '' value can never be saved.
+function fillModelSelectOptions(select, modelIds) {
     const current = select.value;
 
     select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select Model';
+    placeholder.disabled = true;
+    select.appendChild(placeholder);
+
     for (const modelId of modelIds) {
         const option = document.createElement('option');
         option.value = modelId;
@@ -3850,16 +3862,15 @@ function populateModelSelect(modelIds) {
         select.appendChild(staleOption);
     }
 
-    if (!select.options.length) {
-        const emptyOption = document.createElement('option');
-        emptyOption.value = '';
-        emptyOption.textContent = 'No models available';
-        select.appendChild(emptyOption);
-    }
-
+    // Empty selection keeps showing the placeholder; a saved pick is restored.
     if (current) {
         select.value = current;
     }
+}
+
+// Fill the Settings > AI LLM Model <select> from a model id list.
+function populateModelSelect(modelIds) {
+    fillModelSelectOptions(document.getElementById('settings-llm-model'), modelIds);
 }
 
 // Parse an <input type=number> into an integer clamped to [min, max]; a
@@ -3940,12 +3951,15 @@ async function fetchLlmModels({ openPicker = false } = {}) {
 
 // "Test Connection": probes the LLM server's /models endpoint with whatever
 // base URL / API key are currently in the form (saved or freshly typed),
-// reusing the same /api/settings/models call as the "Models" button. A 200
-// means the server answered, so we report success even when it lists no
-// models - reachability is what this checks. Shared by Settings and the wizard.
+// reusing the same /api/settings/models call as the "Refresh Models" button.
+// A 200 means the server answered, so we report success even when it lists no
+// models - reachability is what this checks. The probe response already
+// carries the model list, so a successful test also refreshes the model
+// dropdown (modelSelectId) instead of making the user fetch again.
+// Shared by Settings and the wizard.
 let connTestInFlight = false;
 
-async function testLlmConnection({ urlId, keyId, btnId, resultId }) {
+async function testLlmConnection({ urlId, keyId, btnId, resultId, modelSelectId, hintId }) {
     if (connTestInFlight) return;
 
     const btn = document.getElementById(btnId);
@@ -3983,6 +3997,20 @@ async function testLlmConnection({ urlId, keyId, btnId, resultId }) {
                 if (data.detail) detail = data.detail;
             } catch (e) { /* non-JSON error body */ }
             throw new Error(detail);
+        }
+        // The probe doubles as a model list: refresh the dropdown with it so
+        // a successful test leaves the picker ready to use.
+        if (modelSelectId) {
+            try {
+                const data = await response.json();
+                const select = document.getElementById(modelSelectId);
+                fillModelSelectOptions(select, data.models || []);
+                if (hintId) {
+                    document.getElementById(hintId).textContent = (data.models || []).length
+                        ? `Loaded ${data.models.length} model${data.models.length === 1 ? '' : 's'} from the server.`
+                        : 'Server responded, but no models were listed.';
+                }
+            } catch (e) { /* list refresh is a bonus; success stands without it */ }
         }
         result.className = 'conn-test-result ok';
         result.textContent = 'Connection Successful';
@@ -4464,7 +4492,12 @@ async function handleSettingsSave(event) {
     const payload = {
         theme: themeInput ? themeInput.value : 'auto',
         llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
-        llm_model: document.getElementById('settings-llm-model').value.trim(),
+        // Blank = the 'Select Model' placeholder (nothing picked yet): omit it
+        // so saving other tabs never sends an empty model the server would
+        // reject, and the saved selection is kept unchanged.
+        ...(document.getElementById('settings-llm-model').value.trim()
+            ? { llm_model: document.getElementById('settings-llm-model').value.trim() }
+            : {}),
         // Always sent: a plain boolean, so unchecking must persist too.
         llm_supports_vision: document.getElementById('settings-llm-vision').checked,
         llm_reasoning_enabled: document.getElementById('settings-llm-reasoning').checked,
@@ -4854,13 +4887,15 @@ async function wizardCreateKey() {
 // --- Step 2: AI / LLM integration --------------------------------------------
 
 // The model field is a plain <select> like in Settings: seed it with the
-// saved/default model so something shows before the list is fetched.
+// saved model so it shows before the list is fetched; with none saved it
+// displays the disabled 'Select Model' placeholder (no built-in default).
 function seedWizardModelSelect(model) {
     const select = document.getElementById('wizard-llm-model');
     select.innerHTML = '';
     const option = document.createElement('option');
-    option.value = model;
-    option.textContent = model || 'No model selected';
+    option.value = model || '';
+    option.textContent = model || 'Select Model';
+    option.disabled = !model;
     select.appendChild(option);
 }
 
@@ -4906,31 +4941,14 @@ async function fetchWizardLlmModels() {
             throw new Error(detail);
         }
         const data = await response.json();
-        const current = select.value;
-        select.innerHTML = '';
-        for (const model of data.models) {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
-            select.appendChild(option);
-        }
-        if (!data.models.length) {
-            const empty = document.createElement('option');
-            empty.value = '';
-            empty.textContent = 'No models available';
-            select.appendChild(empty);
-        } else if (data.models.includes(current)) {
-            select.value = current;
-        }
+        fillModelSelectOptions(select, data.models || []);
         hint.textContent = data.models.length
             ? `Loaded ${data.models.length} model${data.models.length === 1 ? '' : 's'} from the server.`
             : 'Server responded, but no models were listed.';
     } catch (error) {
-        select.innerHTML = '';
-        const empty = document.createElement('option');
-        empty.value = current;
-        empty.textContent = current || 'No models available';
-        select.appendChild(empty);
+        // Keep whatever was selected visible (marked stale by the helper)
+        // rather than wiping the user's pick on a failed probe.
+        fillModelSelectOptions(select, current ? [current] : []);
         hint.textContent = error.message;
     } finally {
         wizardModelRefreshInFlight = false;
@@ -4945,7 +4963,7 @@ async function wizardSaveLlm() {
     if (!/^https?:\/\//i.test(baseUrl)) {
         throw new Error('The base URL must start with http:// or https://');
     }
-    if (!model) throw new Error('Pick a model - click "Models" to load the list from your server.');
+    if (!model) throw new Error('Pick a model - click "Refresh Models" to load the list from your server.');
 
     const payload = {
         llm_base_url: baseUrl,

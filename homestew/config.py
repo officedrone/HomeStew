@@ -106,7 +106,11 @@ class Settings(BaseSettings):
     # Empty by default - local servers (Ollama etc.) ignore the key, and an
     # empty value means "no API key configured" in the Settings UI.
     LLM_API_KEY: str = ""
-    LLM_MODEL: str = "llama3.2"
+    # No built-in default model: empty means "not selected yet", so the
+    # Settings/wizard dropdowns show their 'Select Model' placeholder and the
+    # first-run wizard keeps prompting until a model is picked. The chat tab
+    # blocks sending (and says so) while this is blank.
+    LLM_MODEL: str = ""
     # Whether the selected model can read images (vision). Off by default so
     # a text-only model never gets offered image input; the checkbox under
     # Settings > AI (and in the first-run wizard) turns the chat photo

@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.5]
+
+- UPDATE: Change Settings > AI and Fist Start Wizard > AI model refresh behaviour
+
 ## [0.1.4]
 
 - FIX: Inconsistent behaviour when using browser back/forward nav buttons

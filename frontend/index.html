@@ -410,9 +410,12 @@
                                 <label for="settings-llm-model">LLM Model</label>
                                 <div class="model-row">
                                     <!-- Plain select (no free text): the option list is
-                                         refreshed from the server whenever it is opened. -->
-                                    <select id="settings-llm-model" required></select>
-                                    <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Load models from the LLM server">Models</button>
+                                         refreshed from the server whenever it is opened.
+                                         Not 'required': blank = keep the saved model, and an
+                                         empty selection must not block saving other tabs of
+                                         the shared settings form (the chat blocks sending). -->
+                                    <select id="settings-llm-model"></select>
+                                    <button type="button" class="btn btn-secondary" id="fetch-models-btn" title="Reload the model list from the LLM server"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>Refresh Models</button>
                                 </div>
                                 <p class="settings-hint" id="model-list-hint"></p>
                             </div>
@@ -1007,9 +1010,9 @@
                     <label for="wizard-llm-model">LLM Model</label>
                     <div class="model-row">
                         <select id="wizard-llm-model"></select>
-                        <button type="button" class="btn btn-secondary" id="wizard-fetch-models-btn" title="Load models from the LLM server">Models</button>
+                        <button type="button" class="btn btn-secondary" id="wizard-fetch-models-btn" title="Reload the model list from the LLM server"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>Refresh Models</button>
                     </div>
-                    <p class="settings-hint" id="wizard-model-list-hint">Click Models to load the list from your server.</p>
+                    <p class="settings-hint" id="wizard-model-list-hint">Click Refresh Models to load the list from your server.</p>
                 </div>
                 <div class="settings-field">
                     <label class="checkbox-option" for="wizard-llm-vision">

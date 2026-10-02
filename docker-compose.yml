@@ -42,7 +42,9 @@ services:
       # No API key needed for local servers (a dummy is used automatically).
       # Uncomment to configure one, e.g. for hosted providers:
       # - LLM_API_KEY=sk-your-api-key
-      - LLM_MODEL=llama3.2  # Change to your preferred model
+      # No default model - pick one in the first-run wizard or Settings > AI.
+      # Set it here instead if you prefer (must match a model your server offers):
+      # - LLM_MODEL=qwen2.5:7b-instruct
       
       # Optional: Override with your settings
       # - LLM_BASE_URL=https://api.openai.com/v1

@@ -73,7 +73,9 @@ async def lifespan(app: FastAPI):
     logger.info("Starting HomeStew...")
     await init_db()
     logger.info(f"Data directory: {settings.DATA_DIR}")
-    logger.info(f"LLM model: {settings.LLM_MODEL}")
+    logger.info(
+        f"LLM model: {settings.LLM_MODEL or '(none selected yet)'}"
+    )
 
     # Silence the per-healthcheck access-log line (Docker probes forever).
     install_health_access_log_filter()
