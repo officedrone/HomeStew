@@ -3284,6 +3284,34 @@ body.no-vision .chat-input-wrap textarea {
     color: var(--text-primary);
 }
 
+/* Fetch Manuals: searched-terms box + Change Search Terms / Search / Cancel.
+   The input is readonly (not disabled - a disabled control cannot receive
+   clicks) and greyed until the user opts into editing it. */
+.fetch-search-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.fetch-search-input {
+    flex: 1 1 200px;
+    min-width: 0;
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.fetch-search-input[readonly] {
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
 /* Fetch Manuals dialog: the Manual | Source | Store Manual table. */
 .fetch-results {
     margin-top: 16px;

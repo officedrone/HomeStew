@@ -11,6 +11,38 @@ def test_build_query_targets_pdf_filetype():
     assert build_query("Nespresso", "PIXIE C62") == "Nespresso PIXIE C62 manual filetype:pdf"
 
 
+def _capturing_search(record):
+    """Fake search callable that records the query it was called with."""
+
+    def search(query, **kwargs):
+        record.append(query)
+        return []
+
+    return search
+
+
+def test_custom_search_terms_replace_brand_model():
+    from homestew.services.manual_finder import find_manual_links
+
+    calls: list = []
+    find_manual_links(
+        "Nespresso", "PIXIE C62", search=_capturing_search(calls), search_terms="Breville BES870"
+    )
+    # Custom terms replace brand+model, but the PDF hints stay.
+    assert calls == ["Breville BES870 manual filetype:pdf"]
+
+
+def test_blank_custom_terms_fall_back_to_brand_model():
+    from homestew.services.manual_finder import find_manual_links
+
+    for blank in (None, "", "   "):
+        calls: list = []
+        find_manual_links(
+            "Nespresso", "PIXIE C62", search=_capturing_search(calls), search_terms=blank
+        )
+        assert calls == ["Nespresso PIXIE C62 manual filetype:pdf"]
+
+
 class TestUnwrapRedirect:
     def test_duckduckgo_l_redirect(self):
         from homestew.services.manual_finder import unwrap_redirect

@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 - UPDATE: Change Settings > AI and Fist Start Wizard > AI model refresh behaviour
 - UPDATE: For Settings pages, move setting/field descriptions to tool-tips instead of in page body.
+- ADD: Fetch Manuals results window now allows users to change the search terms if needed
 
 ## [0.1.4]
 

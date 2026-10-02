@@ -571,6 +571,15 @@ function setupEventListeners() {
     // uploaded right after the new device row exists.
     document.getElementById('add-device-manuals').addEventListener('change', updateAddDeviceManualNames);
 
+    // Fetch Manuals search-terms box: click to edit, Enter to re-search.
+    document.getElementById('fetch-search-input').addEventListener('click', startChangeSearchTerms);
+    document.getElementById('fetch-search-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); // the input is outside a form, but be safe
+            applyNewSearchTerms();
+        }
+    });
+
     // Sidebar: docked rail on desktop (expand/collapse), overlay drawer on
     // mobile (hamburger + backdrop). Which mode applies is pure CSS; the JS
     // just manages the two independent body classes.
@@ -707,9 +716,14 @@ function setupEventListeners() {
             return;
         }
         // The fetch dialog needs its close function (releases the op lock),
-        // so it is handled before the generic display:none loop below.
+        // so it is handled before the generic display:none loop below. While
+        // its search-terms box is being edited, Escape cancels the edit first.
         const fetchModal = document.getElementById('fetch-manuals-modal');
         if (fetchModal.style.display === 'flex') {
+            if (!document.getElementById('fetch-search-input').readOnly) {
+                cancelChangeSearchTerms();
+                return;
+            }
             closeFetchManualsModal();
             return;
         }
@@ -1853,32 +1867,53 @@ function closeEditModal() {
 
 let fetchManualsDeviceId = null;
 let fetchCandidates = [];
+// Terms the current Fetch Manuals results were found with. Defaults to the
+// device's brand + model; "Change Search Terms" lets the user override them
+// and re-run the search without closing the dialog.
+let fetchSearchTerms = '';
+let _fetchSearchInFlight = false;
+
+function _defaultFetchTerms(deviceId) {
+    const device = devices.find(d => d.id === deviceId);
+    return device ? `${device.brand || ''} ${device.model || ''}`.trim() : '';
+}
 
 async function openFetchManuals(deviceId) {
     // One fetch dialog at a time: a double-click must not start two searches.
     if (!beginOp('fetch-manuals')) return;
     fetchManualsDeviceId = deviceId;
     fetchCandidates = [];
+    fetchSearchTerms = _defaultFetchTerms(deviceId);
 
     const modal = document.getElementById('fetch-manuals-modal');
+    modal.style.display = 'flex';
+    resetFetchTermsRow();
+    await _runFetchSearch();
+}
+
+// Run (or re-run) the candidate search with the current fetchSearchTerms and
+// render into the dialog. The 'fetch-manuals' op lock is already held by
+// openFetchManuals for as long as the dialog is open, so re-searches guard
+// against double-clicks with _fetchSearchInFlight instead.
+async function _runFetchSearch() {
     const statusBox = document.getElementById('fetch-manuals-status');
     const spinner = document.getElementById('fetch-manuals-spinner');
     const message = document.getElementById('fetch-manuals-message');
     const results = document.getElementById('fetch-manuals-results');
     const downloadAllBtn = document.getElementById('download-all-btn');
 
-    modal.style.display = 'flex';
     statusBox.classList.remove('done-success', 'done-error');
     spinner.style.display = '';
-    const device = devices.find(d => d.id === deviceId);
-    const label = device ? `"${device.brand} ${device.model}"` : 'this device';
+    const label = fetchSearchTerms ? `"${fetchSearchTerms}"` : 'this device';
     message.textContent = `Searching the web for ${label} manuals...`;
     results.innerHTML = '';
     results.hidden = true;
     downloadAllBtn.style.display = 'none';
 
+    _fetchSearchInFlight = true;
     try {
-        const response = await fetch(`/api/downloads/${deviceId}/search`);
+        const qs = fetchSearchTerms ? `?q=${encodeURIComponent(fetchSearchTerms)}` : '';
+        const response = await fetch(`/api/downloads/${fetchManualsDeviceId}/search${qs}`);
         if (!response.ok) throw new Error(await errorDetailFrom(response, 'Manual search failed.'));
         const data = await response.json();
         fetchCandidates = data.candidates || [];
@@ -1888,7 +1923,51 @@ async function openFetchManuals(deviceId) {
         spinner.style.display = 'none';
         statusBox.classList.add('done-error');
         message.textContent = error.message || 'Manual search failed.';
+    } finally {
+        _fetchSearchInFlight = false;
     }
+}
+
+// --- Fetch Manuals "search terms" row -------------------------------------
+// The greyed read-only input shows exactly what was searched for. Clicking
+// it (or "Change Search Terms") switches to edit mode with Search/Cancel;
+// Search re-runs the fetch, Cancel restores the previously used terms.
+function resetFetchTermsRow() {
+    const input = document.getElementById('fetch-search-input');
+    input.value = fetchSearchTerms;
+    setFetchTermsEditing(false);
+}
+
+function setFetchTermsEditing(editing) {
+    const input = document.getElementById('fetch-search-input');
+    input.readOnly = !editing;
+    input.title = editing ? 'Enter new search terms' : 'Click to change the search terms';
+    document.getElementById('fetch-change-terms-btn').style.display = editing ? 'none' : 'inline-block';
+    document.getElementById('fetch-apply-terms-btn').style.display = editing ? 'inline-block' : 'none';
+    document.getElementById('fetch-cancel-terms-btn').style.display = editing ? 'inline-block' : 'none';
+}
+
+function startChangeSearchTerms() {
+    const input = document.getElementById('fetch-search-input');
+    if (!input.readOnly || _fetchSearchInFlight) return; // already editing / searching
+    setFetchTermsEditing(true);
+    input.focus();
+    input.select();
+}
+
+function cancelChangeSearchTerms() {
+    const input = document.getElementById('fetch-search-input');
+    input.value = fetchSearchTerms; // discard the edit, restore last searched terms
+    setFetchTermsEditing(false);
+}
+
+async function applyNewSearchTerms() {
+    if (_fetchSearchInFlight) return;
+    const input = document.getElementById('fetch-search-input');
+    // Blank means "back to the device's brand + model" (the default query).
+    fetchSearchTerms = input.value.trim() || _defaultFetchTerms(fetchManualsDeviceId);
+    resetFetchTermsRow();
+    await _runFetchSearch();
 }
 
 // Pull FastAPI's {detail} body into a readable string; detail may be a plain

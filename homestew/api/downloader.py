@@ -16,9 +16,9 @@ search-result links, chat citations and the edit modal all point at them.
 """
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from homestew.config import settings
@@ -43,12 +43,16 @@ router = APIRouter(prefix="/downloads", tags=["downloads"])
 
 
 @router.get("/{device_id}/search", response_model=ManualSearchResponse)
-async def search_manuals(device_id: int):
+async def search_manuals(device_id: int, q: Optional[str] = Query(None)):
     """Find manual PDF candidates for a device without downloading anything.
 
     Each candidate carries the display name, source domain and an
     ``already_downloaded`` flag so the UI can highlight what is stored and
     only offer fresh downloads for the rest.
+
+    ``q`` optionally replaces the device's brand + model as the search terms
+    (the "Change Search Terms" box in the Fetch Manuals dialog); blank or
+    absent means the default brand/model query.
     """
     async with get_db_context() as db:
         cursor = await db.execute(
@@ -62,7 +66,9 @@ async def search_manuals(device_id: int):
             detail=f"Device {device_id} not found",
         )
 
-    candidates, error = await find_manual_candidates(device_id, device["brand"], device["model"])
+    candidates, error = await find_manual_candidates(
+        device_id, device["brand"], device["model"], search_terms=q
+    )
     return ManualSearchResponse(
         candidates=[ManualCandidate(**c) for c in candidates],
         error_detail=error,

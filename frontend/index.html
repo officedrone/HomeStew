@@ -993,6 +993,15 @@
     <div id="fetch-manuals-modal" class="modal">
         <div class="modal-content modal-medium">
             <h2>Fetch Manuals</h2>
+            <!-- The exact terms that were searched (brand + model by default).
+                 Greyed/read-only until clicked or "Change Search Terms"; the
+                 Search button re-runs the fetch with the edited terms. -->
+            <div class="fetch-search-row">
+                <input type="text" id="fetch-search-input" class="fetch-search-input" readonly aria-label="Manual search terms" title="Click to change the search terms">
+                <button type="button" id="fetch-change-terms-btn" class="btn btn-secondary btn-small" data-dedupe onclick="startChangeSearchTerms()">Change Search Terms</button>
+                <button type="button" id="fetch-apply-terms-btn" class="btn btn-primary btn-small" data-dedupe style="display: none;" onclick="applyNewSearchTerms()">Search</button>
+                <button type="button" id="fetch-cancel-terms-btn" class="btn btn-secondary btn-small" data-dedupe style="display: none;" onclick="cancelChangeSearchTerms()">Cancel</button>
+            </div>
             <div id="fetch-manuals-status" class="progress-status">
                 <div id="fetch-manuals-spinner" class="spinner"></div>
                 <span id="fetch-manuals-message">Searching...</span>
