@@ -598,6 +598,7 @@ function setupEventListeners() {
     document.getElementById('test-connection-btn').addEventListener('click', () => testLlmConnection({
         urlId: 'settings-llm-base-url', keyId: 'settings-llm-api-key',
         btnId: 'test-connection-btn', resultId: 'settings-conn-test-result',
+        modelSelectId: 'settings-llm-model', hintId: 'model-list-hint',
     }));
     resetConnTestOnEdit('settings-llm-base-url', 'settings-llm-api-key', 'settings-conn-test-result');
     document.getElementById('test-webhook-btn').addEventListener('click', () => sendTestNotification());
@@ -687,6 +688,7 @@ function setupEventListeners() {
     document.getElementById('wizard-test-connection-btn').addEventListener('click', () => testLlmConnection({
         urlId: 'wizard-llm-base-url', keyId: 'wizard-llm-api-key',
         btnId: 'wizard-test-connection-btn', resultId: 'wizard-conn-test-result',
+        modelSelectId: 'wizard-llm-model', hintId: 'wizard-model-list-hint',
     }));
     resetConnTestOnEdit('wizard-llm-base-url', 'wizard-llm-api-key', 'wizard-conn-test-result');
 
@@ -726,6 +728,9 @@ async function loadDevices() {
         renderDevicesGrid();
         updateDeviceFilter();
         loadUpcomingEvents();
+        // The dashboard's Recent Devices feed and device/manual totals live
+        // off the same list, so every device refresh updates them too.
+        refreshDashboard();
     } catch (error) {
         console.error('Failed to load devices:', error);
         showToast('Failed to load devices', 'error');
@@ -787,7 +792,7 @@ function warrantyDetailLines(device) {
     return lines;
 }
 
-// Sidebar "Recent Devices": only the three most recently created devices,
+// Dashboard "Recent Devices": the five most recently created devices,
 // newest first. Each is a single collapsed line with square Edit / Delete
 // icon buttons beside the name; clicking the header expands an animated
 // panel with the model, configured details (serial / product / custom
@@ -805,7 +810,7 @@ function renderDeviceList() {
     // comparison sorts chronologically.
     const recent = [...devices]
         .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
-        .slice(0, 3);
+        .slice(0, 5);
     
     container.innerHTML = recent.map(device => {
         const open = expandedDeviceIds.has(device.id);
@@ -921,6 +926,149 @@ function updateDeviceFilter() {
     if (currentEventDevice) {
         eventSelect.value = currentEventDevice;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard tab (stat cards above the Recent Devices / Upcoming feeds)
+// ---------------------------------------------------------------------------
+
+// Recompute both dashboard cards: device/manual totals come from the cached
+// device list, the reminder buckets from a fresh calendar fetch. Called by
+// loadDevices() and whenever the Dashboard tab is opened.
+function refreshDashboard() {
+    const set = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(value);
+    };
+    set('dash-device-count', devices.length);
+    set('dash-manual-count', devices.reduce((n, d) => n + (d.manual_count || 0), 0));
+    loadDashboardStats();
+    refreshSystemStatus();
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard system-status strip (LLM integration / notifications)
+// ---------------------------------------------------------------------------
+
+// Paint one status value and its colour class. States: on (green), warn
+// (amber - configured but broken), off (neutral).
+function setDashStatus(id, text, state) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('status-on', 'status-warn', 'status-off');
+    if (state) el.classList.add(`status-${state}`);
+}
+
+// Fill the status strip from GET /api/settings. The LLM row needs a live
+// connectivity probe, so it shows "Checking..." until /model-status answers:
+//   no URL configured            -> Disabled (neutral)
+//   URL set + server reachable   -> Enabled  (green)
+//   URL set + probe fails        -> Warning  (amber)
+async function refreshSystemStatus() {
+    let settings;
+    try {
+        const response = await fetch('/api/settings');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        settings = await response.json();
+    } catch (error) {
+        console.error('Failed to load system status:', error);
+        setDashStatus('status-llm', 'Unknown', null);
+        setDashStatus('status-notifications', 'Unknown', null);
+        setDashStatus('status-notify-type', 'Unknown', null);
+        return;
+    }
+
+    // Notifications: the master toggle, plus the delivery channel's type.
+    const notifyOn = !!settings.notify_enabled;
+    setDashStatus('status-notifications', notifyOn ? 'On' : 'Off', notifyOn ? 'on' : 'off');
+    let typeName = 'None';
+    if (settings.notify_webhook_enabled) {
+        typeName = settings.notify_webhook_type === 'synology'
+            ? 'Synology Chat'
+            : 'Generic (JSON POST)';
+    }
+    setDashStatus('status-notify-type', typeName, settings.notify_webhook_enabled ? 'on' : 'off');
+
+    // LLM integration: configured URL is the gate; when present, probe it.
+    if (!(settings.llm_base_url || '').trim()) {
+        setDashStatus('status-llm', 'Disabled', 'off');
+        return;
+    }
+    setDashStatus('status-llm', 'Checking...', null);
+    try {
+        const response = await fetch('/api/settings/model-status');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const status = await response.json();
+        if (status.reachable) setDashStatus('status-llm', 'Enabled', 'on');
+        else setDashStatus('status-llm', 'Warning - server unreachable', 'warn');
+    } catch (error) {
+        // Probe request failed: same meaning as an unreachable server.
+        console.error('LLM status probe failed:', error);
+        setDashStatus('status-llm', 'Warning - server unreachable', 'warn');
+    }
+}
+
+// Section requested by a deep link before loadSettingsPage() runs. That
+// function ends by resetting to General, so the pending name is applied (and
+// cleared) there instead of being overwritten after its async fetch.
+let pendingSettingsSection = null;
+
+// Deep link from the dashboard status strip into a Settings section
+// ("ai", "notifications", ...). switchTab loads the page; the section tab is
+// activated immediately and re-asserted once loadSettingsPage() finishes.
+function openSettingsSection(name) {
+    pendingSettingsSection = name;
+    switchTab('settings');
+    showSettingsSection(name);
+}
+
+// Event buckets for the Events card, counted client-side from GET /api/calendar
+// (which already returns each event's computed next_due_date). An "active"
+// reminder is any event with a due date - completed one-time events report
+// null and are excluded. The 7/30-day buckets include overdue and today,
+// matching the backend within_days semantics (due <= today + N).
+async function loadDashboardStats() {
+    try {
+        const response = await fetch('/api/calendar');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const events = await response.json();
+
+        // Local-midnight day diff, the same convention as dueLabel().
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        let total = 0;
+        let week = 0;
+        let month = 0;
+        for (const ev of events) {
+            if (!ev.next_due_date) continue;
+            total++;
+            const days = Math.round((new Date(`${ev.next_due_date}T00:00:00`) - today) / 86400000);
+            if (days <= 7) week++;
+            if (days <= 30) month++;
+        }
+
+        const set = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = String(value);
+        };
+        set('dash-total-events', total);
+        set('dash-week', week);
+        set('dash-month', month);
+    } catch (error) {
+        console.error('Failed to load dashboard stats:', error);
+    }
+}
+
+// Deep link from a stat number into the Calendar tab with its range filter
+// selected. Month maps to the existing 31-day ("Next Month") horizon.
+// switchTab's calendar hook reloads the list with the new range.
+function openCalendarRange(bucket) {
+    const ranges = { all: 'all', week: '7', month: '31' };
+    currentCalendarRange = ranges[bucket] ?? 'all';
+    const select = document.getElementById('calendar-range-filter');
+    if (select) select.value = currentCalendarRange;
+    switchTab('calendar');
 }
 
 // ---------------------------------------------------------------------------
@@ -1059,6 +1207,7 @@ async function completeEvent(eventId) {
         showToast('Marked as done');
         loadCalendarEvents();
         loadUpcomingEvents();
+        loadDashboardStats();
     } catch (error) {
         showToast(`Failed to update event: ${error.message}`, 'error');
     } finally {
@@ -1075,6 +1224,7 @@ async function deleteCalendarEvent(eventId) {
         showToast('Event deleted');
         loadCalendarEvents();
         loadUpcomingEvents();
+        loadDashboardStats();
     } catch (error) {
         showToast(`Failed to delete event: ${error.message}`, 'error');
     } finally {
@@ -1164,6 +1314,7 @@ async function handleSaveEvent(e) {
         showToast(eventId ? 'Event updated' : 'Event created');
         loadCalendarEvents();
         loadUpcomingEvents();
+        loadDashboardStats();
     } catch (error) {
         showToast(`Failed to save event: ${error.message}`, 'error');
     } finally {
@@ -2728,9 +2879,11 @@ function createStreamRenderer() {
                 if (event.ok) {
                     entry.resultLine.textContent = event.summary || 'Done';
                     entry.resultLine.classList.remove('pending');
-                    // The calendar changed: refresh the sidebar feed and, if
-                    // that tab is open behind the chat, its list too.
+                    // The calendar changed: refresh the dashboard feed and
+                    // stat cards and, if that tab is open behind the chat,
+                    // its list too.
                     loadUpcomingEvents();
+                    loadDashboardStats();
                     const calTab = document.getElementById('calendar-tab');
                     if (calTab && calTab.classList.contains('active')) {
                         loadCalendarEvents();
@@ -2903,16 +3056,29 @@ function addMessageToChat(role, content, images = []) {
     scrollToBottom();
 }
 
-function switchTab(tabName) {
+// Name of the tab currently rendered. Used to tell a real navigation apart
+// from a re-activation of the tab we are already on (which must not push a
+// duplicate history entry).
+let currentTabName = null;
+
+function switchTab(tabName, pushHistory = true) {
     // On phones the tab was picked from the drawer - dismiss it so the
     // content is visible right away.
     closeDrawer();
 
-    // Remember the active tab across page refreshes: the hash survives F5,
-    // localStorage also covers in-app revisits where the URL never changed.
-    if (history.replaceState) history.replaceState(null, '', `#${tabName}`);
-    else location.hash = tabName;
-    try { localStorage.setItem('activeTab', tabName); } catch (e) { /* private mode */ }
+    // Keep the URL hash in sync with the active tab: it survives F5 and lets
+    // browser back/forward walk through the tabs visited this session. A real
+    // navigation PUSHES a new history entry (so Back returns to the previous
+    // HomeStew tab instead of leaving the app); re-activating the current tab,
+    // or activating one we arrived at via Back/Forward (pushHistory=false),
+    // never adds an entry.
+    const newHash = `#${tabName}`;
+    if (location.hash !== newHash) {
+        if (history.pushState && pushHistory) history.pushState(null, '', newHash);
+        else if (history.replaceState) history.replaceState(null, '', newHash);
+        else location.hash = tabName;
+    }
+    currentTabName = tabName;
 
     // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -2923,6 +3089,12 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.toggle('active', content.id === `${tabName}-tab`);
     });
+
+    // The Dashboard recomputes its stat cards on every visit so the numbers
+    // never go stale between device/event changes made elsewhere in the app.
+    if (tabName === 'dashboard') {
+        refreshDashboard();
+    }
 
     // Opening the chat re-runs the settings "model refresh" probe against the
     // saved configuration so a broken/unconfigured LLM is surfaced up front.
@@ -2943,21 +3115,39 @@ function switchTab(tabName) {
 }
 
 // Valid tab names, in markup order - also the fallback used by restoreActiveTab.
-const TAB_NAMES = ['search', 'chat', 'devices', 'calendar', 'settings'];
+const TAB_NAMES = ['dashboard', 'chat', 'devices', 'calendar', 'search', 'settings'];
 
-// Re-activate the tab from the URL hash (set by switchTab) or, if absent,
-// the last one persisted to localStorage. Called once during startup.
-function restoreActiveTab() {
+// Resolve the tab to show from the current URL. The hash is the single source
+// of truth: with no (or an unknown) hash we always land on Dashboard, so a
+// bare '/' or '/index.html' open never drops the user on some stale tab.
+function tabFromLocation() {
     const hash = location.hash.replace('#', '');
-    const stored = (() => { try { return localStorage.getItem('activeTab'); } catch (e) { return null; } })();
-    const tab = TAB_NAMES.includes(hash) ? hash
-              : TAB_NAMES.includes(stored) ? stored
-              : 'search';
-    if (tab !== 'search') switchTab(tab);
+    return TAB_NAMES.includes(hash) ? hash : 'dashboard';
 }
 
+// Re-activate the tab named by the URL, defaulting to Dashboard when there is
+// no usable hash. Always routes through switchTab() so the restored tab runs
+// its load hooks; pushHistory=false because we are syncing TO the URL, not
+// navigating within it (this must not add a history entry on first paint).
+function restoreActiveTab() {
+    switchTab(tabFromLocation(), false);
+}
+
+// Browser Back / Forward change the hash without running our click handlers,
+// so render whichever tab the new URL names. pushHistory=false: we arrived via
+// history and must not push another entry (that would corrupt the back-stack).
+window.addEventListener('popstate', () => {
+    switchTab(tabFromLocation(), false);
+});
+// Older browsers / manual hash edits fire hashchange instead of popstate.
+window.addEventListener('hashchange', () => {
+    if (location.hash.replace('#', '') !== currentTabName) {
+        switchTab(tabFromLocation(), false);
+    }
+});
+
 // Ask the backend to probe the saved LLM connection (the same model-list call
-// the Settings "Fetch Models" button uses) and reflect the outcome in the chat:
+// the Settings "Refresh Models" button uses) and reflect the outcome in the chat:
 //  - endpoint unreachable            -> warn + point to Settings, block sending
 //  - selected model missing          -> warn + point to Settings, block sending
 //  - reachable and model present      -> clear any warning, allow chatting
@@ -3238,14 +3428,16 @@ function toggleSidebar() {
 }
 
 // ---------------------------------------------------------------------------
-// Collapsible sidebar sections (Recent Devices / Upcoming Events)
+// Collapsible sections (Dashboard's Recent Devices / Upcoming feeds)
 // ---------------------------------------------------------------------------
 
 // Each .section header is a toggle button; the collapsed state of every
 // section is remembered per key in localStorage so the choice survives
-// reloads. Independent of the whole-sidebar collapse above.
+// reloads. Independent of the whole-sidebar collapse above. The sections now
+// live inside the Dashboard cards, so the selector is no longer scoped to a
+// sidebar container - the stored sectionCollapsed:* keys carry over as-is.
 function initCollapsibleSections() {
-    document.querySelectorAll('.nav-sections .section-toggle').forEach((btn) => {
+    document.querySelectorAll('.section-toggle').forEach((btn) => {
         const key = `sectionCollapsed:${btn.dataset.collapseKey}`;
         const section = btn.closest('.section');
         let collapsed = false;
@@ -3491,6 +3683,7 @@ async function loadSettingsPage() {
     } catch (error) {
         console.error('Failed to load settings:', error);
         showToast('Failed to load settings', 'error');
+        pendingSettingsSection = null;
         return;
     }
 
@@ -3518,11 +3711,14 @@ async function loadSettingsPage() {
 
     // The model field is a plain <select>: seed it with the saved value so it
     // displays before any refresh; clicking the dropdown loads fresh options.
+    // With no saved model it shows the disabled 'Select Model' placeholder -
+    // there is no built-in default model anymore.
     const modelSelect = document.getElementById('settings-llm-model');
     modelSelect.innerHTML = '';
     const savedModelOption = document.createElement('option');
     savedModelOption.value = settings.llm_model || '';
-    savedModelOption.textContent = settings.llm_model || 'No model selected';
+    savedModelOption.textContent = settings.llm_model || 'Select Model';
+    savedModelOption.disabled = !settings.llm_model;
     modelSelect.appendChild(savedModelOption);
 
     document.getElementById('model-list-hint').textContent =
@@ -3618,9 +3814,11 @@ async function loadSettingsPage() {
     // Advanced: master-key status + create/delete buttons.
     renderAdvancedKeyPanel(settings);
 
-    // Always land on the General tab with the prompt accordion collapsed.
+    // Always land on the General tab with the prompt accordion collapsed -
+    // unless a deep link (dashboard status strip) asked for another section.
     document.getElementById('advanced-settings-section').open = false;
-    showSettingsSection('general');
+    showSettingsSection(pendingSettingsSection || 'general');
+    pendingSettingsSection = null;
 }
 
 // Per-type help text for the webhook fields. Synology Chat incoming webhooks
@@ -3635,14 +3833,21 @@ function updateWebhookTypeHints() {
     tokenField.style.display = type === 'synology' ? 'none' : '';
 }
 
-// Fill the LLM Model <select> from a model id list. The currently selected
-// value is preserved; if the server no longer offers it, it stays visible
-// (marked) so saving does not silently drop the configured model.
-function populateModelSelect(modelIds) {
-    const select = document.getElementById('settings-llm-model');
+// Fill a model <select> from a model id list. The currently selected value is
+// preserved; if the server no longer offers it, it stays visible (marked) so
+// saving does not silently drop the configured model. A leading disabled
+// 'Select Model' option acts as the placeholder while nothing is picked -
+// there is no built-in default model, and its '' value can never be saved.
+function fillModelSelectOptions(select, modelIds) {
     const current = select.value;
 
     select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select Model';
+    placeholder.disabled = true;
+    select.appendChild(placeholder);
+
     for (const modelId of modelIds) {
         const option = document.createElement('option');
         option.value = modelId;
@@ -3657,16 +3862,15 @@ function populateModelSelect(modelIds) {
         select.appendChild(staleOption);
     }
 
-    if (!select.options.length) {
-        const emptyOption = document.createElement('option');
-        emptyOption.value = '';
-        emptyOption.textContent = 'No models available';
-        select.appendChild(emptyOption);
-    }
-
+    // Empty selection keeps showing the placeholder; a saved pick is restored.
     if (current) {
         select.value = current;
     }
+}
+
+// Fill the Settings > AI LLM Model <select> from a model id list.
+function populateModelSelect(modelIds) {
+    fillModelSelectOptions(document.getElementById('settings-llm-model'), modelIds);
 }
 
 // Parse an <input type=number> into an integer clamped to [min, max]; a
@@ -3747,12 +3951,15 @@ async function fetchLlmModels({ openPicker = false } = {}) {
 
 // "Test Connection": probes the LLM server's /models endpoint with whatever
 // base URL / API key are currently in the form (saved or freshly typed),
-// reusing the same /api/settings/models call as the "Models" button. A 200
-// means the server answered, so we report success even when it lists no
-// models - reachability is what this checks. Shared by Settings and the wizard.
+// reusing the same /api/settings/models call as the "Refresh Models" button.
+// A 200 means the server answered, so we report success even when it lists no
+// models - reachability is what this checks. The probe response already
+// carries the model list, so a successful test also refreshes the model
+// dropdown (modelSelectId) instead of making the user fetch again.
+// Shared by Settings and the wizard.
 let connTestInFlight = false;
 
-async function testLlmConnection({ urlId, keyId, btnId, resultId }) {
+async function testLlmConnection({ urlId, keyId, btnId, resultId, modelSelectId, hintId }) {
     if (connTestInFlight) return;
 
     const btn = document.getElementById(btnId);
@@ -3790,6 +3997,20 @@ async function testLlmConnection({ urlId, keyId, btnId, resultId }) {
                 if (data.detail) detail = data.detail;
             } catch (e) { /* non-JSON error body */ }
             throw new Error(detail);
+        }
+        // The probe doubles as a model list: refresh the dropdown with it so
+        // a successful test leaves the picker ready to use.
+        if (modelSelectId) {
+            try {
+                const data = await response.json();
+                const select = document.getElementById(modelSelectId);
+                fillModelSelectOptions(select, data.models || []);
+                if (hintId) {
+                    document.getElementById(hintId).textContent = (data.models || []).length
+                        ? `Loaded ${data.models.length} model${data.models.length === 1 ? '' : 's'} from the server.`
+                        : 'Server responded, but no models were listed.';
+                }
+            } catch (e) { /* list refresh is a bonus; success stands without it */ }
         }
         result.className = 'conn-test-result ok';
         result.textContent = 'Connection Successful';
@@ -4271,7 +4492,12 @@ async function handleSettingsSave(event) {
     const payload = {
         theme: themeInput ? themeInput.value : 'auto',
         llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
-        llm_model: document.getElementById('settings-llm-model').value.trim(),
+        // Blank = the 'Select Model' placeholder (nothing picked yet): omit it
+        // so saving other tabs never sends an empty model the server would
+        // reject, and the saved selection is kept unchanged.
+        ...(document.getElementById('settings-llm-model').value.trim()
+            ? { llm_model: document.getElementById('settings-llm-model').value.trim() }
+            : {}),
         // Always sent: a plain boolean, so unchecking must persist too.
         llm_supports_vision: document.getElementById('settings-llm-vision').checked,
         llm_reasoning_enabled: document.getElementById('settings-llm-reasoning').checked,
@@ -4602,6 +4828,10 @@ function advanceWizard() {
         return;
     }
     document.getElementById('setup-wizard-modal').style.display = 'none';
+    // Hard refresh so the freshly loaded page reflects everything the wizard
+    // just configured (e.g. a master key created in step 1 would otherwise
+    // still show as "no key configured" on the stale original page).
+    window.location.reload();
 }
 
 async function handleWizardSkip() {
@@ -4657,13 +4887,15 @@ async function wizardCreateKey() {
 // --- Step 2: AI / LLM integration --------------------------------------------
 
 // The model field is a plain <select> like in Settings: seed it with the
-// saved/default model so something shows before the list is fetched.
+// saved model so it shows before the list is fetched; with none saved it
+// displays the disabled 'Select Model' placeholder (no built-in default).
 function seedWizardModelSelect(model) {
     const select = document.getElementById('wizard-llm-model');
     select.innerHTML = '';
     const option = document.createElement('option');
-    option.value = model;
-    option.textContent = model || 'No model selected';
+    option.value = model || '';
+    option.textContent = model || 'Select Model';
+    option.disabled = !model;
     select.appendChild(option);
 }
 
@@ -4709,31 +4941,14 @@ async function fetchWizardLlmModels() {
             throw new Error(detail);
         }
         const data = await response.json();
-        const current = select.value;
-        select.innerHTML = '';
-        for (const model of data.models) {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
-            select.appendChild(option);
-        }
-        if (!data.models.length) {
-            const empty = document.createElement('option');
-            empty.value = '';
-            empty.textContent = 'No models available';
-            select.appendChild(empty);
-        } else if (data.models.includes(current)) {
-            select.value = current;
-        }
+        fillModelSelectOptions(select, data.models || []);
         hint.textContent = data.models.length
             ? `Loaded ${data.models.length} model${data.models.length === 1 ? '' : 's'} from the server.`
             : 'Server responded, but no models were listed.';
     } catch (error) {
-        select.innerHTML = '';
-        const empty = document.createElement('option');
-        empty.value = current;
-        empty.textContent = current || 'No models available';
-        select.appendChild(empty);
+        // Keep whatever was selected visible (marked stale by the helper)
+        // rather than wiping the user's pick on a failed probe.
+        fillModelSelectOptions(select, current ? [current] : []);
         hint.textContent = error.message;
     } finally {
         wizardModelRefreshInFlight = false;
@@ -4748,7 +4963,7 @@ async function wizardSaveLlm() {
     if (!/^https?:\/\//i.test(baseUrl)) {
         throw new Error('The base URL must start with http:// or https://');
     }
-    if (!model) throw new Error('Pick a model - click "Models" to load the list from your server.');
+    if (!model) throw new Error('Pick a model - click "Refresh Models" to load the list from your server.');
 
     const payload = {
         llm_base_url: baseUrl,
