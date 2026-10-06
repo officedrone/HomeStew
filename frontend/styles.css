@@ -733,6 +733,27 @@ a.dash-stat-value:hover {
     color: var(--text-secondary);
 }
 
+/* Fields wrapped in .settings-field (labelled inputs in the device modals):
+   the wrapper provides the bottom spacing, so drop the bare-input margin to
+   keep the rhythm even. The color override matches .device-form.modal-form's
+   light inputs - .settings-field alone is out-specified by .device-form. */
+.device-form .settings-field input,
+.device-form .settings-field textarea {
+    margin-bottom: 0;
+}
+
+.device-form.modal-form .settings-field input,
+.device-form.modal-form .settings-field textarea {
+    border: 1px solid var(--border-color);
+    background: var(--surface);
+    color: var(--text-primary);
+}
+
+.device-form.modal-form .settings-field input::placeholder,
+.device-form.modal-form .settings-field textarea::placeholder {
+    color: var(--text-secondary);
+}
+
 /* "New Device" row in the sidebar nav: stretches like the tab buttons when
    expanded, falls back to a plain square icon-btn when collapsed. */
 body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
@@ -1071,6 +1092,113 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     background: color-mix(in srgb, var(--error) 10%, transparent);
     border-color: color-mix(in srgb, var(--error) 45%, transparent);
     color: var(--error);
+}
+
+/* Per-device icon button (grid cards + sidebar rows). Clicking it opens the
+   icon picker instead of the card/row's own action (stopPropagation). */
+.device-icon {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    padding: 5px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.device-icon svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.device-icon:hover {
+    background: var(--bg-light);
+    border-color: var(--border-color);
+    color: var(--primary-color);
+}
+
+/* Compact variant for the sidebar accordion rows. */
+.device-icon-small {
+    width: 24px;
+    height: 24px;
+    padding: 3px;
+}
+
+/* Icon row inside the Add/Edit device forms: preview swatch + Change button. */
+.icon-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.icon-preview {
+    width: 40px;
+    height: 40px;
+    padding: 7px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-preview svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Icon Picker dialog grid. */
+.icon-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.icon-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    line-height: 1.25;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.icon-option svg {
+    width: 26px;
+    height: 26px;
+    display: block;
+}
+
+.icon-option:hover {
+    background: var(--bg-light);
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+}
+
+/* The icon currently in use is tinted with the primary color. */
+.icon-option.selected {
+    border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 8%, var(--surface));
+    color: var(--primary-color);
 }
 
 /* "Mark done" gets the matching green tint on hover. */

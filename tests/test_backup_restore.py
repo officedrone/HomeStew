@@ -43,9 +43,9 @@ async def _seed_full_dataset():
         cur = await db.execute(
             """
             INSERT INTO devices (name, brand, model, description, serial_number,
-                purchase_date, warranty_length, warranty_unit, created_at, updated_at)
+                purchase_date, warranty_length, warranty_unit, icon, created_at, updated_at)
             VALUES ('Living Room TV', 'Sony', 'XR-65X90J', 'main tv', 'SN123',
-                    '2024-01-31', 24, 'months', '2024-02-01 10:00:00', '2024-06-01 12:00:00')
+                    '2024-01-31', 24, 'months', 'tv', '2024-02-01 10:00:00', '2024-06-01 12:00:00')
             """
         )
         device_id = cur.lastrowid
@@ -194,6 +194,8 @@ def test_restore_replace_recreates_everything(db_env):
     # Archived values survive verbatim, incl. audit timestamps and warranty.
     assert devices[0]["created_at"] == "2024-02-01 10:00:00"
     assert devices[0]["purchase_date"] == "2024-01-31"
+    # The chosen icon key survives the backup -> restore round-trip.
+    assert devices[0]["icon"] == "tv"
     # warranty_end was NULL in the archive but derivable -> recomputed.
     assert devices[0]["warranty_end"] == "2026-01-31"
 

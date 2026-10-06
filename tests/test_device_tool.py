@@ -307,3 +307,84 @@ def test_unknown_action_lists_valid_ones(db_env):
 def test_bad_device_id_reports_how_to_find_ids(db_env):
     r = run({"action": "update", "device_id": "the tv", "name": "X"})
     assert r.startswith("Error") and "action='list'" in r
+
+
+# --- icons ----------------------------------------------------------------
+
+def test_create_with_valid_icon_stores_and_reports_it(db_env):
+    report = run({
+        "action": "create", "name": "Fridge", "brand": "LG", "model": "LFX",
+        "icon": "fridge",
+    })
+    assert report.startswith("Created device id=1:")
+    assert "icon=fridge" in report
+    assert fetch(1)["icon"] == "fridge"
+
+
+def test_create_rejects_unknown_icon_and_lists_valid_keys(db_env):
+    r = run({"action": "create", "name": "A", "brand": "B", "model": "C",
+             "icon": "toaster"})
+    assert r.startswith("Error") and "icon" in r
+    # The report teaches the model the real choices.
+    assert "fridge" in r and "coffee_maker" in r
+
+
+def test_update_sets_icon(db_env):
+    run({"action": "create", "name": "TV", "brand": "Sony", "model": "X1"})
+    assert fetch(1)["icon"] is None
+    report = run({"action": "update", "device_id": 1, "icon": "tv"})
+    assert report.startswith("Updated device id=1") and "icon" in report
+    assert fetch(1)["icon"] == "tv"
+
+
+def test_update_empty_icon_resets_to_default(db_env):
+    run({"action": "create", "name": "TV", "brand": "Sony", "model": "X1",
+         "icon": "tv"})
+    report = run({"action": "update", "device_id": 1, "icon": ""})
+    assert report.startswith("Updated device id=1")
+    # Cleared -> NULL, which the frontend renders as the default appliance.
+    assert fetch(1)["icon"] is None
+
+
+def test_update_rejects_unknown_icon(db_env):
+    run({"action": "create", "name": "TV", "brand": "Sony", "model": "X1"})
+    r = run({"action": "update", "device_id": 1, "icon": "spaceship"})
+    assert r.startswith("Error") and "icon" in r
+    # The rejected value must not have been written.
+    assert fetch(1)["icon"] is None
+
+
+def test_icon_is_case_insensitive(db_env):
+    run({"action": "create", "name": "TV", "brand": "Sony", "model": "X1"})
+    r = run({"action": "update", "device_id": 1, "icon": "  Coffee_Maker "})
+    assert r.startswith("Updated device id=1")
+    assert fetch(1)["icon"] == "coffee_maker"
+
+
+def test_list_reports_icon(db_env):
+    run({"action": "create", "name": "Kettle", "brand": "Breville",
+         "model": "BKE", "icon": "coffee_maker"})
+    report = run({"action": "list"})
+    assert "icon=coffee_maker" in report
+
+
+def test_icon_keys_match_frontend_picker():
+    """Backend DEVICE_ICON_KEYS must mirror the frontend DEVICE_ICONS map.
+
+    The glyphs live only in frontend/app.js; a key stored on a device that is
+    absent from that map renders the default glyph, so the two lists drifting
+    apart means the LLM offers icons the UI cannot draw (or vice-versa). This
+    test parses the JS object's entry keys and compares them, order included.
+    """
+    import re
+    from pathlib import Path
+
+    from homestew.services.device_icons import DEVICE_ICON_KEYS
+
+    app_js = Path(__file__).resolve().parent.parent / "frontend" / "app.js"
+    src = app_js.read_text(encoding="utf-8")
+    # Each icon is one top-level entry line: `    key: { label: '...', ... }`
+    frontend_keys = re.findall(
+        r"^ {4}([a-z0-9_]+):\s*\{\s*label:", src, flags=re.MULTILINE
+    )
+    assert tuple(frontend_keys) == DEVICE_ICON_KEYS

@@ -20,6 +20,12 @@ class DeviceBase(BaseModel):
         None,
         description="Warranty expiry; auto-computed from purchase_date + length when omitted",
     )
+    icon: Optional[str] = Field(
+        None,
+        max_length=50,
+        pattern="^[a-z0-9_-]+$",
+        description="Key of the device icon in the frontend icon set (e.g. 'fridge'); null = default appliance icon",
+    )
 
 
 class DeviceCreate(DeviceBase):
@@ -66,6 +72,7 @@ class DeviceResponse(BaseModel):
     warranty_length: Optional[int] = None
     warranty_unit: Optional[str] = None
     warranty_end: Optional[date] = None
+    icon: Optional[str] = Field(None, description="Icon key from the frontend icon set; null = default appliance icon")
     created_at: datetime = Field(..., description="When the device was added (read-only)")
     updated_at: datetime = Field(..., description="When the device was last modified (read-only)")
     manual_count: int = 0
@@ -710,6 +717,8 @@ class BackupDevice(BaseModel):
     warranty_length: Optional[int] = None
     warranty_unit: Optional[str] = None
     warranty_end: Optional[str] = None
+    # Old backups have no "icon" key; None restores the default appliance icon.
+    icon: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

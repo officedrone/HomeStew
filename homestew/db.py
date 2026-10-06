@@ -52,6 +52,7 @@ async def init_db():
                 warranty_length INTEGER,
                 warranty_unit TEXT,
                 warranty_end DATE,
+                icon TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -79,6 +80,14 @@ async def init_db():
                 await db.execute(f"ALTER TABLE devices ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass  # Column already exists
+        
+        # Icon: a key into the frontend's built-in icon set (e.g. "fridge",
+        # "tv"). NULL means "no icon chosen" and renders the default
+        # appliance glyph, so no backfill is needed.
+        try:
+            await db.execute("ALTER TABLE devices ADD COLUMN icon TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         
         # Audit timestamps: SQLite rejects CURRENT_TIMESTAMP as an ALTER
         # default, so add the column plainly and backfill existing rows from

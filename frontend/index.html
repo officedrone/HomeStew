@@ -842,6 +842,16 @@
             <h2>Add New Device</h2>
 
             <form id="add-device-form" class="device-form modal-form">
+                <input type="hidden" id="device-icon">
+                <!-- Icon: stores a key into the DEVICE_ICONS set in app.js;
+                     empty = default appliance glyph. -->
+                <div class="settings-field device-icon-field">
+                    <label>Icon</label>
+                    <div class="icon-picker-row">
+                        <span class="icon-preview" id="device-icon-preview"></span>
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="openIconPicker('device', null, false)">Change Icon</button>
+                    </div>
+                </div>
                 <input type="text" id="device-name" placeholder="Device name (e.g., Living Room TV)" required>
                 <input type="text" id="device-brand" placeholder="Brand (e.g., Samsung)" required>
                 <input type="text" id="device-model" placeholder="Model (e.g., QN90A)" required>
@@ -916,12 +926,40 @@
             
             <form id="edit-device-form" class="device-form modal-form">
                 <input type="hidden" id="edit-device-id">
-                <input type="text" id="edit-device-name" placeholder="Device name" required>
-                <input type="text" id="edit-device-brand" placeholder="Brand" required>
-                <input type="text" id="edit-device-model" placeholder="Model" required>
-                <textarea id="edit-device-description" placeholder="Description (optional)" rows="2"></textarea>
-                <input type="text" id="edit-device-serial-number" placeholder="Serial Number">
-                <input type="text" id="edit-device-product-number" placeholder="Product Number">
+                <input type="hidden" id="edit-device-icon">
+                <!-- Icon: stores a key into the DEVICE_ICONS set in app.js;
+                     empty = default appliance glyph. -->
+                <div class="settings-field device-icon-field">
+                    <label>Icon</label>
+                    <div class="icon-picker-row">
+                        <span class="icon-preview" id="edit-device-icon-preview"></span>
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="openIconPicker('edit-device', null, false)">Change Icon</button>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-name">Device Name</label>
+                    <input type="text" id="edit-device-name" placeholder="Device name" required>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-brand">Brand</label>
+                    <input type="text" id="edit-device-brand" placeholder="Brand" required>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-model">Model</label>
+                    <input type="text" id="edit-device-model" placeholder="Model" required>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-description">Description</label>
+                    <textarea id="edit-device-description" placeholder="Description (optional)" rows="2"></textarea>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-serial-number">Serial Number</label>
+                    <input type="text" id="edit-device-serial-number" placeholder="Serial Number">
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-product-number">Product Number</label>
+                    <input type="text" id="edit-device-product-number" placeholder="Product Number">
+                </div>
 
                 <!-- Warranty: end date auto-computes from purchase date + length -->
                 <div class="warranty-row">
@@ -984,6 +1022,20 @@
                     <button type="submit" class="btn btn-primary" data-dedupe>Save Changes</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Icon Picker dialog: grid of the built-in appliance/electronics glyphs
+         (DEVICE_ICONS in app.js). Stacks on top of the Add/Edit dialogs and
+         closes with Escape before them. -->
+    <div id="icon-picker-modal" class="modal">
+        <div class="modal-content modal-medium">
+            <span class="modal-close" onclick="closeIconPicker()">&times;</span>
+            <h2>Choose an Icon</h2>
+            <div id="icon-picker-grid" class="icon-picker-grid"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeIconPicker()">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -1248,6 +1300,7 @@
 
     <script src="/static/vendor/marked.min.js"></script>
     <script src="/static/vendor/purify.min.js"></script>
+    <script src="/static/vendor/lucide.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

@@ -729,7 +729,9 @@ function setupEventListeners() {
         }
         // The setup wizard is intentionally absent: skipping/saving a step
         // must persist its resolution, so it can't be dismissed with Escape.
-        for (const id of ['add-device-modal', 'edit-device-modal', 'event-modal']) {
+        // The icon picker comes first: Escape closes it before the editor
+        // dialog it is stacked on top of.
+        for (const id of ['icon-picker-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 modal.style.display = 'none';
@@ -843,6 +845,7 @@ function renderDeviceList() {
         <div class="device-accordion${open ? ' open' : ''}" data-id="${device.id}">
             <div class="device-row" onclick="toggleDeviceExpansion(${device.id})">
                 <span class="device-caret">›</span>
+                <button type="button" class="device-icon device-icon-small" title="Change icon" aria-label="Change icon" data-dedupe onclick="event.stopPropagation(); openIconPicker(null, ${device.id}, true)">${deviceIconSvg(device.icon)}</button>
                 <span class="device-name">${escapeHtml(device.name)}</span>
                 <span class="card-actions">
                     <button type="button" class="card-icon-btn" title="Edit device" aria-label="Edit device" data-dedupe onclick="event.stopPropagation(); editDevice(${device.id})">${CARD_ACTION_ICONS.edit}</button>
@@ -858,6 +861,7 @@ function renderDeviceList() {
             </div>
         </div>`;
     }).join('');
+    renderLucideIcons();
 }
 
 // Expand / collapse one sidebar device row (CSS grid-rows transition animates it).
@@ -885,6 +889,169 @@ const CARD_ACTION_ICONS = {
     download: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>'
 };
 
+// ---------------------------------------------------------------------------
+// Device icons
+//
+// Devices store an icon *key* (nullable); the glyphs come from the Lucide
+// icon set, vendored offline in frontend/vendor/lucide.min.js (ISC license).
+// Each entry maps a key to a Lucide icon name; deviceIconSvg() emits an
+// <i data-lucide> placeholder and renderLucideIcons() swaps every placeholder
+// for the real inline SVG (so currentColor keeps working in both themes).
+// A null/unknown key renders the default appliance glyph. The same map drives
+// the icon picker grid below, and its key order MUST mirror DEVICE_ICON_KEYS
+// in homestew/services/device_icons.py — keep both lists in sync when adding
+// icons (tests/test_device_tool.py::test_icon_keys_match_frontend_picker
+// enforces it).
+// ---------------------------------------------------------------------------
+
+const DEVICE_ICON_DEFAULT = 'appliance';
+
+const DEVICE_ICONS = {
+    appliance: { label: 'Appliance (default)', lucide: 'plug' },
+    fridge: { label: 'Fridge', lucide: 'refrigerator' },
+    freezer: { label: 'Freezer', lucide: 'snowflake' },
+    oven: { label: 'Oven / Stove', lucide: 'cooking-pot' },
+    dishwasher: { label: 'Dishwasher', lucide: 'droplets' },
+    microwave: { label: 'Microwave', lucide: 'microwave' },
+    washer: { label: 'Washing Machine', lucide: 'washing-machine' },
+    coffee_maker: { label: 'Coffee Maker', lucide: 'coffee' },
+    blender: { label: 'Blender', lucide: 'blender' },
+    water_dispenser: { label: 'Water Dispenser / Filter', lucide: 'glass-water' },
+    air_conditioner: { label: 'Air Conditioner / HVAC', lucide: 'air-vent' },
+    air_purifier: { label: 'Air Purifier', lucide: 'wind' },
+    humidifier: { label: 'Humidifier', lucide: 'cloud-rain' },
+    water_heater: { label: 'Water Heater / Boiler', lucide: 'heater' },
+    thermostat: { label: 'Thermostat', lucide: 'thermometer' },
+    fan: { label: 'Fan', lucide: 'fan' },
+    vacuum: { label: 'Vacuum', lucide: 'robot-vacuum' },
+    grill: { label: 'Grill / Fire Pit', lucide: 'flame-kindling' },
+    tv: { label: 'TV', lucide: 'tv' },
+    computer: { label: 'Computer', lucide: 'monitor' },
+    laptop: { label: 'Laptop', lucide: 'laptop' },
+    tablet: { label: 'Tablet', lucide: 'tablet' },
+    phone: { label: 'Phone', lucide: 'smartphone' },
+    smartwatch: { label: 'Smartwatch', lucide: 'watch' },
+    headphones: { label: 'Headphones', lucide: 'headphones' },
+    keyboard: { label: 'Keyboard', lucide: 'keyboard' },
+    mouse: { label: 'Mouse', lucide: 'mouse' },
+    gaming_console: { label: 'Gaming Console', lucide: 'gamepad-2' },
+    printer: { label: 'Printer', lucide: 'printer' },
+    projector: { label: 'Projector', lucide: 'projector' },
+    camera: { label: 'Camera', lucide: 'camera' },
+    security_camera: { label: 'Security Camera', lucide: 'cctv' },
+    smart_speaker: { label: 'Smart Speaker', lucide: 'speaker' },
+    router: { label: 'Router', lucide: 'router' },
+    nas_drive: { label: 'NAS / External Drive', lucide: 'hard-drive' },
+    server_rack: { label: 'Server', lucide: 'server' },
+    smart_lock: { label: 'Smart Lock', lucide: 'lock' },
+    lighting: { label: 'Lighting', lucide: 'lightbulb' },
+    generator: { label: 'Generator / Power', lucide: 'zap' },
+    lawn_garden: { label: 'Lawn & Garden', lucide: 'flower-2' }
+};
+
+// Placeholder markup for a device's icon key; null/unknown keys fall back to
+// the default appliance glyph. renderLucideIcons() replaces every
+// <i data-lucide> element with the real Lucide SVG after each dynamic render.
+function deviceIconSvg(key) {
+    const icon = DEVICE_ICONS[key] || DEVICE_ICONS[DEVICE_ICON_DEFAULT];
+    return `<i data-lucide="${icon.lucide}"></i>`;
+}
+
+// Replace all <i data-lucide> placeholders in the document with their Lucide
+// SVGs. Called after every render that injects device icons (Devices grid,
+// sidebar rows, picker grid, form previews). Re-running over already-rendered
+// icons is harmless: Lucide swaps the generated <svg> for an identical one.
+function renderLucideIcons() {
+    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+    }
+}
+
+// State of the open icon picker: which form field receives the choice and
+// whether picking saves immediately (card/sidebar click) or only fills the
+// form (Add/Edit dialog).
+let _iconPicker = null;
+
+function openIconPicker(prefix, deviceId, saveDirect) {
+    _iconPicker = { prefix, deviceId, saveDirect };
+    let currentKey = '';
+    if (saveDirect && deviceId != null) {
+        currentKey = devices.find(d => d.id === deviceId)?.icon || '';
+    } else if (prefix) {
+        currentKey = document.getElementById(`${prefix}-icon`)?.value || '';
+    }
+    renderIconPickerGrid(currentKey || DEVICE_ICON_DEFAULT);
+    document.getElementById('icon-picker-modal').style.display = 'flex';
+    renderLucideIcons();
+}
+
+function closeIconPicker() {
+    document.getElementById('icon-picker-modal').style.display = 'none';
+    _iconPicker = null;
+}
+
+function renderIconPickerGrid(currentKey) {
+    const grid = document.getElementById('icon-picker-grid');
+    if (!grid) return;
+    grid.innerHTML = Object.entries(DEVICE_ICONS).map(([key, icon]) => `
+        <button type="button" class="icon-option${key === currentKey ? ' selected' : ''}"
+                title="${escapeHtml(icon.label)}" onclick="selectDeviceIcon('${key}')">
+            ${deviceIconSvg(key)}
+            <span>${escapeHtml(icon.label)}</span>
+        </button>`).join('');
+}
+
+// Apply the picked icon. When opened from a card/sidebar row (saveDirect),
+// persist it with a PUT built from the cached device and refresh; when opened
+// from a form, just update the hidden input + preview and leave the dialog
+// underneath open.
+async function selectDeviceIcon(key) {
+    const picker = _iconPicker;
+    closeIconPicker();
+    if (!picker) return;
+
+    if (picker.saveDirect && picker.deviceId != null) {
+        const device = devices.find(d => d.id === picker.deviceId);
+        if (!device) return;
+        try {
+            const response = await fetch(`/api/devices/${picker.deviceId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: device.name,
+                    brand: device.brand,
+                    model: device.model,
+                    description: device.description || '',
+                    serial_number: device.serial_number || null,
+                    product_number: device.product_number || null,
+                    purchase_date: device.purchase_date || null,
+                    warranty_length: device.warranty_length ?? null,
+                    warranty_unit: device.warranty_unit || null,
+                    warranty_end: device.warranty_end || null,
+                    icon: key
+                })
+            });
+            if (!response.ok) throw new Error('Failed to update icon');
+            await loadDevices();
+        } catch (error) {
+            console.error('Failed to update device icon:', error);
+            showToast('Failed to update icon', 'error');
+        }
+        return;
+    }
+
+    if (picker.prefix) setDeviceIcon(picker.prefix, key);
+}
+
+// Write the icon choice into a device form (hidden input + preview swatch).
+function setDeviceIcon(prefix, key) {
+    const hidden = document.getElementById(`${prefix}-icon`);
+    if (hidden) hidden.value = key || '';
+    const preview = document.getElementById(`${prefix}-icon-preview`);
+    if (preview) preview.innerHTML = deviceIconSvg(key);
+    renderLucideIcons();
+}
+
 // Devices tab: card grid with the full device details and actions.
 function renderDevicesGrid() {
     const container = document.getElementById('devices-grid');
@@ -901,6 +1068,7 @@ function renderDevicesGrid() {
     container.innerHTML = devices.map(device => `
         <div class="device-card" data-id="${device.id}" onclick="editDevice(${device.id})">
             <div class="device-card-header">
+                <button type="button" class="device-icon" title="Change icon" aria-label="Change icon" data-dedupe onclick="event.stopPropagation(); openIconPicker(null, ${device.id}, true)">${deviceIconSvg(device.icon)}</button>
                 <div class="device-name">${escapeHtml(device.name)}</div>
                 <div class="card-actions">
                     <button type="button" class="card-icon-btn" title="Edit device" aria-label="Edit device" data-dedupe onclick="event.stopPropagation(); editDevice(${device.id})">${CARD_ACTION_ICONS.edit}</button>
@@ -914,6 +1082,7 @@ function renderDevicesGrid() {
             <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
         </div>
     `).join('');
+    renderLucideIcons();
 }
 
 function updateDeviceFilter() {
@@ -1467,6 +1636,7 @@ function fillWarrantyFields(prefix, device) {
 function openAddDeviceModal() {
     document.getElementById('add-device-form').reset();
     resetWarrantyAutoCalc('device');
+    setDeviceIcon('device', '');
     updateAddDeviceManualNames();
     _addDeviceAttributes = [];
     _addDeviceCreatedId = null;
@@ -1501,6 +1671,7 @@ async function fetchManualsForNewDevice() {
         description: document.getElementById('device-description').value,
         serial_number: document.getElementById('device-serial-number').value || null,
         product_number: document.getElementById('device-product-number').value || null,
+        icon: document.getElementById('device-icon').value || null,
         ...readWarrantyFields('device')
     });
 
@@ -1598,6 +1769,7 @@ async function handleAddDevice(e) {
         description: document.getElementById('device-description').value,
         serial_number: document.getElementById('device-serial-number').value || null,
         product_number: document.getElementById('device-product-number').value || null,
+        icon: document.getElementById('device-icon').value || null,
         ...readWarrantyFields('device')
     };
     
@@ -1716,6 +1888,7 @@ async function editDevice(deviceId) {
     document.getElementById('edit-device-description').value = device.description || '';
     document.getElementById('edit-device-serial-number').value = device.serial_number || '';
     document.getElementById('edit-device-product-number').value = device.product_number || '';
+    setDeviceIcon('edit-device', device.icon || '');
     fillWarrantyFields('edit-device', device);
     resetWarrantyAutoCalc('edit-device');
     fillDeviceTimestamps(device);
@@ -1741,6 +1914,7 @@ async function handleEditDevice(e) {
         description: document.getElementById('edit-device-description').value,
         serial_number: document.getElementById('edit-device-serial-number').value || null,
         product_number: document.getElementById('edit-device-product-number').value || null,
+        icon: document.getElementById('edit-device-icon').value || null,
         ...readWarrantyFields('edit-device')
     };
     

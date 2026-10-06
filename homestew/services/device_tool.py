@@ -29,6 +29,7 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from homestew.db import get_db_context
+from homestew.services.device_icons import DEFAULT_DEVICE_ICON, DEVICE_ICON_KEYS
 from homestew.services.warranty import WARRANTY_UNITS, compute_warranty_end
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ _CLEARABLE = ("description", "serial_number", "product_number")
 # shape. Kept local on purpose: services must not import from homestew.api.
 _DEVICE_COLUMNS = (
     "id, name, brand, model, description, serial_number, product_number, "
-    "purchase_date, warranty_length, warranty_unit, warranty_end"
+    "purchase_date, warranty_length, warranty_unit, warranty_end, icon"
 )
 # Same columns qualified for the devices/manuals join in _list (GROUP BY d.id
 # requires unambiguous names there).
@@ -99,6 +100,21 @@ def _coerce_device_id(value: Any) -> Optional[int]:
 
 def _clean_text(value: Any, limit: int) -> str:
     return str(value if value is not None else "").strip()[:limit]
+
+
+def _icon_error(value: str) -> str:
+    """Report for an icon key outside the frontend's icon set.
+
+    The glyphs live in frontend/app.js (DEVICE_ICONS); storing a key that is
+    not in that map would render the default glyph anyway, so rejecting with
+    the real choices is more useful than persisting a key nothing renders.
+    """
+    return (
+        f"Error: unknown icon '{value}'. The available icon keys are: "
+        + ", ".join(DEVICE_ICON_KEYS)
+        + ". Pick the one closest to what the device is, or pass an empty "
+        f"string to reset it to the default '{DEFAULT_DEVICE_ICON}' glyph."
+    )
 
 
 def _link_label(name: Any) -> str:
@@ -152,6 +168,8 @@ def _device_line(row: Dict[str, Any], manual_count: Optional[int] = None) -> str
         bits.append(f"serial={row['serial_number']}")
     if manual_count is not None:
         bits.append(f"{manual_count} manual(s)")
+    if row.get("icon"):
+        bits.append(f"icon={row['icon']}")
     line = " ".join(bits) + _warranty_phrase(row)
     if row.get("description"):
         line += f' - note: "{row["description"]}"'
@@ -243,6 +261,10 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
 
     end = compute_warranty_end(purchase, length, unit, explicit_end)
 
+    icon = _clean_text(args.get("icon"), 50).lower() or None
+    if icon is not None and icon not in DEVICE_ICON_KEYS:
+        return _icon_error(icon)
+
     async with get_db_context() as db:
         # Cheap twin-guard: small models happily re-create a device they just
         # created when asked to "add it again". Point them at the original.
@@ -264,8 +286,8 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
             """
             INSERT INTO devices (name, brand, model, description, serial_number,
                 product_number, purchase_date, warranty_length, warranty_unit,
-                warranty_end)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                warranty_end, icon)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -278,6 +300,7 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
                 length,
                 unit,
                 end.isoformat() if end else None,
+                icon,
             ),
         )
         await db.commit()
@@ -371,6 +394,16 @@ async def _update(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
                     return "Error: 'warranty_end' must be an ISO date (YYYY-MM-DD)."
                 fields["warranty_end"] = explicit_end.isoformat()
 
+        if args.get("icon") is not None:
+            text = str(args["icon"]).strip().lower()
+            if text == "":
+                # Clearing the icon falls back to the default glyph.
+                fields["icon"] = None
+            elif text not in DEVICE_ICON_KEYS:
+                return _icon_error(text)
+            else:
+                fields["icon"] = text
+
         # Keep the API's rule: warranty_end follows purchase/length/unit
         # unless the caller pinned it explicitly. Merge current row values so
         # a partial update still recomputes correctly.
@@ -388,8 +421,8 @@ async def _update(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
             return (
                 "Nothing to change: pass at least one field to update (name, "
                 "brand, model, description, serial_number, product_number, "
-                "purchase_date, warranty_length, warranty_unit, warranty_end). "
-                "An empty string clears an optional field."
+                "purchase_date, warranty_length, warranty_unit, warranty_end, "
+                "icon). An empty string clears an optional field."
             )
 
         updates = ", ".join(f"{key} = ?" for key in fields)

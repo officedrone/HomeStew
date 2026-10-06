@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.6]
+
+- ADD: The assistant can now set/change/reset a device's icon via chat (the `manage_devices` tool gained an `icon` parameter constrained to the same 40-key set the UI picker uses). Ask it things like "give my fridge a coffee-maker icon" or "reset the router's icon"; it updates live in the sidebar and Devices grid.
+- ADD: Per-device icons powered by the Lucide icon set (vendored offline, ISC). Click a device's icon (card or sidebar) to pick from 40 appliance / electronics / BBQ & home glyphs; also selectable via an Icon row in the Add/Edit forms. Stored as a key string (`icon` column); devices without one show the default appliance glyph.
+- UPDATE: Edit Device modal now shows field titles above every input (Device Name, Brand, Model, Description, Serial Number, Product Number), matching the Purchase Date style.
+
 ## [0.1.5]
 
 - UPDATE: Change Settings > AI and Fist Start Wizard > AI model refresh behaviour
