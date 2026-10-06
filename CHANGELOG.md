@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+- ADD: "None" option in Settings > Notifications > Webhook Type, now the default. No webhook is sent while it's selected (URL/token from an earlier configuration are kept and reused if you switch back); the dashboard shows a grey "None" for Notification Type, matching the way Notifications-off is displayed.
+
 ## [0.1.6]
 
 - ADD: The assistant can now set/change/reset a device's icon via chat (the `manage_devices` tool gained an `icon` parameter constrained to the same 40-key set the UI picker uses). Ask it things like "give my fridge a coffee-maker icon" or "reset the router's icon"; it updates live in the sidebar and Devices grid.

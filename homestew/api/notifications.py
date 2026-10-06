@@ -25,6 +25,14 @@ async def test_webhook(test: WebhookTestRequest):
     ledger and does not require notifications to be enabled - testing before
     switching the feature on is expected.
     """
+    wtype = (test.webhook_type
+             or getattr(settings, "NOTIFY_WEBHOOK_TYPE", "none") or "none")
+    if wtype == "none":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Webhook Type is set to None - choose Generic or Synology Chat first",
+        )
+
     url = (test.webhook_url or "").strip() or settings.NOTIFY_WEBHOOK_URL
     if not url:
         raise HTTPException(
@@ -39,8 +47,6 @@ async def test_webhook(test: WebhookTestRequest):
 
     token = (test.webhook_token or "").strip() or settings.NOTIFY_WEBHOOK_TOKEN
     payload = build_test_payload()
-
-    wtype = test.webhook_type or getattr(settings, "NOTIFY_WEBHOOK_TYPE", "generic")
 
     try:
         await run_in_threadpool(

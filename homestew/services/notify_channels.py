@@ -10,6 +10,8 @@ The webhook channel supports two request shapes, selected by
 NOTIFY_WEBHOOK_TYPE: ``generic`` POSTs the payload as application/json, while
 ``synology`` renders it into Synology Chat's incoming-webhook format - a form-
 encoded ``payload={"text": ...}`` body whose auth token lives in the URL.
+The third value ``none`` (the default) disables webhook delivery entirely,
+even while a URL from an earlier configuration is still stored.
 
 ``send()`` is intentionally synchronous/blocking: callers run it through
 FastAPI's ``run_in_threadpool`` so the event loop stays responsive, mirroring
@@ -43,8 +45,9 @@ def _verify_ssl() -> bool:
     return bool(settings.NOTIFY_WEBHOOK_VERIFY_SSL)
 
 
-#: Supported webhook request shapes (kept in sync with the Settings dropdown).
-WEBHOOK_TYPES = ("generic", "synology")
+#: Supported webhook request shapes (kept in sync with the Settings dropdown
+#: and the schemas' Literal). ``none`` = no webhook delivery at all.
+WEBHOOK_TYPES = ("none", "generic", "synology")
 
 
 def _format_synology_text(payload: Dict[str, Any]) -> str:
@@ -137,7 +140,15 @@ class WebhookChannel(NotificationChannel):
 
     name = "webhook"
 
+    @staticmethod
+    def _type() -> str:
+        return (getattr(settings, "NOTIFY_WEBHOOK_TYPE", "none") or "none").strip().lower()
+
     def enabled(self) -> bool:
+        # Type "none" switches the channel off regardless of any URL that is
+        # still stored from a previous generic/synology configuration.
+        if self._type() == "none":
+            return False
         return bool(
             settings.NOTIFY_WEBHOOK_ENABLED
             and (settings.NOTIFY_WEBHOOK_URL or "").strip()
@@ -158,7 +169,7 @@ class WebhookChannel(NotificationChannel):
             payload,
             settings.NOTIFY_WEBHOOK_TOKEN,
             _verify_ssl(),
-            getattr(settings, "NOTIFY_WEBHOOK_TYPE", "generic"),
+            self._type(),
         )
 
 
@@ -180,7 +191,10 @@ def send_test_webhook(
     # The Settings UI passes the checkbox/dropdown state so unsaved changes can
     # be tested before saving; blank/None falls back to the saved settings.
     verify = _verify_ssl() if verify_ssl is None else bool(verify_ssl)
-    wtype = webhook_type or getattr(settings, "NOTIFY_WEBHOOK_TYPE", "generic")
+    wtype = (webhook_type or getattr(settings, "NOTIFY_WEBHOOK_TYPE", "none")
+             or "none").strip().lower()
+    if wtype == "none":
+        raise ValueError("Webhook Type is set to None - pick Generic or Synology Chat first")
     _post_webhook(
         target,
         payload,

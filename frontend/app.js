@@ -1176,13 +1176,15 @@ async function refreshSystemStatus() {
     // Notifications: the master toggle, plus the delivery channel's type.
     const notifyOn = !!settings.notify_enabled;
     setDashStatus('status-notifications', notifyOn ? 'On' : 'Off', notifyOn ? 'on' : 'off');
-    let typeName = 'None';
-    if (settings.notify_webhook_enabled) {
-        typeName = settings.notify_webhook_type === 'synology'
-            ? 'Synology Chat'
-            : 'Generic (JSON POST)';
+    // Webhook Type "none" (the default) means no webhook at all: show a grey
+    // "None", the same neutral state as Notifications being switched off.
+    const wtype = settings.notify_webhook_type || 'none';
+    if (wtype === 'none') {
+        setDashStatus('status-notify-type', 'None', 'off');
+    } else {
+        const typeName = wtype === 'synology' ? 'Synology Chat' : 'Generic (JSON POST)';
+        setDashStatus('status-notify-type', typeName, settings.notify_webhook_enabled ? 'on' : 'off');
     }
-    setDashStatus('status-notify-type', typeName, settings.notify_webhook_enabled ? 'on' : 'off');
 
     // LLM integration: configured URL is the gate; when present, probe it.
     if (!(settings.llm_base_url || '').trim()) {
@@ -4025,8 +4027,12 @@ async function loadSettingsPage() {
         settings.notify_lead_unit === 'days' ? 'days' : 'hours';
     document.getElementById('settings-notify-webhook-enabled').checked =
         !!settings.notify_webhook_enabled;
+    // Anything unknown (or an old install without the key) lands on "None" -
+    // no webhook delivery until the user picks a real type.
+    const savedWebhookType = settings.notify_webhook_type;
     document.getElementById('settings-notify-webhook-type').value =
-        settings.notify_webhook_type === 'synology' ? 'synology' : 'generic';
+        savedWebhookType === 'generic' || savedWebhookType === 'synology'
+            ? savedWebhookType : 'none';
     // The URL is write-only too: blank it (a previously typed, unsaved value
     // must not linger) and paint placeholder/hint from the configured state.
     document.getElementById('settings-notify-webhook-url').value = '';
@@ -4094,6 +4100,20 @@ async function loadSettingsPage() {
 // carries the configured/cleared status of the write-only URL field.
 function updateWebhookTypeHints() {
     const type = document.getElementById('settings-notify-webhook-type').value;
+    // "None" disables webhook delivery entirely, so the URL / SSL / test
+    // controls are hidden until a real type is chosen (a stored URL is kept
+    // server-side and reappears when Generic/Synology is selected again).
+    const none = type === 'none';
+    const typeHint = document.getElementById('webhook-type-hint');
+    if (typeHint) {
+        typeHint.textContent = none
+            ? 'No webhook delivery. Choose Generic or Synology Chat to send notifications.'
+            : '';
+    }
+    for (const id of ['settings-notify-webhook-url', 'settings-notify-webhook-verify-ssl', 'test-webhook-btn']) {
+        const field = document.getElementById(id)?.closest('.settings-field');
+        if (field) field.style.display = none ? 'none' : '';
+    }
     const urlHint = document.getElementById('webhook-url-hint');
     urlHint.textContent = webhookUrlHintText();
     // The URL help now lives in the field's info popover: keep the icon
@@ -4102,7 +4122,7 @@ function updateWebhookTypeHints() {
     if (urlInfo) urlInfo.hidden = !urlHint.textContent.trim();
     const tokenField = document.getElementById(
         'settings-notify-webhook-token').closest('.settings-field');
-    tokenField.style.display = type === 'synology' ? 'none' : '';
+    tokenField.style.display = (type === 'synology' || none) ? 'none' : '';
 }
 
 // ---------------------------------------------------------------------------
@@ -4398,6 +4418,12 @@ async function sendTestNotification() {
 
     const hint = document.getElementById('webhook-test-hint');
     const btn = document.getElementById('test-webhook-btn');
+
+    // Type "None" means no webhook at all - nothing to test against.
+    if (document.getElementById('settings-notify-webhook-type').value === 'none') {
+        hint.textContent = 'Choose a Webhook Type other than None first.';
+        return;
+    }
 
     // The URL field is write-only (blank = stored one). A test needs either a
     // freshly typed URL or a configured stored URL that wasn't just cleared.

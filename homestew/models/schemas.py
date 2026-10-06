@@ -332,9 +332,9 @@ class SettingsResponse(BaseModel):
     notify_webhook_enabled: bool = Field(
         ..., description="Webhook channel on/off (requires a URL below)"
     )
-    notify_webhook_type: Literal["generic", "synology"] = Field(
+    notify_webhook_type: Literal["none", "generic", "synology"] = Field(
         ...,
-        description="Webhook request shape: generic JSON or Synology Chat incoming webhook",
+        description="Webhook request shape: none (disabled), generic JSON, or Synology Chat incoming webhook",
     )
     notify_webhook_url_set: bool = Field(
         ...,
@@ -465,8 +465,8 @@ class SettingsUpdate(BaseModel):
     )
     notify_lead_unit: Optional[Literal["hours", "days"]] = None
     notify_webhook_enabled: Optional[bool] = None
-    notify_webhook_type: Optional[Literal["generic", "synology"]] = Field(
-        None, description="Webhook kind: generic JSON POST or Synology Chat incoming webhook"
+    notify_webhook_type: Optional[Literal["none", "generic", "synology"]] = Field(
+        None, description="Webhook kind: none (disabled), generic JSON POST, or Synology Chat incoming webhook"
     )
     notify_webhook_url: Optional[str] = Field(
         None,
@@ -523,7 +523,7 @@ class WebhookTestRequest(BaseModel):
         None,
         description="TLS verification for this test; omitted uses the saved setting",
     )
-    webhook_type: Optional[Literal["generic", "synology"]] = Field(
+    webhook_type: Optional[Literal["none", "generic", "synology"]] = Field(
         None, description="Request shape for this test; omitted uses the saved setting",
     )
 

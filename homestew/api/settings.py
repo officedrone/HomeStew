@@ -95,7 +95,7 @@ def _current_settings() -> SettingsResponse:
         notify_lead_value=settings.NOTIFY_LEAD_VALUE,
         notify_lead_unit=settings.NOTIFY_LEAD_UNIT,
         notify_webhook_enabled=settings.NOTIFY_WEBHOOK_ENABLED,
-        notify_webhook_type=getattr(settings, "NOTIFY_WEBHOOK_TYPE", "generic"),
+        notify_webhook_type=getattr(settings, "NOTIFY_WEBHOOK_TYPE", "none"),
         notify_webhook_url_set=bool(settings.NOTIFY_WEBHOOK_URL),
         notify_webhook_token_set=bool(settings.NOTIFY_WEBHOOK_TOKEN),
         notify_webhook_verify_ssl=settings.NOTIFY_WEBHOOK_VERIFY_SSL,
