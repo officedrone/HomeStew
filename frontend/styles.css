@@ -1031,6 +1031,10 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 
 .device-card .device-name {
     color: var(--text-primary);
+    /* Grow to fill the space between the icon and the action buttons so the
+       name stays flush-left against the icon (its text-align defaults to left)
+       at any card width, instead of floating centered by space-between. */
+    flex: 1;
     /* Allow the (nowrap/ellipsis) name to shrink instead of pushing the
        action buttons out of the card. */
     min-width: 0;

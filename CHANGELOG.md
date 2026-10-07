@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.7]
+
+- FIX: Device name on a device card now stays left-aligned next to its icon at any card width (previously it floated toward center as the card grew).
+
 ## [0.1.6]
 
 - ADD: "New Device" now offers an AI shortcut when a model is configured: a chooser asks whether to enter details manually or add the device via AI Chat.
