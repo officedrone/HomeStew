@@ -454,9 +454,11 @@ function setupEventListeners() {
         btn.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab));
     });
     
-    // Add device: both sidebar and in-tab buttons open the same modal.
-    document.getElementById('add-device-btn').addEventListener('click', openAddDeviceModal);
-    document.getElementById('add-device-btn-devices').addEventListener('click', openAddDeviceModal);
+    // Add device: both sidebar and in-tab buttons run the New Device flow,
+    // which offers an AI-Chat shortcut when a model is configured (falling
+    // back straight to the manual form otherwise).
+    document.getElementById('add-device-btn').addEventListener('click', startNewDeviceFlow);
+    document.getElementById('add-device-btn-devices').addEventListener('click', startNewDeviceFlow);
     document.getElementById('add-device-form').addEventListener('submit', handleAddDevice);
     
     // Edit device form
@@ -571,6 +573,15 @@ function setupEventListeners() {
     // uploaded right after the new device row exists.
     document.getElementById('add-device-manuals').addEventListener('change', updateAddDeviceManualNames);
 
+    // Fetch Manuals search-terms box: click to edit, Enter to re-search.
+    document.getElementById('fetch-search-input').addEventListener('click', startChangeSearchTerms);
+    document.getElementById('fetch-search-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); // the input is outside a form, but be safe
+            applyNewSearchTerms();
+        }
+    });
+
     // Sidebar: docked rail on desktop (expand/collapse), overlay drawer on
     // mobile (hamburger + backdrop). Which mode applies is pure CSS; the JS
     // just manages the two independent body classes.
@@ -593,6 +604,7 @@ function setupEventListeners() {
     document.querySelectorAll('.settings-tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => showSettingsSection(btn.dataset.settingsSection));
     });
+    initInfoPopovers();
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
     document.getElementById('test-connection-btn').addEventListener('click', () => testLlmConnection({
@@ -641,7 +653,10 @@ function setupEventListeners() {
             if (!secretsState.cleared.delete(name)) return;
             const btn = document.querySelector(`.secret-remove-btn[data-clear-secret="${name}"]`);
             if (btn) btn.hidden = !(secretsState.configured[name]);
-            document.getElementById(field.hintId).textContent = secretHintText(name);
+            const hint = document.getElementById(field.hintId);
+            hint.textContent = secretHintText(name);
+            const infoWrap = hint.closest('.info-wrap');
+            if (infoWrap) infoWrap.hidden = !hint.textContent.trim();
         });
     }
     // Switching webhook type updates the URL hint and hides the bearer-token
@@ -695,16 +710,30 @@ function setupEventListeners() {
     // Escape closes any open modal, or the mobile drawer when none is open.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
+        // An open settings info popover dismisses first.
+        const openPop = document.querySelector('.info-wrap.open');
+        if (openPop) {
+            closeInfoPopover(openPop);
+            openPop.querySelector('.info-btn')?.focus();
+            return;
+        }
         // The fetch dialog needs its close function (releases the op lock),
-        // so it is handled before the generic display:none loop below.
+        // so it is handled before the generic display:none loop below. While
+        // its search-terms box is being edited, Escape cancels the edit first.
         const fetchModal = document.getElementById('fetch-manuals-modal');
         if (fetchModal.style.display === 'flex') {
+            if (!document.getElementById('fetch-search-input').readOnly) {
+                cancelChangeSearchTerms();
+                return;
+            }
             closeFetchManualsModal();
             return;
         }
         // The setup wizard is intentionally absent: skipping/saving a step
         // must persist its resolution, so it can't be dismissed with Escape.
-        for (const id of ['add-device-modal', 'edit-device-modal', 'event-modal']) {
+        // The icon picker comes first: Escape closes it before the editor
+        // dialog it is stacked on top of.
+        for (const id of ['icon-picker-modal', 'new-device-choice-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 modal.style.display = 'none';
@@ -818,6 +847,7 @@ function renderDeviceList() {
         <div class="device-accordion${open ? ' open' : ''}" data-id="${device.id}">
             <div class="device-row" onclick="toggleDeviceExpansion(${device.id})">
                 <span class="device-caret">›</span>
+                <button type="button" class="device-icon device-icon-small" title="Change icon" aria-label="Change icon" data-dedupe onclick="event.stopPropagation(); openIconPicker(null, ${device.id}, true)">${deviceIconSvg(device.icon)}</button>
                 <span class="device-name">${escapeHtml(device.name)}</span>
                 <span class="card-actions">
                     <button type="button" class="card-icon-btn" title="Edit device" aria-label="Edit device" data-dedupe onclick="event.stopPropagation(); editDevice(${device.id})">${CARD_ACTION_ICONS.edit}</button>
@@ -833,6 +863,7 @@ function renderDeviceList() {
             </div>
         </div>`;
     }).join('');
+    renderLucideIcons();
 }
 
 // Expand / collapse one sidebar device row (CSS grid-rows transition animates it).
@@ -860,6 +891,169 @@ const CARD_ACTION_ICONS = {
     download: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>'
 };
 
+// ---------------------------------------------------------------------------
+// Device icons
+//
+// Devices store an icon *key* (nullable); the glyphs come from the Lucide
+// icon set, vendored offline in frontend/vendor/lucide.min.js (ISC license).
+// Each entry maps a key to a Lucide icon name; deviceIconSvg() emits an
+// <i data-lucide> placeholder and renderLucideIcons() swaps every placeholder
+// for the real inline SVG (so currentColor keeps working in both themes).
+// A null/unknown key renders the default appliance glyph. The same map drives
+// the icon picker grid below, and its key order MUST mirror DEVICE_ICON_KEYS
+// in homestew/services/device_icons.py — keep both lists in sync when adding
+// icons (tests/test_device_tool.py::test_icon_keys_match_frontend_picker
+// enforces it).
+// ---------------------------------------------------------------------------
+
+const DEVICE_ICON_DEFAULT = 'appliance';
+
+const DEVICE_ICONS = {
+    appliance: { label: 'Appliance (default)', lucide: 'plug' },
+    fridge: { label: 'Fridge', lucide: 'refrigerator' },
+    freezer: { label: 'Freezer', lucide: 'snowflake' },
+    oven: { label: 'Oven / Stove', lucide: 'cooking-pot' },
+    dishwasher: { label: 'Dishwasher', lucide: 'droplets' },
+    microwave: { label: 'Microwave', lucide: 'microwave' },
+    washer: { label: 'Washing Machine', lucide: 'washing-machine' },
+    coffee_maker: { label: 'Coffee Maker', lucide: 'coffee' },
+    blender: { label: 'Blender', lucide: 'blender' },
+    water_dispenser: { label: 'Water Dispenser / Filter', lucide: 'glass-water' },
+    air_conditioner: { label: 'Air Conditioner / HVAC', lucide: 'air-vent' },
+    air_purifier: { label: 'Air Purifier', lucide: 'wind' },
+    humidifier: { label: 'Humidifier', lucide: 'cloud-rain' },
+    water_heater: { label: 'Water Heater / Boiler', lucide: 'heater' },
+    thermostat: { label: 'Thermostat', lucide: 'thermometer' },
+    fan: { label: 'Fan', lucide: 'fan' },
+    vacuum: { label: 'Vacuum', lucide: 'robot-vacuum' },
+    grill: { label: 'Grill / Fire Pit', lucide: 'flame-kindling' },
+    tv: { label: 'TV', lucide: 'tv' },
+    computer: { label: 'Computer', lucide: 'monitor' },
+    laptop: { label: 'Laptop', lucide: 'laptop' },
+    tablet: { label: 'Tablet', lucide: 'tablet' },
+    phone: { label: 'Phone', lucide: 'smartphone' },
+    smartwatch: { label: 'Smartwatch', lucide: 'watch' },
+    headphones: { label: 'Headphones', lucide: 'headphones' },
+    keyboard: { label: 'Keyboard', lucide: 'keyboard' },
+    mouse: { label: 'Mouse', lucide: 'mouse' },
+    gaming_console: { label: 'Gaming Console', lucide: 'gamepad-2' },
+    printer: { label: 'Printer', lucide: 'printer' },
+    projector: { label: 'Projector', lucide: 'projector' },
+    camera: { label: 'Camera', lucide: 'camera' },
+    security_camera: { label: 'Security Camera', lucide: 'cctv' },
+    smart_speaker: { label: 'Smart Speaker', lucide: 'speaker' },
+    router: { label: 'Router', lucide: 'router' },
+    nas_drive: { label: 'NAS / External Drive', lucide: 'hard-drive' },
+    server_rack: { label: 'Server', lucide: 'server' },
+    smart_lock: { label: 'Smart Lock', lucide: 'lock' },
+    lighting: { label: 'Lighting', lucide: 'lightbulb' },
+    generator: { label: 'Generator / Power', lucide: 'zap' },
+    lawn_garden: { label: 'Lawn & Garden', lucide: 'flower-2' }
+};
+
+// Placeholder markup for a device's icon key; null/unknown keys fall back to
+// the default appliance glyph. renderLucideIcons() replaces every
+// <i data-lucide> element with the real Lucide SVG after each dynamic render.
+function deviceIconSvg(key) {
+    const icon = DEVICE_ICONS[key] || DEVICE_ICONS[DEVICE_ICON_DEFAULT];
+    return `<i data-lucide="${icon.lucide}"></i>`;
+}
+
+// Replace all <i data-lucide> placeholders in the document with their Lucide
+// SVGs. Called after every render that injects device icons (Devices grid,
+// sidebar rows, picker grid, form previews). Re-running over already-rendered
+// icons is harmless: Lucide swaps the generated <svg> for an identical one.
+function renderLucideIcons() {
+    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+    }
+}
+
+// State of the open icon picker: which form field receives the choice and
+// whether picking saves immediately (card/sidebar click) or only fills the
+// form (Add/Edit dialog).
+let _iconPicker = null;
+
+function openIconPicker(prefix, deviceId, saveDirect) {
+    _iconPicker = { prefix, deviceId, saveDirect };
+    let currentKey = '';
+    if (saveDirect && deviceId != null) {
+        currentKey = devices.find(d => d.id === deviceId)?.icon || '';
+    } else if (prefix) {
+        currentKey = document.getElementById(`${prefix}-icon`)?.value || '';
+    }
+    renderIconPickerGrid(currentKey || DEVICE_ICON_DEFAULT);
+    document.getElementById('icon-picker-modal').style.display = 'flex';
+    renderLucideIcons();
+}
+
+function closeIconPicker() {
+    document.getElementById('icon-picker-modal').style.display = 'none';
+    _iconPicker = null;
+}
+
+function renderIconPickerGrid(currentKey) {
+    const grid = document.getElementById('icon-picker-grid');
+    if (!grid) return;
+    grid.innerHTML = Object.entries(DEVICE_ICONS).map(([key, icon]) => `
+        <button type="button" class="icon-option${key === currentKey ? ' selected' : ''}"
+                title="${escapeHtml(icon.label)}" onclick="selectDeviceIcon('${key}')">
+            ${deviceIconSvg(key)}
+            <span>${escapeHtml(icon.label)}</span>
+        </button>`).join('');
+}
+
+// Apply the picked icon. When opened from a card/sidebar row (saveDirect),
+// persist it with a PUT built from the cached device and refresh; when opened
+// from a form, just update the hidden input + preview and leave the dialog
+// underneath open.
+async function selectDeviceIcon(key) {
+    const picker = _iconPicker;
+    closeIconPicker();
+    if (!picker) return;
+
+    if (picker.saveDirect && picker.deviceId != null) {
+        const device = devices.find(d => d.id === picker.deviceId);
+        if (!device) return;
+        try {
+            const response = await fetch(`/api/devices/${picker.deviceId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: device.name,
+                    brand: device.brand,
+                    model: device.model,
+                    description: device.description || '',
+                    serial_number: device.serial_number || null,
+                    product_number: device.product_number || null,
+                    purchase_date: device.purchase_date || null,
+                    warranty_length: device.warranty_length ?? null,
+                    warranty_unit: device.warranty_unit || null,
+                    warranty_end: device.warranty_end || null,
+                    icon: key
+                })
+            });
+            if (!response.ok) throw new Error('Failed to update icon');
+            await loadDevices();
+        } catch (error) {
+            console.error('Failed to update device icon:', error);
+            showToast('Failed to update icon', 'error');
+        }
+        return;
+    }
+
+    if (picker.prefix) setDeviceIcon(picker.prefix, key);
+}
+
+// Write the icon choice into a device form (hidden input + preview swatch).
+function setDeviceIcon(prefix, key) {
+    const hidden = document.getElementById(`${prefix}-icon`);
+    if (hidden) hidden.value = key || '';
+    const preview = document.getElementById(`${prefix}-icon-preview`);
+    if (preview) preview.innerHTML = deviceIconSvg(key);
+    renderLucideIcons();
+}
+
 // Devices tab: card grid with the full device details and actions.
 function renderDevicesGrid() {
     const container = document.getElementById('devices-grid');
@@ -876,6 +1070,7 @@ function renderDevicesGrid() {
     container.innerHTML = devices.map(device => `
         <div class="device-card" data-id="${device.id}" onclick="editDevice(${device.id})">
             <div class="device-card-header">
+                <button type="button" class="device-icon" title="Change icon" aria-label="Change icon" data-dedupe onclick="event.stopPropagation(); openIconPicker(null, ${device.id}, true)">${deviceIconSvg(device.icon)}</button>
                 <div class="device-name">${escapeHtml(device.name)}</div>
                 <div class="card-actions">
                     <button type="button" class="card-icon-btn" title="Edit device" aria-label="Edit device" data-dedupe onclick="event.stopPropagation(); editDevice(${device.id})">${CARD_ACTION_ICONS.edit}</button>
@@ -889,6 +1084,7 @@ function renderDevicesGrid() {
             <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
         </div>
     `).join('');
+    renderLucideIcons();
 }
 
 function updateDeviceFilter() {
@@ -982,13 +1178,15 @@ async function refreshSystemStatus() {
     // Notifications: the master toggle, plus the delivery channel's type.
     const notifyOn = !!settings.notify_enabled;
     setDashStatus('status-notifications', notifyOn ? 'On' : 'Off', notifyOn ? 'on' : 'off');
-    let typeName = 'None';
-    if (settings.notify_webhook_enabled) {
-        typeName = settings.notify_webhook_type === 'synology'
-            ? 'Synology Chat'
-            : 'Generic (JSON POST)';
+    // Webhook Type "none" (the default) means no webhook at all: show a grey
+    // "None", the same neutral state as Notifications being switched off.
+    const wtype = settings.notify_webhook_type || 'none';
+    if (wtype === 'none') {
+        setDashStatus('status-notify-type', 'None', 'off');
+    } else {
+        const typeName = wtype === 'synology' ? 'Synology Chat' : 'Generic (JSON POST)';
+        setDashStatus('status-notify-type', typeName, settings.notify_webhook_enabled ? 'on' : 'off');
     }
-    setDashStatus('status-notify-type', typeName, settings.notify_webhook_enabled ? 'on' : 'off');
 
     // LLM integration: configured URL is the gate; when present, probe it.
     if (!(settings.llm_base_url || '').trim()) {
@@ -1439,9 +1637,97 @@ function fillWarrantyFields(prefix, device) {
     set(`${prefix}-warranty-end`, device.warranty_end);
 }
 
+// ---------------------------------------------------------------------------
+// New Device flow (manual form vs. add-via-AI-Chat)
+// ---------------------------------------------------------------------------
+
+// Vision state captured when the chooser was opened, so the AI option's hint
+// and the post-navigation tip agree with what the user was just shown (rather
+// than a value that could change while the dialog sat open).
+let _newDeviceVision = false;
+
+// Entry point for both "New Device" buttons. When an LLM is configured we ask
+// how to add the device first - manually or via AI Chat, where the model can
+// read the details from a description or a nameplate photo. With no model set
+// up there is nothing to offer, so go straight to the manual form. The config
+// read hits /api/settings (a local DB read, NOT the slow LLM probe), so the
+// click stays responsive.
+async function startNewDeviceFlow() {
+    let configured = false;
+    let vision = chatVisionEnabled;
+    try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+            const s = await response.json();
+            configured = !!s.llm_configured;
+            vision = !!s.llm_supports_vision;
+        }
+    } catch (e) { /* offline / server starting - fall through to the form */ }
+
+    if (!configured) {
+        openAddDeviceModal();
+        return;
+    }
+
+    _newDeviceVision = vision;
+    // Tailor the AI option's subtitle to whether photos can be attached.
+    const hint = document.getElementById('new-device-choice-ai-hint');
+    if (hint) {
+        hint.textContent = vision
+            ? 'Describe it - or attach a photo of its nameplate - and HomeStew fills everything in.'
+            : 'Describe it in the chat and HomeStew fills everything in for you.';
+    }
+    document.getElementById('new-device-choice-modal').style.display = 'flex';
+}
+
+function closeNewDeviceChoice() {
+    document.getElementById('new-device-choice-modal').style.display = 'none';
+}
+
+// "Enter details manually" - dismiss the chooser and open the Add Device form.
+function chooseNewDeviceManual() {
+    closeNewDeviceChoice();
+    openAddDeviceModal();
+}
+
+// "Add with AI Chat" - jump to the chat tab with the add-device prompt already
+// typed so the user only has to complete (or replace) it. When the model can
+// see images, also surface a hint pointing at the attach buttons.
+function chooseNewDeviceChat() {
+    closeNewDeviceChoice();
+    const prefill = 'Add this device - Name: <Name Here>, Manufacturer: <Manufacturer Here>, Model: <Model Here>';
+    switchTab('chat');
+    prefillChatForNewDevice(prefill, _newDeviceVision);
+}
+
+// Fill the chat input with `text`, select the first <placeholder> so typing
+// replaces it, and (optionally) reveal the vision hint. Focus is deferred a
+// tick because switchTab is still settling the tab's layout.
+function prefillChatForNewDevice(text, showVisionTip) {
+    const input = document.getElementById('chat-input');
+    if (input) {
+        input.value = text;
+        const start = text.indexOf('<');
+        const end = text.indexOf('>', start + 1);
+        if (start !== -1 && end !== -1) input.setSelectionRange(start, end + 1);
+        else input.setSelectionRange(text.length, text.length);
+        setTimeout(() => input.focus(), 60);
+    }
+    if (showVisionTip) {
+        const tip = document.getElementById('chat-attach-tip');
+        if (tip) tip.style.display = 'flex';
+    }
+}
+
+function hideChatAttachTip() {
+    const tip = document.getElementById('chat-attach-tip');
+    if (tip) tip.style.display = 'none';
+}
+
 function openAddDeviceModal() {
     document.getElementById('add-device-form').reset();
     resetWarrantyAutoCalc('device');
+    setDeviceIcon('device', '');
     updateAddDeviceManualNames();
     _addDeviceAttributes = [];
     _addDeviceCreatedId = null;
@@ -1476,6 +1762,7 @@ async function fetchManualsForNewDevice() {
         description: document.getElementById('device-description').value,
         serial_number: document.getElementById('device-serial-number').value || null,
         product_number: document.getElementById('device-product-number').value || null,
+        icon: document.getElementById('device-icon').value || null,
         ...readWarrantyFields('device')
     });
 
@@ -1573,6 +1860,7 @@ async function handleAddDevice(e) {
         description: document.getElementById('device-description').value,
         serial_number: document.getElementById('device-serial-number').value || null,
         product_number: document.getElementById('device-product-number').value || null,
+        icon: document.getElementById('device-icon').value || null,
         ...readWarrantyFields('device')
     };
     
@@ -1691,6 +1979,7 @@ async function editDevice(deviceId) {
     document.getElementById('edit-device-description').value = device.description || '';
     document.getElementById('edit-device-serial-number').value = device.serial_number || '';
     document.getElementById('edit-device-product-number').value = device.product_number || '';
+    setDeviceIcon('edit-device', device.icon || '');
     fillWarrantyFields('edit-device', device);
     resetWarrantyAutoCalc('edit-device');
     fillDeviceTimestamps(device);
@@ -1716,6 +2005,7 @@ async function handleEditDevice(e) {
         description: document.getElementById('edit-device-description').value,
         serial_number: document.getElementById('edit-device-serial-number').value || null,
         product_number: document.getElementById('edit-device-product-number').value || null,
+        icon: document.getElementById('edit-device-icon').value || null,
         ...readWarrantyFields('edit-device')
     };
     
@@ -1842,32 +2132,53 @@ function closeEditModal() {
 
 let fetchManualsDeviceId = null;
 let fetchCandidates = [];
+// Terms the current Fetch Manuals results were found with. Defaults to the
+// device's brand + model; "Change Search Terms" lets the user override them
+// and re-run the search without closing the dialog.
+let fetchSearchTerms = '';
+let _fetchSearchInFlight = false;
+
+function _defaultFetchTerms(deviceId) {
+    const device = devices.find(d => d.id === deviceId);
+    return device ? `${device.brand || ''} ${device.model || ''}`.trim() : '';
+}
 
 async function openFetchManuals(deviceId) {
     // One fetch dialog at a time: a double-click must not start two searches.
     if (!beginOp('fetch-manuals')) return;
     fetchManualsDeviceId = deviceId;
     fetchCandidates = [];
+    fetchSearchTerms = _defaultFetchTerms(deviceId);
 
     const modal = document.getElementById('fetch-manuals-modal');
+    modal.style.display = 'flex';
+    resetFetchTermsRow();
+    await _runFetchSearch();
+}
+
+// Run (or re-run) the candidate search with the current fetchSearchTerms and
+// render into the dialog. The 'fetch-manuals' op lock is already held by
+// openFetchManuals for as long as the dialog is open, so re-searches guard
+// against double-clicks with _fetchSearchInFlight instead.
+async function _runFetchSearch() {
     const statusBox = document.getElementById('fetch-manuals-status');
     const spinner = document.getElementById('fetch-manuals-spinner');
     const message = document.getElementById('fetch-manuals-message');
     const results = document.getElementById('fetch-manuals-results');
     const downloadAllBtn = document.getElementById('download-all-btn');
 
-    modal.style.display = 'flex';
     statusBox.classList.remove('done-success', 'done-error');
     spinner.style.display = '';
-    const device = devices.find(d => d.id === deviceId);
-    const label = device ? `"${device.brand} ${device.model}"` : 'this device';
+    const label = fetchSearchTerms ? `"${fetchSearchTerms}"` : 'this device';
     message.textContent = `Searching the web for ${label} manuals...`;
     results.innerHTML = '';
     results.hidden = true;
     downloadAllBtn.style.display = 'none';
 
+    _fetchSearchInFlight = true;
     try {
-        const response = await fetch(`/api/downloads/${deviceId}/search`);
+        const qs = fetchSearchTerms ? `?q=${encodeURIComponent(fetchSearchTerms)}` : '';
+        const response = await fetch(`/api/downloads/${fetchManualsDeviceId}/search${qs}`);
         if (!response.ok) throw new Error(await errorDetailFrom(response, 'Manual search failed.'));
         const data = await response.json();
         fetchCandidates = data.candidates || [];
@@ -1877,7 +2188,51 @@ async function openFetchManuals(deviceId) {
         spinner.style.display = 'none';
         statusBox.classList.add('done-error');
         message.textContent = error.message || 'Manual search failed.';
+    } finally {
+        _fetchSearchInFlight = false;
     }
+}
+
+// --- Fetch Manuals "search terms" row -------------------------------------
+// The greyed read-only input shows exactly what was searched for. Clicking
+// it (or "Change Search Terms") switches to edit mode with Search/Cancel;
+// Search re-runs the fetch, Cancel restores the previously used terms.
+function resetFetchTermsRow() {
+    const input = document.getElementById('fetch-search-input');
+    input.value = fetchSearchTerms;
+    setFetchTermsEditing(false);
+}
+
+function setFetchTermsEditing(editing) {
+    const input = document.getElementById('fetch-search-input');
+    input.readOnly = !editing;
+    input.title = editing ? 'Enter new search terms' : 'Click to change the search terms';
+    document.getElementById('fetch-change-terms-btn').style.display = editing ? 'none' : 'inline-block';
+    document.getElementById('fetch-apply-terms-btn').style.display = editing ? 'inline-block' : 'none';
+    document.getElementById('fetch-cancel-terms-btn').style.display = editing ? 'inline-block' : 'none';
+}
+
+function startChangeSearchTerms() {
+    const input = document.getElementById('fetch-search-input');
+    if (!input.readOnly || _fetchSearchInFlight) return; // already editing / searching
+    setFetchTermsEditing(true);
+    input.focus();
+    input.select();
+}
+
+function cancelChangeSearchTerms() {
+    const input = document.getElementById('fetch-search-input');
+    input.value = fetchSearchTerms; // discard the edit, restore last searched terms
+    setFetchTermsEditing(false);
+}
+
+async function applyNewSearchTerms() {
+    if (_fetchSearchInFlight) return;
+    const input = document.getElementById('fetch-search-input');
+    // Blank means "back to the device's brand + model" (the default query).
+    fetchSearchTerms = input.value.trim() || _defaultFetchTerms(fetchManualsDeviceId);
+    resetFetchTermsRow();
+    await _runFetchSearch();
 }
 
 // Pull FastAPI's {detail} body into a readable string; detail may be a plain
@@ -2549,6 +2904,10 @@ async function sendChatMessage() {
     // start a parallel conversation turn.
     if (!beginOp('send-chat')) return;
 
+    // The message is on its way: the one-shot "attach a photo" hint from the
+    // New Device flow has served its purpose.
+    hideChatAttachTip();
+
     // Add user message to chat (with thumbnails of any attached images).
     addMessageToChat('user', message, pendingChatImages);
     input.value = '';
@@ -2701,6 +3060,7 @@ function startNewSession() {
     const input = document.getElementById('chat-input');
     if (input) input.value = '';
     clearPendingChatImages();
+    hideChatAttachTip();
     // Replacing innerHTML clamps scrollTop to 0; pin explicitly so the fresh
     // session starts at its (single) message with auto-follow armed.
     scrollToBottom();
@@ -3095,6 +3455,11 @@ function switchTab(tabName, pushHistory = true) {
     if (tabName === 'dashboard') {
         refreshDashboard();
     }
+
+    // The "attach a photo" hint from the New Device flow is one-shot: it
+    // belongs to the visit it was shown on, so any tab change clears it
+    // (chooseNewDeviceChat re-shows it AFTER switching here).
+    hideChatAttachTip();
 
     // Opening the chat re-runs the settings "model refresh" probe against the
     // saved configuration so a broken/unconfigured LLM is surfaced up front.
@@ -3604,6 +3969,9 @@ function renderSecretField(name) {
             name === 'notify_webhook_url' ? 'https://example.com/hooks/homestew' : '';
     }
     hint.textContent = secretHintText(name);
+    // When the hint lives behind an info icon, hide the icon while empty.
+    const infoWrap = hint.closest('.info-wrap');
+    if (infoWrap) infoWrap.hidden = !hint.textContent.trim();
     if (removeBtn) {
         removeBtn.hidden = !(secretsState.configured[name] && !secretsState.cleared.has(name));
     }
@@ -3758,8 +4126,12 @@ async function loadSettingsPage() {
         settings.notify_lead_unit === 'days' ? 'days' : 'hours';
     document.getElementById('settings-notify-webhook-enabled').checked =
         !!settings.notify_webhook_enabled;
+    // Anything unknown (or an old install without the key) lands on "None" -
+    // no webhook delivery until the user picks a real type.
+    const savedWebhookType = settings.notify_webhook_type;
     document.getElementById('settings-notify-webhook-type').value =
-        settings.notify_webhook_type === 'synology' ? 'synology' : 'generic';
+        savedWebhookType === 'generic' || savedWebhookType === 'synology'
+            ? savedWebhookType : 'none';
     // The URL is write-only too: blank it (a previously typed, unsaved value
     // must not linger) and paint placeholder/hint from the configured state.
     document.getElementById('settings-notify-webhook-url').value = '';
@@ -3827,10 +4199,109 @@ async function loadSettingsPage() {
 // carries the configured/cleared status of the write-only URL field.
 function updateWebhookTypeHints() {
     const type = document.getElementById('settings-notify-webhook-type').value;
-    document.getElementById('webhook-url-hint').textContent = webhookUrlHintText();
+    // "None" disables webhook delivery entirely, so the URL / SSL / test
+    // controls are hidden until a real type is chosen (a stored URL is kept
+    // server-side and reappears when Generic/Synology is selected again).
+    const none = type === 'none';
+    const typeHint = document.getElementById('webhook-type-hint');
+    if (typeHint) {
+        typeHint.textContent = none
+            ? 'No webhook delivery. Choose Generic or Synology Chat to send notifications.'
+            : '';
+    }
+    for (const id of ['settings-notify-webhook-url', 'settings-notify-webhook-verify-ssl', 'test-webhook-btn']) {
+        const field = document.getElementById(id)?.closest('.settings-field');
+        if (field) field.style.display = none ? 'none' : '';
+    }
+    const urlHint = document.getElementById('webhook-url-hint');
+    urlHint.textContent = webhookUrlHintText();
+    // The URL help now lives in the field's info popover: keep the icon
+    // visible only while there is text to show.
+    const urlInfo = urlHint.closest('.info-wrap');
+    if (urlInfo) urlInfo.hidden = !urlHint.textContent.trim();
     const tokenField = document.getElementById(
         'settings-notify-webhook-token').closest('.settings-field');
-    tokenField.style.display = type === 'synology' ? 'none' : '';
+    tokenField.style.display = (type === 'synology' || none) ? 'none' : '';
+}
+
+// ---------------------------------------------------------------------------
+// Settings info popovers (the circled "i" next to a label or subheading).
+// The description text lives inside .info-popover; CSS shows it on hover /
+// focus for pointer users, while click/tap toggles the .open class here so
+// touch devices get the same information. Popovers are position:fixed and
+// placed by JS so they never clip against scrolling containers.
+// ---------------------------------------------------------------------------
+function placeInfoPopover(wrap) {
+    const btn = wrap.querySelector('.info-btn');
+    const pop = wrap.querySelector('.info-popover');
+    if (!btn || !pop) return;
+    // The popover may be display:none when measuring (click path); force it
+    // visible but invisible just long enough to read its size.
+    const wasHidden = getComputedStyle(pop).display === 'none';
+    if (wasHidden) {
+        pop.style.visibility = 'hidden';
+        pop.style.display = 'block';
+    }
+    const r = btn.getBoundingClientRect();
+    const pw = pop.offsetWidth;
+    const ph = pop.offsetHeight;
+    let left = r.left + r.width / 2 - pw / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+    let top = r.bottom + 6;
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+    // CSS only reveals hover-popovers once they carry this marker, so the box
+    // can never flash at its unpositioned static location for one frame.
+    pop.dataset.placed = '1';
+    if (wasHidden) {
+        pop.style.display = '';
+        pop.style.visibility = '';
+    }
+}
+
+function closeInfoPopover(wrap) {
+    wrap.classList.remove('open');
+}
+
+function closeAllInfoPopovers() {
+    document.querySelectorAll('.info-wrap.open').forEach(closeInfoPopover);
+}
+
+function initInfoPopovers() {
+    const wraps = Array.from(document.querySelectorAll('.info-wrap'));
+    if (!wraps.length) return;
+    for (const wrap of wraps) {
+        const btn = wrap.querySelector('.info-btn');
+        if (!btn) continue;
+        // Hover/focus display is pure CSS; JS only needs to position the box
+        // before it appears.
+        wrap.addEventListener('mouseenter', () => placeInfoPopover(wrap));
+        btn.addEventListener('focus', () => placeInfoPopover(wrap));
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const willOpen = !wrap.classList.contains('open');
+            closeAllInfoPopovers();
+            if (willOpen) {
+                wrap.classList.add('open');
+                placeInfoPopover(wrap);
+            }
+        });
+    }
+    // Clicking anywhere outside an icon/popover dismisses a click-opened
+    // popover. Clicks inside stay live so the text can be selected/copied.
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest || e.target.closest('.info-wrap')) return;
+        closeAllInfoPopovers();
+    });
+    // Keep fixed-position popovers glued to their icon while scrolling or
+    // after a resize (the settings page scrolls inside the main content).
+    const reposition = () => {
+        document.querySelectorAll('.info-wrap.open, .info-wrap:hover')
+            .forEach(placeInfoPopover);
+    };
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
 }
 
 // Fill a model <select> from a model id list. The currently selected value is
@@ -4046,6 +4517,12 @@ async function sendTestNotification() {
 
     const hint = document.getElementById('webhook-test-hint');
     const btn = document.getElementById('test-webhook-btn');
+
+    // Type "None" means no webhook at all - nothing to test against.
+    if (document.getElementById('settings-notify-webhook-type').value === 'none') {
+        hint.textContent = 'Choose a Webhook Type other than None first.';
+        return;
+    }
 
     // The URL field is write-only (blank = stored one). A test needs either a
     // freshly typed URL or a configured stored URL that wasn't just cleared.

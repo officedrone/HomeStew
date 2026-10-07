@@ -124,7 +124,7 @@ async def create_backup(include_manuals: bool = True) -> dict:
             """
             SELECT id, name, brand, model, description, serial_number,
                    product_number, purchase_date, warranty_length, warranty_unit,
-                   warranty_end, created_at, updated_at
+                   warranty_end, icon, created_at, updated_at
             FROM devices ORDER BY id
             """
         )
@@ -377,13 +377,14 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
                 """
                 INSERT INTO devices (name, brand, model, description, serial_number,
                     product_number, purchase_date, warranty_length, warranty_unit,
-                    warranty_end, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    warranty_end, icon, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
                 """,
                 (
                     d.name, d.brand, d.model, d.description or "",
                     d.serial_number, d.product_number, purchase, length, unit, end,
+                    d.icon,
                     d.created_at, d.updated_at,
                 ),
             )

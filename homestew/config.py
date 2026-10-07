@@ -144,9 +144,11 @@ class Settings(BaseSettings):
     # The token is an optional bearer secret; like the LLM API key its value
     # is never returned by the settings API, only whether one is configured.
     NOTIFY_WEBHOOK_ENABLED: bool = True
-    # Request shape for the webhook URL: 'generic' = raw JSON body, 'synology'
-    # = Synology Chat incoming webhook (form-encoded payload={"text": ...}).
-    NOTIFY_WEBHOOK_TYPE: str = "generic"
+    # Request shape for the webhook URL: 'none' = no webhook delivery (the
+    # default, so a fresh install stays silent until the user opts in),
+    # 'generic' = raw JSON body, 'synology' = Synology Chat incoming webhook
+    # (form-encoded payload={"text": ...}).
+    NOTIFY_WEBHOOK_TYPE: str = "none"
     NOTIFY_WEBHOOK_URL: str = ""
     NOTIFY_WEBHOOK_TOKEN: str = ""
     # When False, webhook POSTs skip TLS certificate verification - needed for

@@ -733,6 +733,27 @@ a.dash-stat-value:hover {
     color: var(--text-secondary);
 }
 
+/* Fields wrapped in .settings-field (labelled inputs in the device modals):
+   the wrapper provides the bottom spacing, so drop the bare-input margin to
+   keep the rhythm even. The color override matches .device-form.modal-form's
+   light inputs - .settings-field alone is out-specified by .device-form. */
+.device-form .settings-field input,
+.device-form .settings-field textarea {
+    margin-bottom: 0;
+}
+
+.device-form.modal-form .settings-field input,
+.device-form.modal-form .settings-field textarea {
+    border: 1px solid var(--border-color);
+    background: var(--surface);
+    color: var(--text-primary);
+}
+
+.device-form.modal-form .settings-field input::placeholder,
+.device-form.modal-form .settings-field textarea::placeholder {
+    color: var(--text-secondary);
+}
+
 /* "New Device" row in the sidebar nav: stretches like the tab buttons when
    expanded, falls back to a plain square icon-btn when collapsed. */
 body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
@@ -1071,6 +1092,113 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     background: color-mix(in srgb, var(--error) 10%, transparent);
     border-color: color-mix(in srgb, var(--error) 45%, transparent);
     color: var(--error);
+}
+
+/* Per-device icon button (grid cards + sidebar rows). Clicking it opens the
+   icon picker instead of the card/row's own action (stopPropagation). */
+.device-icon {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    padding: 5px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.device-icon svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.device-icon:hover {
+    background: var(--bg-light);
+    border-color: var(--border-color);
+    color: var(--primary-color);
+}
+
+/* Compact variant for the sidebar accordion rows. */
+.device-icon-small {
+    width: 24px;
+    height: 24px;
+    padding: 3px;
+}
+
+/* Icon row inside the Add/Edit device forms: preview swatch + Change button. */
+.icon-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.icon-preview {
+    width: 40px;
+    height: 40px;
+    padding: 7px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-preview svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Icon Picker dialog grid. */
+.icon-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.icon-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    line-height: 1.25;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.icon-option svg {
+    width: 26px;
+    height: 26px;
+    display: block;
+}
+
+.icon-option:hover {
+    background: var(--bg-light);
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+}
+
+/* The icon currently in use is tinted with the primary color. */
+.icon-option.selected {
+    border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 8%, var(--surface));
+    color: var(--primary-color);
 }
 
 /* "Mark done" gets the matching green tint on hover. */
@@ -2513,6 +2641,149 @@ body.no-vision .chat-input-wrap textarea {
     margin-top: 6px;
 }
 
+/* --------------------------------------------------------------------------
+   Settings info icons: each labelled field/subheading that used to carry a
+   visible description hint now shows a circled "i" next to its label, and the
+   hint lives in a popover shown on hover / focus / click (see initInfoPopovers
+   in app.js - JS adds .open for touch/click, CSS :hover/:focus-within covers
+   pointer users). The popover is positioned with position:fixed by JS so it
+   never gets clipped by scrolling containers.
+   -------------------------------------------------------------------------- */
+.label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* A label + icon pair inside the space-between prompt rows: shrink to fit,
+   keep the "Restore Default" button pinned right. */
+.prompt-label-row .label-row {
+    margin-bottom: 0;
+    min-width: 0;
+}
+
+.label-row > label:first-child {
+    margin-bottom: 0;
+}
+
+/* The label used to carry the 6 px gap above its control itself; inside a
+   label row the control that follows has to take it over instead. */
+.label-row + input,
+.label-row + select,
+.label-row + .model-row,
+.label-row + .radio-row {
+    margin-top: 6px;
+}
+
+.info-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+}
+
+/* The explicit display above would otherwise beat the UA [hidden] rule. */
+.info-wrap[hidden] {
+    display: none;
+}
+
+.info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+.info-btn:hover,
+.info-wrap.open .info-btn {
+    color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
+.info-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+
+.info-popover {
+    display: none;
+    position: fixed;
+    z-index: 2500; /* above modals (2000) so popovers work inside dialogs */
+    max-width: min(320px, calc(100vw - 24px));
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+    /* Popovers under a .settings-subheading (Authentication / Advanced /
+       Search Index) would inherit its uppercase bold heading style - reset to
+       regular body text everywhere so every tooltip looks the same. */
+    font-weight: 400;
+    font-style: normal;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* Transparent bridges across the 6 px icon-to-popover gap (both sides, since
+   the popover flips above when there is no room below). They are DOM children
+   of .info-wrap, so hovering them keeps the parent's :hover / mouse state. */
+.info-popover::before,
+.info-popover::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 8px;
+}
+
+.info-popover::before {
+    top: -8px;
+}
+
+.info-popover::after {
+    bottom: -8px;
+}
+
+/* Click/tap state, for every device. Touch screens report (hover: none), so
+   the hover rules below never apply there and .open is the only way to reveal
+   a popover; JS always positions it in the same click handler before adding
+   the class, hence no data-placed guard needed here. */
+.info-wrap.open > .info-popover {
+    display: block;
+}
+
+/* Pointer users get the popover on hover / keyboard focus too, without JS.
+   [data-placed] is set by placeInfoPopover() (on mouseenter/focus) so a
+   popover never flashes at an unpositioned spot before JS pins it. */
+@media (hover: hover) {
+    .info-wrap:hover > .info-popover[data-placed],
+    .info-btn:focus-visible + .info-popover[data-placed] {
+        display: block;
+    }
+}
+
+.info-popover .settings-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+/* Subheadings host their icon inline after the title text. */
+.settings-subheading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 /* Secrets-at-rest warning above the Settings tabs (plaintext mode or
    undecryptable stored secrets - see renderSecretsBanner in app.js). */
 .secret-banner {
@@ -3141,6 +3412,34 @@ body.no-vision .chat-input-wrap textarea {
     color: var(--text-primary);
 }
 
+/* Fetch Manuals: searched-terms box + Change Search Terms / Search / Cancel.
+   The input is readonly (not disabled - a disabled control cannot receive
+   clicks) and greyed until the user opts into editing it. */
+.fetch-search-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.fetch-search-input {
+    flex: 1 1 200px;
+    min-width: 0;
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.fetch-search-input[readonly] {
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
 /* Fetch Manuals dialog: the Manual | Source | Store Manual table. */
 .fetch-results {
     margin-top: 16px;
@@ -3603,5 +3902,130 @@ body.no-vision .chat-input-wrap textarea {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   New Device chooser (manual form vs. add-via-AI-Chat)
+   Shown from "New Device" only when an LLM is configured. Two large cards so
+   the choice reads at a glance; the AI card carries a subtle brand tint to
+   signal it as the assisted path.
+   --------------------------------------------------------------------------- */
+.new-device-choice h2 {
+    margin-bottom: 2px;
+}
+
+.new-device-choice-sub {
+    margin: 0 0 18px;
+    color: var(--text-secondary);
+    font-size: .95rem;
+}
+
+.new-device-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.new-device-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    text-align: left;
+    padding: 18px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: inherit;
+    cursor: pointer;
+    transition: border-color .2s, background .2s, box-shadow .2s, transform .1s;
+}
+
+.new-device-option:hover {
+    border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 5%, var(--surface));
+    box-shadow: var(--shadow-sm);
+}
+
+.new-device-option:active {
+    transform: translateY(1px);
+}
+
+.new-device-option-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--surface));
+    color: var(--primary-color);
+}
+
+.new-device-option-ai .new-device-option-icon {
+    background: color-mix(in srgb, var(--accent-color) 20%, var(--surface));
+    color: var(--primary-color);
+}
+
+.new-device-option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.new-device-option-text strong {
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.new-device-option-text small {
+    color: var(--text-secondary);
+    font-size: .82rem;
+    line-height: 1.35;
+}
+
+/* One-shot "you can attach a photo" hint above the chat input, shown after
+   arriving from the New Device flow with a vision-capable model. Uses the
+   gold accent so it reads as helpful guidance rather than an error. */
+.chat-attach-tip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 9px 12px;
+    border-radius: var(--radius-md);
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-text);
+    font-size: .85rem;
+    line-height: 1.4;
+    flex-shrink: 0;
+}
+
+.chat-attach-tip > svg {
+    flex-shrink: 0;
+}
+
+.chat-attach-tip-close {
+    margin-left: auto;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    opacity: .7;
+}
+
+.chat-attach-tip-close:hover {
+    opacity: 1;
+}
+
+/* Single-column chooser on narrow screens / phones. */
+@media (max-width: 560px) {
+    .new-device-options {
+        grid-template-columns: 1fr;
     }
 }

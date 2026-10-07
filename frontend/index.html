@@ -266,6 +266,16 @@
                          populated by app.js, cleared on send / New Session. -->
                     <div id="chat-attachment-preview" class="chat-attachment-preview" style="display: none;"></div>
 
+                    <!-- Shown when arriving here from "New Device -> Add via AI
+                         Chat" with a vision-capable model: points at the attach
+                         buttons so nameplate photos actually get used. Dismissed
+                         on send / New Session / leaving the tab. -->
+                    <div id="chat-attach-tip" class="chat-attach-tip" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                        <span>Your model supports vision: attach a photo of the device (nameplate, label, receipt) and HomeStew will read the details from it.</span>
+                        <button type="button" class="chat-attach-tip-close" onclick="hideChatAttachTip()" aria-label="Dismiss tip">&times;</button>
+                    </div>
+
                     <!-- Input row. The attach / camera pickers are flat icon
                          buttons INSIDE the field (same .card-icon-btn style as
                          Recent Devices rows and device cards) pinned to its
@@ -374,13 +384,18 @@
                         <!-- General -->
                         <section id="settings-panel-general" class="settings-panel">
                             <div class="settings-field">
-                                <label id="settings-theme-label">Theme</label>
+                                <div class="label-row">
+                                    <label id="settings-theme-label">Theme</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Auto follows your operating system's light/dark setting.</p></span>
+                                    </span>
+                                </div>
                                 <div class="radio-row" role="radiogroup" aria-labelledby="settings-theme-label">
                                     <label class="radio-option"><input type="radio" name="theme" value="auto"> Auto</label>
                                     <label class="radio-option"><input type="radio" name="theme" value="dark"> Dark</label>
                                     <label class="radio-option"><input type="radio" name="theme" value="light"> Light</label>
                                 </div>
-                                <p class="settings-hint">Auto follows your operating system's light/dark setting.</p>
                             </div>
                         </section>
 
@@ -391,12 +406,17 @@
                                 <input type="text" id="settings-llm-base-url" placeholder="e.g., http://localhost:11434/v1" required>
                             </div>
                             <div class="settings-field">
-                                <label for="settings-llm-api-key">LLM API Key</label>
+                                <div class="label-row">
+                                    <label for="settings-llm-api-key">LLM API Key</label>
+                                    <span class="info-wrap" id="api-key-info" hidden>
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint" id="settings-api-key-hint"></p></span>
+                                    </span>
+                                </div>
                                 <div class="model-row">
                                     <input type="password" id="settings-llm-api-key" autocomplete="new-password">
                                     <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="llm_api_key" hidden>Remove</button>
                                 </div>
-                                <p class="settings-hint" id="settings-api-key-hint"></p>
                             </div>
                             <!-- Connection test: probes the base URL's /models
                                  endpoint with whatever URL/key are in the form. -->
@@ -420,18 +440,28 @@
                                 <p class="settings-hint" id="model-list-hint"></p>
                             </div>
                             <div class="settings-field">
-                                <label class="checkbox-option" for="settings-llm-vision">
-                                    <input type="checkbox" id="settings-llm-vision">
-                                    Model supports Vision
-                                </label>
-                                <p class="settings-hint">Tick this if the selected model can read images (e.g. qwen3-vl, llava, gemma3). It enables the photo attach and camera buttons in AI Chat.</p>
+                                <div class="label-row">
+                                    <label class="checkbox-option" for="settings-llm-vision">
+                                        <input type="checkbox" id="settings-llm-vision">
+                                        Model supports Vision
+                                    </label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Tick this if the selected model can read images (e.g. qwen3-vl, llava, gemma3). It enables the photo attach and camera buttons in AI Chat.</p></span>
+                                    </span>
+                                </div>
                             </div>
                             <div class="settings-field">
-                                <label class="checkbox-option" for="settings-llm-reasoning">
-                                    <input type="checkbox" id="settings-llm-reasoning" checked>
-                                    Reasoning
-                                </label>
-                                <p class="settings-hint">Enable or Disable model reasoning.</p>
+                                <div class="label-row">
+                                    <label class="checkbox-option" for="settings-llm-reasoning">
+                                        <input type="checkbox" id="settings-llm-reasoning" checked>
+                                        Reasoning
+                                    </label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Enable or Disable model reasoning.</p></span>
+                                    </span>
+                                </div>
                             </div>
 
                             <!-- Prompt customization (collapsed by default). The
@@ -451,27 +481,42 @@
                                 </div>
                                 <div class="settings-field">
                                     <div class="prompt-label-row">
-                                        <label for="settings-search-tool-description">Search Tool Description</label>
+                                        <div class="label-row">
+                                            <label for="settings-search-tool-description">Search Tool Description</label>
+                                            <span class="info-wrap">
+                                                <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                                <span class="info-popover" role="tooltip"><p class="settings-hint">Tells the LLM when to search your manuals.</p></span>
+                                            </span>
+                                        </div>
                                         <button type="button" class="btn btn-small btn-secondary" data-restore-default="search_tool_description">Restore Default</button>
                                     </div>
                                     <textarea id="settings-search-tool-description" rows="4" spellcheck="false"></textarea>
-                                    <p class="settings-hint">Tells the LLM when to search your manuals.</p>
                                 </div>
                                 <div class="settings-field">
                                     <div class="prompt-label-row">
-                                        <label for="settings-calendar-tool-description">Calendar Tool Description</label>
+                                        <div class="label-row">
+                                            <label for="settings-calendar-tool-description">Calendar Tool Description</label>
+                                            <span class="info-wrap">
+                                                <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                                <span class="info-popover" role="tooltip"><p class="settings-hint">Tells the LLM how to manage your maintenance reminders.</p></span>
+                                            </span>
+                                        </div>
                                         <button type="button" class="btn btn-small btn-secondary" data-restore-default="calendar_tool_description">Restore Default</button>
                                     </div>
                                     <textarea id="settings-calendar-tool-description" rows="4" spellcheck="false"></textarea>
-                                    <p class="settings-hint">Tells the LLM how to manage your maintenance reminders.</p>
                                 </div>
                                 <div class="settings-field">
                                     <div class="prompt-label-row">
-                                        <label for="settings-device-tool-description">Device Tool Description</label>
+                                        <div class="label-row">
+                                            <label for="settings-device-tool-description">Device Tool Description</label>
+                                            <span class="info-wrap">
+                                                <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                                <span class="info-popover" role="tooltip"><p class="settings-hint">Tells the LLM how to add, update and annotate your devices.</p></span>
+                                            </span>
+                                        </div>
                                         <button type="button" class="btn btn-small btn-secondary" data-restore-default="device_tool_description">Restore Default</button>
                                     </div>
                                     <textarea id="settings-device-tool-description" rows="4" spellcheck="false"></textarea>
-                                    <p class="settings-hint">Tells the LLM how to add, update and annotate your devices.</p>
                                 </div>
                             </details>
                         </section>
@@ -479,20 +524,36 @@
                         <!-- Notifications -->
                         <section id="settings-panel-notifications" class="settings-panel" hidden>
                             <div class="settings-field">
-                                <label class="checkbox-option" for="settings-notify-enabled">
-                                    <input type="checkbox" id="settings-notify-enabled">
-                                    Enable notifications
-                                </label>
-                                <p class="settings-hint">Enable background notifications for maintenance tasks.</p>
+                                <div class="label-row">
+                                    <label class="checkbox-option" for="settings-notify-enabled">
+                                        <input type="checkbox" id="settings-notify-enabled">
+                                        Enable notifications
+                                    </label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Enable background notifications for maintenance tasks.</p></span>
+                                    </span>
+                                </div>
                             </div>
                             <h4 class="settings-subheading">Calendar Event Notifications</h4>
                             <div class="settings-field">
-                                <label for="settings-notify-interval">Check every (minutes)</label>
+                                <div class="label-row">
+                                    <label for="settings-notify-interval">Check every (minutes)</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">How often the background check runs. Changes apply without a restart.</p></span>
+                                    </span>
+                                </div>
                                 <input type="number" id="settings-notify-interval" min="1" max="1440" step="1">
-                                <p class="settings-hint">How often the background check runs. Changes apply without a restart.</p>
                             </div>
                             <div class="settings-field">
-                                <label for="settings-notify-lead-value">Notify before due</label>
+                                <div class="label-row">
+                                    <label for="settings-notify-lead-value">Notify before due</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Send an alert this far ahead of the due date. Overdue tasks are also alerted once.</p></span>
+                                    </span>
+                                </div>
                                 <div class="model-row">
                                     <input type="number" id="settings-notify-lead-value" min="1" max="365" step="1">
                                     <select id="settings-notify-lead-unit">
@@ -500,7 +561,6 @@
                                         <option value="days">Days</option>
                                     </select>
                                 </div>
-                                <p class="settings-hint">Send an alert this far ahead of the due date. Overdue tasks are also alerted once.</p>
                             </div>
 
                             <h4 class="settings-subheading">Webhook</h4>
@@ -513,34 +573,50 @@
                             <div class="settings-field">
                                 <label for="settings-notify-webhook-type">Webhook Type</label>
                                 <select id="settings-notify-webhook-type">
+                                    <option value="none">None</option>
                                     <option value="generic">Generic (JSON POST)</option>
                                     <option value="synology">Synology Chat (incoming webhook)</option>
                                 </select>
                                 <p class="settings-hint" id="webhook-type-hint"></p>
                             </div>
                             <div class="settings-field">
-                                <label for="settings-notify-webhook-url">Webhook URL</label>
+                                <div class="label-row">
+                                    <label for="settings-notify-webhook-url">Webhook URL</label>
+                                    <span class="info-wrap" id="webhook-url-info" hidden>
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint" id="webhook-url-hint"></p></span>
+                                    </span>
+                                </div>
                                 <div class="model-row">
                                     <!-- type=password: Synology webhook URLs embed their secret token, so the field is write-only and obscured like a key. -->
                                     <input type="password" id="settings-notify-webhook-url" autocomplete="new-password" placeholder="https://example.com/hooks/homestew">
                                     <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="notify_webhook_url" hidden>Remove</button>
                                 </div>
-                                <p class="settings-hint" id="webhook-url-hint"></p>
                             </div>
                             <div class="settings-field">
-                                <label for="settings-notify-webhook-token">Bearer Token (optional)</label>
+                                <div class="label-row">
+                                    <label for="settings-notify-webhook-token">Bearer Token (optional)</label>
+                                    <span class="info-wrap" id="webhook-token-info" hidden>
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint" id="settings-webhook-token-hint"></p></span>
+                                    </span>
+                                </div>
                                 <div class="model-row">
                                     <input type="password" id="settings-notify-webhook-token" autocomplete="new-password">
                                     <button type="button" class="btn btn-secondary btn-small secret-remove-btn" data-clear-secret="notify_webhook_token" hidden>Remove</button>
                                 </div>
-                                <p class="settings-hint" id="settings-webhook-token-hint"></p>
                             </div>
                             <div class="settings-field">
-                                <label class="checkbox-option" for="settings-notify-webhook-verify-ssl">
-                                    <input type="checkbox" id="settings-notify-webhook-verify-ssl">
-                                    Validate SSL
-                                </label>
-                                <p class="settings-hint">Verify the webhook server's TLS certificate. Uncheck only if your receiver uses a self-signed or internal-CA certificate (e.g. a LAN Synology NAS).</p>
+                                <div class="label-row">
+                                    <label class="checkbox-option" for="settings-notify-webhook-verify-ssl">
+                                        <input type="checkbox" id="settings-notify-webhook-verify-ssl">
+                                        Validate SSL
+                                    </label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Verify the webhook server's TLS certificate. Uncheck only if your receiver uses a self-signed or internal-CA certificate (e.g. a LAN Synology NAS).</p></span>
+                                    </span>
+                                </div>
                             </div>
                             <div class="settings-field">
                                 <div class="model-row">
@@ -561,28 +637,42 @@
                         <section id="settings-panel-search" class="settings-panel" hidden>
                             <h4 class="settings-subheading">Indexing Options</h4>
                             <div class="settings-field">
-                                <label for="settings-index-chunk-size">Max chunk size (characters)</label>
-                                <input type="number" id="settings-index-chunk-size" min="200" max="20000" step="100" value="4000">
-                                <p class="settings-hint">Long PDF pages are split into chunks of at most this many
+                                <div class="label-row">
+                                    <label for="settings-index-chunk-size">Max chunk size (characters)</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Long PDF pages are split into chunks of at most this many
                                     characters before being indexed. Smaller gives finer-grained snippets, larger means
-                                    fewer rows. Applies to the next re-index - no restart needed.</p>
+                                    fewer rows. Applies to the next re-index - no restart needed.</p></span>
+                                    </span>
+                                </div>
+                                <input type="number" id="settings-index-chunk-size" min="200" max="20000" step="100" value="4000">
                             </div>
                             <div class="settings-field">
-                                <label class="checkbox-option" for="settings-index-auto-on-upload">
-                                    <input type="checkbox" id="settings-index-auto-on-upload">
-                                    Index manuals automatically when uploaded or fetched
-                                </label>
-                                <p class="settings-hint">Turn off to defer indexing on a slow host: new manuals stay
-                                    unsearchable until you press Re-index below.</p>
+                                <div class="label-row">
+                                    <label class="checkbox-option" for="settings-index-auto-on-upload">
+                                        <input type="checkbox" id="settings-index-auto-on-upload">
+                                        Index manuals automatically when uploaded or fetched
+                                    </label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Turn off to defer indexing on a slow host: new manuals stay
+                                    unsearchable until you press Re-index below.</p></span>
+                                    </span>
+                                </div>
                             </div>
 
-                            <h4 class="settings-subheading">Search Index</h4>
+                            <h4 class="settings-subheading">Search Index
+                                <span class="info-wrap">
+                                    <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                    <span class="info-popover" role="tooltip"><p class="settings-hint">Re-index re-reads every stored manual and refreshes its search
+                                    entries - use it when a manual failed to index or the extractor changed. Progress
+                                    appears in a notification that stays until you dismiss it.</p></span>
+                                </span>
+                            </h4>
                             <div class="settings-field">
                                 <!-- Filled by loadSettingsPage() from /api/search/stats. -->
                                 <p class="settings-hint" id="search-index-stats">Loading index stats…</p>
-                                <p class="settings-hint">Re-index re-reads every stored manual and refreshes its search
-                                    entries - use it when a manual failed to index or the extractor changed. Progress
-                                    appears in a notification that stays until you dismiss it.</p>
                                 <div class="model-row">
                                     <button type="button" class="btn btn-secondary" id="search-reindex-btn">Re-index</button>
                                     <button type="button" class="btn btn-danger" id="search-rebuild-btn">Rebuild Index</button>
@@ -630,11 +720,16 @@
                         <section id="settings-panel-backups" class="settings-panel" hidden>
                             <h4 class="settings-subheading">Backup</h4>
                             <div class="settings-field">
-                                <label class="checkbox-option" for="backup-include-manuals">
-                                    <input type="checkbox" id="backup-include-manuals" checked>
-                                    Include user manual PDF files in the backup
-                                </label>
-                                <p class="settings-hint">Devices, custom attributes and calendar events are always included. Settings and secrets (API key, webhook token) are never part of a backup.</p>
+                                <div class="label-row">
+                                    <label class="checkbox-option" for="backup-include-manuals">
+                                        <input type="checkbox" id="backup-include-manuals" checked>
+                                        Include user manual PDF files in the backup
+                                    </label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Devices, custom attributes and calendar events are always included. Settings and secrets (API key, webhook token) are never part of a backup.</p></span>
+                                    </span>
+                                </div>
                             </div>
                             <div class="settings-field">
                                 <div class="model-row">
@@ -646,12 +741,17 @@
 
                             <h4 class="settings-subheading">Restore</h4>
                             <div class="settings-field">
-                                <label id="restore-mode-label">Restore mode</label>
+                                <div class="label-row">
+                                    <label id="restore-mode-label">Restore mode</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Merge adds only what's missing and leaves existing data alone. Replace wipes all devices, manuals and calendar events first, then restores the archive exactly.</p></span>
+                                    </span>
+                                </div>
                                 <div class="radio-row" role="radiogroup" aria-labelledby="restore-mode-label">
                                     <label class="radio-option"><input type="radio" name="restore-mode" value="merge" checked> Merge</label>
                                     <label class="radio-option"><input type="radio" name="restore-mode" value="replace"> Replace</label>
                                 </div>
-                                <p class="settings-hint">Merge adds only what's missing and leaves existing data alone. Replace wipes all devices, manuals and calendar events first, then restores the archive exactly.</p>
                             </div>
                             <div class="settings-field">
                                 <div class="model-row">
@@ -667,12 +767,16 @@
                             <!-- Account password: change requires the current
                                  one; a forgotten password is reset from the
                                  container CLI (documented in README). -->
-                            <h4 class="settings-subheading">Account Password</h4>
-                            <p class="settings-hint">
+                            <h4 class="settings-subheading">Account Password
+                                <span class="info-wrap">
+                                    <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                    <span class="info-popover" role="tooltip"><p class="settings-hint">
                                 HomeStew is protected by a single password. Changing it signs every
                                 other browser out immediately. Forgotten? Reset it from the
                                 container: <code>docker exec -it homestew python -m homestew.auth_cli reset-password</code>
-                            </p>
+                            </p></span>
+                                </span>
+                            </h4>
                             <div class="settings-field">
                                 <label for="settings-current-password">Current Password</label>
                                 <input type="password" id="settings-current-password" autocomplete="current-password">
@@ -693,11 +797,15 @@
                             </div>
 
                             <!-- Failed-login lockout tuning (in-memory, per client IP). -->
-                            <h4 class="settings-subheading">Login Lockout</h4>
-                            <p class="settings-hint">
+                            <h4 class="settings-subheading">Login Lockout
+                                <span class="info-wrap">
+                                    <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                    <span class="info-popover" role="tooltip"><p class="settings-hint">
                                 After this many failed sign-in attempts from one device, further
                                 attempts are refused until the lockout expires.
-                            </p>
+                            </p></span>
+                                </span>
+                            </h4>
                             <div class="settings-field">
                                 <label for="settings-auth-max-attempts">Max Failed Attempts</label>
                                 <input type="number" id="settings-auth-max-attempts" min="1" max="100" step="1" value="8">
@@ -710,11 +818,15 @@
 
                         <!-- Advanced: secrets master key management (create / delete). -->
                         <section id="settings-panel-advanced" class="settings-panel" hidden>
-                            <h4 class="settings-subheading">Secrets Master Key</h4>
-                            <p class="settings-hint">
+                            <h4 class="settings-subheading">Secrets Master Key
+                                <span class="info-wrap">
+                                    <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                    <span class="info-popover" role="tooltip"><p class="settings-hint">
                                 HomeStew encrypts your stored credentials (API key, webhook URL
                                 and token) with a master key.
-                            </p>
+                            </p></span>
+                                </span>
+                            </h4>
                             <div id="advanced-key-status" class="key-status-box"></div>
                             <div class="settings-field">
                                 <div class="model-row">
@@ -734,6 +846,38 @@
         </main>
     </div>
 
+    <!-- New Device chooser: shown when an LLM is configured so the user can
+         pick between filling the form themselves or adding via AI Chat. When
+         no model is set up, "New Device" opens the manual form directly and
+         this dialog never appears (see startNewDeviceFlow in app.js). -->
+    <div id="new-device-choice-modal" class="modal">
+        <div class="modal-content new-device-choice">
+            <span class="modal-close" onclick="closeNewDeviceChoice()">&times;</span>
+            <h2>Add a Device</h2>
+            <p class="new-device-choice-sub">How would you like to add it?</p>
+            <div class="new-device-options">
+                <button type="button" class="new-device-option" data-dedupe onclick="chooseNewDeviceManual()">
+                    <span class="new-device-option-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </span>
+                    <span class="new-device-option-text">
+                        <strong>Enter details manually</strong>
+                        <small>Type the name, brand, model and other fields yourself.</small>
+                    </span>
+                </button>
+                <button type="button" class="new-device-option new-device-option-ai" data-dedupe onclick="chooseNewDeviceChat()">
+                    <span class="new-device-option-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    </span>
+                    <span class="new-device-option-text">
+                        <strong>Add with AI Chat</strong>
+                        <small id="new-device-choice-ai-hint">Describe it in the chat and HomeStew fills everything in for you.</small>
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Add Device Modal -->
     <div id="add-device-modal" class="modal">
         <div class="modal-content">
@@ -741,6 +885,16 @@
             <h2>Add New Device</h2>
 
             <form id="add-device-form" class="device-form modal-form">
+                <input type="hidden" id="device-icon">
+                <!-- Icon: stores a key into the DEVICE_ICONS set in app.js;
+                     empty = default appliance glyph. -->
+                <div class="settings-field device-icon-field">
+                    <label>Icon</label>
+                    <div class="icon-picker-row">
+                        <span class="icon-preview" id="device-icon-preview"></span>
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="openIconPicker('device', null, false)">Change Icon</button>
+                    </div>
+                </div>
                 <input type="text" id="device-name" placeholder="Device name (e.g., Living Room TV)" required>
                 <input type="text" id="device-brand" placeholder="Brand (e.g., Samsung)" required>
                 <input type="text" id="device-model" placeholder="Model (e.g., QN90A)" required>
@@ -815,12 +969,40 @@
             
             <form id="edit-device-form" class="device-form modal-form">
                 <input type="hidden" id="edit-device-id">
-                <input type="text" id="edit-device-name" placeholder="Device name" required>
-                <input type="text" id="edit-device-brand" placeholder="Brand" required>
-                <input type="text" id="edit-device-model" placeholder="Model" required>
-                <textarea id="edit-device-description" placeholder="Description (optional)" rows="2"></textarea>
-                <input type="text" id="edit-device-serial-number" placeholder="Serial Number">
-                <input type="text" id="edit-device-product-number" placeholder="Product Number">
+                <input type="hidden" id="edit-device-icon">
+                <!-- Icon: stores a key into the DEVICE_ICONS set in app.js;
+                     empty = default appliance glyph. -->
+                <div class="settings-field device-icon-field">
+                    <label>Icon</label>
+                    <div class="icon-picker-row">
+                        <span class="icon-preview" id="edit-device-icon-preview"></span>
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="openIconPicker('edit-device', null, false)">Change Icon</button>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-name">Device Name</label>
+                    <input type="text" id="edit-device-name" placeholder="Device name" required>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-brand">Brand</label>
+                    <input type="text" id="edit-device-brand" placeholder="Brand" required>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-model">Model</label>
+                    <input type="text" id="edit-device-model" placeholder="Model" required>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-description">Description</label>
+                    <textarea id="edit-device-description" placeholder="Description (optional)" rows="2"></textarea>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-serial-number">Serial Number</label>
+                    <input type="text" id="edit-device-serial-number" placeholder="Serial Number">
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-product-number">Product Number</label>
+                    <input type="text" id="edit-device-product-number" placeholder="Product Number">
+                </div>
 
                 <!-- Warranty: end date auto-computes from purchase date + length -->
                 <div class="warranty-row">
@@ -886,12 +1068,35 @@
         </div>
     </div>
 
+    <!-- Icon Picker dialog: grid of the built-in appliance/electronics glyphs
+         (DEVICE_ICONS in app.js). Stacks on top of the Add/Edit dialogs and
+         closes with Escape before them. -->
+    <div id="icon-picker-modal" class="modal">
+        <div class="modal-content modal-medium">
+            <span class="modal-close" onclick="closeIconPicker()">&times;</span>
+            <h2>Choose an Icon</h2>
+            <div id="icon-picker-grid" class="icon-picker-grid"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeIconPicker()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Fetch Manuals dialog: lists found PDFs (Manual | Source | Store
          Manual) and downloads ONLY what the user approves. Rows already on
          file are highlighted; replacing one needs an explicit confirm. -->
     <div id="fetch-manuals-modal" class="modal">
         <div class="modal-content modal-medium">
             <h2>Fetch Manuals</h2>
+            <!-- The exact terms that were searched (brand + model by default).
+                 Greyed/read-only until clicked or "Change Search Terms"; the
+                 Search button re-runs the fetch with the edited terms. -->
+            <div class="fetch-search-row">
+                <input type="text" id="fetch-search-input" class="fetch-search-input" readonly aria-label="Manual search terms" title="Click to change the search terms">
+                <button type="button" id="fetch-change-terms-btn" class="btn btn-secondary btn-small" data-dedupe onclick="startChangeSearchTerms()">Change Search Terms</button>
+                <button type="button" id="fetch-apply-terms-btn" class="btn btn-primary btn-small" data-dedupe style="display: none;" onclick="applyNewSearchTerms()">Search</button>
+                <button type="button" id="fetch-cancel-terms-btn" class="btn btn-secondary btn-small" data-dedupe style="display: none;" onclick="cancelChangeSearchTerms()">Cancel</button>
+            </div>
             <div id="fetch-manuals-status" class="progress-status">
                 <div id="fetch-manuals-spinner" class="spinner"></div>
                 <span id="fetch-manuals-message">Searching...</span>
@@ -1138,6 +1343,7 @@
 
     <script src="/static/vendor/marked.min.js"></script>
     <script src="/static/vendor/purify.min.js"></script>
+    <script src="/static/vendor/lucide.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

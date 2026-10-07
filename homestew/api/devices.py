@@ -24,7 +24,7 @@ MAX_UPLOAD_SIZE = 100 * 1024 * 1024
 DEVICE_COLUMNS = (
     "d.id, d.name, d.brand, d.model, d.description, d.serial_number, "
     "d.product_number, d.purchase_date, d.warranty_length, d.warranty_unit, "
-    "d.warranty_end, d.created_at, d.updated_at"
+    "d.warranty_end, d.icon, d.created_at, d.updated_at"
 )
 DEVICE_COLUMNS_PLAIN = DEVICE_COLUMNS.replace("d.", "")
 
@@ -59,6 +59,7 @@ def _row_to_response(row, manual_count: int, attributes=None) -> DeviceResponse:
         warranty_length=row['warranty_length'],
         warranty_unit=row['warranty_unit'],
         warranty_end=row['warranty_end'],
+        icon=row['icon'],
         created_at=row['created_at'],
         updated_at=row['updated_at'],
         manual_count=manual_count or 0,
@@ -74,8 +75,8 @@ async def create_device(device: DeviceCreate):
         cursor = await db.execute(
             f"""
             INSERT INTO devices (name, brand, model, description, serial_number,
-                product_number, purchase_date, warranty_length, warranty_unit, warranty_end)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                product_number, purchase_date, warranty_length, warranty_unit, warranty_end, icon)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING {DEVICE_COLUMNS_PLAIN}
             """,
             (
@@ -89,6 +90,7 @@ async def create_device(device: DeviceCreate):
                 warranty_length,
                 warranty_unit,
                 warranty_end,
+                device.icon,
             )
         )
         
@@ -202,7 +204,7 @@ async def update_device(device_id: int, device: DeviceCreate):
             f"""
             UPDATE devices 
             SET name = ?, brand = ?, model = ?, description = ?, serial_number = ?, product_number = ?,
-                purchase_date = ?, warranty_length = ?, warranty_unit = ?, warranty_end = ?,
+                purchase_date = ?, warranty_length = ?, warranty_unit = ?, warranty_end = ?, icon = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             RETURNING {DEVICE_COLUMNS_PLAIN}
@@ -218,6 +220,7 @@ async def update_device(device_id: int, device: DeviceCreate):
                 warranty_length,
                 warranty_unit,
                 warranty_end,
+                device.icon,
                 device_id
             )
         )

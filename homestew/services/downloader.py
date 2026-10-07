@@ -90,21 +90,29 @@ def _clip(text: str, limit: int = 120) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def search_for_manuals(brand: str, model: str, max_results: Optional[int] = None) -> Tuple[List[dict], Optional[str]]:
+def search_for_manuals(
+    brand: str,
+    model: str,
+    max_results: Optional[int] = None,
+    search_terms: Optional[str] = None,
+) -> Tuple[List[dict], Optional[str]]:
     """Search the web for device manual PDFs.
 
     Returns (list of {"title", "url", "source"} dicts, error or None). Empty
     list without an error means the search worked but nothing plausible was
-    found; empty list WITH an error explains why.
+    found; empty list WITH an error explains why. ``search_terms`` optionally
+    replaces brand + model in the query (user-edited terms in the UI).
     """
     from homestew.config import settings  # noqa: PLC0415 (settings singleton cycle)
     from homestew.services.manual_finder import find_manual_links
 
     if max_results is None:
         max_results = settings.MANUAL_MAX_RESULTS
-    logger.info(f"Searching for manuals: {brand} {model}")
+    logger.info(f"Searching for manuals: {search_terms or brand + ' ' + model}")
 
-    candidates, error = find_manual_links(brand, model, max_results=max_results)
+    candidates, error = find_manual_links(
+        brand, model, max_results=max_results, search_terms=search_terms
+    )
     results = [{"title": c.title, "url": c.url, "source": c.engine or "web"} for c in candidates]
 
     if not results and error:
@@ -112,7 +120,9 @@ def search_for_manuals(brand: str, model: str, max_results: Optional[int] = None
         # rate-limited engine may succeed on the second pass.
         logger.info("Retrying search once after error: %s", error)
         time.sleep(1)
-        candidates, error = find_manual_links(brand, model, max_results=max_results)
+        candidates, error = find_manual_links(
+            brand, model, max_results=max_results, search_terms=search_terms
+        )
         results = [{"title": c.title, "url": c.url, "source": c.engine or "web"} for c in candidates]
 
     logger.info(f"Found {len(results)} potential manuals")
@@ -278,14 +288,23 @@ def _stored_filename(url: str, brand: str, model: str) -> str:
 
 
 async def find_manual_candidates(
-    device_id: int, brand: str, model: str
+    device_id: int,
+    brand: str,
+    model: str,
+    search_terms: Optional[str] = None,
 ) -> Tuple[List[dict], Optional[str]]:
-    """Search for candidates and flag the ones already stored for the device."""
+    """Search for candidates and flag the ones already stored for the device.
+
+    ``search_terms`` optionally replaces brand + model as the query terms
+    (the Fetch Manuals dialog's "Change Search Terms" box).
+    """
     from fastapi.concurrency import run_in_threadpool
 
     from homestew.db import get_db_context
 
-    results, error = await run_in_threadpool(search_for_manuals, brand, model)
+    results, error = await run_in_threadpool(
+        search_for_manuals, brand, model, None, search_terms
+    )
     if not results:
         return [], error or f"No manuals found for {brand} {model}"
 

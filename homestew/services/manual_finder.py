@@ -140,14 +140,19 @@ def find_manual_links(
     *,
     max_results: Optional[int] = None,
     search: Optional[Callable[..., List]] = None,
+    search_terms: Optional[str] = None,
 ) -> Tuple[List[ManualCandidate], Optional[str]]:
     """Find ranked PDF manual candidates for a device.
 
     Args:
-        brand/model: Device identifiers used to build the query.
+        brand/model: Device identifiers used to build the query (and to rank
+            results even when custom terms replaced them).
         max_results: Candidate cap (settings default when None).
         search: Injectable search callable matching
             :func:`web_search.search_web`'s signature (tests pass a fake).
+        search_terms: Optional user-supplied terms replacing brand + model in
+            the query; the manual/filetype hints are still appended so results
+            stay PDF manuals. Blank/None keeps the default brand/model query.
 
     Returns:
         ``(candidates, error_message_or_None)``. An empty candidate list with
@@ -165,7 +170,10 @@ def find_manual_links(
 
         search = search_web
 
-    query = build_query(brand, model)
+    terms = (search_terms or "").strip()
+    # Custom terms replace the brand + model part of the query; the PDF hints
+    # stay so a user retyping the terms still gets manual PDFs.
+    query = f"{terms} manual filetype:pdf" if terms else build_query(brand, model)
     try:
         raw_results = search(query, max_results=max(10, max_results * 2))
     except SearchUnavailableError as exc:

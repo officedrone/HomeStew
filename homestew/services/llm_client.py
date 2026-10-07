@@ -21,6 +21,7 @@ from homestew.default_prompts import (
     DEFAULT_DEVICE_TOOL_DESCRIPTION,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
+from homestew.services.device_icons import DEVICE_ICON_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -599,6 +600,21 @@ def create_device_tool() -> Dict[str, Any]:
                     "warranty_end": {
                         "type": "string",
                         "description": "Explicit warranty expiry ISO YYYY-MM-DD; omit to auto-compute from purchase_date + length/unit.",
+                    },
+                    "icon": {
+                        "type": "string",
+                        # Enum (not free text): the glyph set is fixed in the
+                        # frontend, so only these keys ever render. The empty
+                        # string resets to the default appliance glyph.
+                        "enum": list(DEVICE_ICON_KEYS) + [""],
+                        "description": (
+                            "Icon shown for the device in the UI. Use it when "
+                            "the user asks to set/change/reset the icon, or "
+                            "pick one matching the device type on create when "
+                            "obvious (e.g. 'fridge' for a refrigerator). "
+                            "Empty string resets to the default appliance "
+                            "glyph. Never invent a key outside this list."
+                        ),
                     },
                     "attribute_name": {
                         "type": "string",
