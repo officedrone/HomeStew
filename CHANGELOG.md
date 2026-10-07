@@ -2,13 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
-## [0.1.8]
-
-- ADD: The icon picker now has a live search box — type to filter the grid as you go (e.g. 'coffee', 'wifi', 'bbq', 'boiler'). Each icon carries a set of everyday synonyms so common wording finds the right glyph; an "N of 40 icons" counter and a friendly empty state round it out. Filtering is instant (client-side).
-- ADD: The assistant can now search the icon set too — `manage_devices` gained a `search_icons` action that returns ranked matching keys for a description, so it can find e.g. `water_heater` from "boiler" before setting an icon. Backed by a shared `GET /api/devices/icons?q=...` endpoint.
-
 ## [0.1.7]
 
+- ADD: The icon picker now has live search across the full Lucide set (~2,100 icons); a blank search shows 40 common glyphs and "Load more" pages long results.
+- ADD: The assistant can set any Lucide icon by name via chat and gained a `search_icons` action to find names first.
+- UPDATE: Icons are stored as raw Lucide names; unknown legacy keys reset to the default plug icon on startup.
 - FIX: Device name on a device card now stays left-aligned next to its icon at any card width (previously it floated toward center as the card grew).
 
 ## [0.1.6]

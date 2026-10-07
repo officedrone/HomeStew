@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from homestew.db import get_db_context
 from homestew.services.device_icons import (
     DEFAULT_DEVICE_ICON,
-    DEVICE_ICON_KEYS,
+    is_valid_icon_key,
     search_icon_keys,
 )
 from homestew.services.warranty import WARRANTY_UNITS, compute_warranty_end
@@ -108,17 +108,18 @@ def _clean_text(value: Any, limit: int) -> str:
 
 
 def _icon_error(value: str) -> str:
-    """Report for an icon key outside the frontend's icon set.
+    """Report for an icon key that is not a renderable Lucide icon name.
 
-    The glyphs live in frontend/app.js (DEVICE_ICONS); storing a key that is
-    not in that map would render the default glyph anyway, so rejecting with
-    the real choices is more useful than persisting a key nothing renders.
+    Keys are raw Lucide names (kebab-case); storing anything else would just
+    render the default glyph, so reject and point at action='search_icons'
+    instead of listing all ~2,100 valid names in the report.
     """
     return (
-        f"Error: unknown icon '{value}'. The available icon keys are: "
-        + ", ".join(DEVICE_ICON_KEYS)
-        + ". Pick the one closest to what the device is, or pass an empty "
-        f"string to reset it to the default '{DEFAULT_DEVICE_ICON}' glyph."
+        f"Error: unknown icon '{value}'. Icon keys are Lucide icon names in "
+        "kebab-case (e.g. 'washing-machine', 'coffee', 'router'). Call "
+        "action='search_icons' with a short query ('heater', 'wifi', 'lamp') "
+        "to find valid keys, or pass an empty string to reset it to the "
+        f"default '{DEFAULT_DEVICE_ICON}' glyph."
     )
 
 
@@ -126,22 +127,25 @@ def _search_icons(args: Dict[str, Any]) -> str:
     """Report matching icon keys for a free-text query (action='search_icons').
 
     Same matcher as GET /api/devices/icons and the picker's search box: every
-    query word must appear in an icon's key/label/synonym text. The model gets
-    the ranked matches and decides which fits - it is never forced to pick,
-    and only keys from this list may be passed to create/update.
+    query word must appear inside an icon's Lucide name (substring, so 'lamp'
+    finds lamp-ceiling). The model gets the ranked matches and decides which
+    fits - it is never forced to pick, and only keys from this list may be
+    passed to create/update.
     """
     raw = _clean_text(args.get("query"), 100)
     matches = search_icon_keys(raw)
     if not raw:
         return (
             "Pass a 'query' describing the icon you need (e.g. 'coffee', "
-            "'wifi', 'bbq', 'water heater'). An empty query lists every key."
+            "'wifi', 'lamp', 'washing'). An empty query lists the common "
+            "household icons."
         )
     if not matches:
         return (
-            f"No icon matches '{raw}'. Try simpler words (drop question words, "
-            "keep one or two nouns like 'coffee' or 'fan'), or pick from the "
-            "full list: " + ", ".join(DEVICE_ICON_KEYS) + "."
+            f"No icon matches '{raw}'. Keys are Lucide icon names, so the "
+            "word must appear inside the name: try simpler or shorter words "
+            "(one noun like 'coffee', 'fan' or 'lamp'), drop question words, "
+            "or guess the object's English name ('heater', 'router')."
         )
     lines = [f"- {key} ({label})" for key, label in matches]
     return (
@@ -295,8 +299,10 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
 
     end = compute_warranty_end(purchase, length, unit, explicit_end)
 
-    icon = _clean_text(args.get("icon"), 50).lower() or None
-    if icon is not None and icon not in DEVICE_ICON_KEYS:
+    # Canonical Lucide names are kebab-case; models often write snake_case,
+    # so normalise before validating.
+    icon = _clean_text(args.get("icon"), 50).lower().replace("_", "-") or None
+    if icon is not None and not is_valid_icon_key(icon):
         return _icon_error(icon)
 
     async with get_db_context() as db:
@@ -433,9 +439,10 @@ async def _update(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
             if text == "":
                 # Clearing the icon falls back to the default glyph.
                 fields["icon"] = None
-            elif text not in DEVICE_ICON_KEYS:
-                return _icon_error(text)
             else:
+                text = text.replace("_", "-")
+                if not is_valid_icon_key(text):
+                    return _icon_error(text)
                 fields["icon"] = text
 
         # Keep the API's rule: warranty_end follows purchase/length/unit

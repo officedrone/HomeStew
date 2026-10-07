@@ -896,112 +896,82 @@ const CARD_ACTION_ICONS = {
 // ---------------------------------------------------------------------------
 // Device icons
 //
-// Devices store an icon *key* (nullable); the glyphs come from the Lucide
-// icon set, vendored offline in frontend/vendor/lucide.min.js (ISC license).
-// Each entry maps a key to a Lucide icon name; deviceIconSvg() emits an
-// <i data-lucide> placeholder and renderLucideIcons() swaps every placeholder
-// for the real inline SVG (so currentColor keeps working in both themes).
-// A null/unknown key renders the default appliance glyph. The same map drives
-// the icon picker grid below, and its key order MUST mirror DEVICE_ICON_KEYS
-// in homestew/services/device_icons.py — keep both lists in sync when adding
-// icons (tests/test_device_tool.py::test_icon_keys_match_frontend_picker
-// enforces it).
+// Devices store a kebab-case Lucide icon *name* directly (e.g. 'washing-
+// machine'); the glyphs come from the FULL Lucide set vendored offline in
+// frontend/vendor/lucide.min.js (ISC license, ~2,100 icons). The complete
+// name list is generated into frontend/lucide-icon-names.js (loaded before
+// app.js) by _gen_icon_names.py at the repo root — there is no hand-curated
+// map anymore. deviceIconSvg() emits an <i data-lucide> placeholder and
+// renderLucideIcons() swaps every placeholder for the real inline SVG (so
+// currentColor keeps working in both themes). A null/unknown name renders
+// the default glyph. The backend mirrors this list in
+// homestew/services/device_icons.py (lucide_icon_names.txt) — regenerate
+// BOTH after upgrading lucide.min.js.
 // ---------------------------------------------------------------------------
 
-const DEVICE_ICON_DEFAULT = 'appliance';
+const DEVICE_ICON_DEFAULT = 'plug';
 
-// Each entry: display label, Lucide glyph name, and `syn` — extra lowercase
-// search words used by the picker's filter box (see iconMatchesQuery). The
-// key order, labels and syn lists MUST mirror DEVICE_ICON_CATALOG in
-// homestew/services/device_icons.py (tests/test_device_tool.py enforces it).
-const DEVICE_ICONS = {
-    appliance: { label: 'Appliance (default)', lucide: 'plug', syn: ['plug', 'generic', 'electronics'] },
-    fridge: { label: 'Fridge', lucide: 'refrigerator', syn: ['refrigerator', 'cooler', 'icebox'] },
-    freezer: { label: 'Freezer', lucide: 'snowflake', syn: ['freeze', 'ice', 'deep freezer'] },
-    oven: { label: 'Oven / Stove', lucide: 'cooking-pot', syn: ['stove', 'range', 'cooker'] },
-    dishwasher: { label: 'Dishwasher', lucide: 'droplets', syn: ['dishes', 'dish washer'] },
-    microwave: { label: 'Microwave', lucide: 'microwave', syn: ['micro', 'reheat'] },
-    washer: { label: 'Washing Machine', lucide: 'washing-machine', syn: ['laundry', 'washing machine'] },
-    coffee_maker: { label: 'Coffee Maker', lucide: 'coffee', syn: ['coffee', 'espresso', 'cup'] },
-    blender: { label: 'Blender', lucide: 'blender', syn: ['smoothie', 'mixer', 'juicer'] },
-    water_dispenser: { label: 'Water Dispenser / Filter', lucide: 'glass-water', syn: ['water', 'filter', 'dispenser'] },
-    air_conditioner: { label: 'Air Conditioner / HVAC', lucide: 'air-vent', syn: ['ac', 'aircon', 'cooling', 'hvac'] },
-    air_purifier: { label: 'Air Purifier', lucide: 'wind', syn: ['purifier', 'clean air'] },
-    humidifier: { label: 'Humidifier', lucide: 'cloud-rain', syn: ['mist', 'moisture', 'steam'] },
-    water_heater: { label: 'Water Heater / Boiler', lucide: 'heater', syn: ['boiler', 'hot water', 'geyser'] },
-    thermostat: { label: 'Thermostat', lucide: 'thermometer', syn: ['temperature', 'climate', 'heating'] },
-    fan: { label: 'Fan', lucide: 'fan', syn: ['blower', 'cooling'] },
-    vacuum: { label: 'Vacuum', lucide: 'robot-vacuum', syn: ['robot vacuum', 'cleaning', 'hoover'] },
-    grill: { label: 'Grill / Fire Pit', lucide: 'flame-kindling', syn: ['bbq', 'barbecue', 'smoker', 'fire pit'] },
-    tv: { label: 'TV', lucide: 'tv', syn: ['television', 'screen', 'display'] },
-    computer: { label: 'Computer', lucide: 'monitor', syn: ['desktop', 'pc', 'monitor', 'workstation'] },
-    laptop: { label: 'Laptop', lucide: 'laptop', syn: ['notebook', 'macbook'] },
-    tablet: { label: 'Tablet', lucide: 'tablet', syn: ['ipad', 'pad'] },
-    phone: { label: 'Phone', lucide: 'smartphone', syn: ['smartphone', 'mobile', 'cell'] },
-    smartwatch: { label: 'Smartwatch', lucide: 'watch', syn: ['watch', 'wearable'] },
-    headphones: { label: 'Headphones', lucide: 'headphones', syn: ['earphones', 'headset', 'audio'] },
-    keyboard: { label: 'Keyboard', lucide: 'keyboard', syn: ['typing', 'keys'] },
-    mouse: { label: 'Mouse', lucide: 'mouse', syn: ['pointer', 'cursor'] },
-    gaming_console: { label: 'Gaming Console', lucide: 'gamepad-2', syn: ['console', 'playstation', 'xbox', 'games'] },
-    printer: { label: 'Printer', lucide: 'printer', syn: ['printing', 'print'] },
-    projector: { label: 'Projector', lucide: 'projector', syn: ['beamer', 'cinema', 'presentation'] },
-    camera: { label: 'Camera', lucide: 'camera', syn: ['photo', 'photography'] },
-    security_camera: { label: 'Security Camera', lucide: 'cctv', syn: ['cctv', 'surveillance'] },
-    smart_speaker: { label: 'Smart Speaker', lucide: 'speaker', syn: ['speaker', 'alexa', 'assistant'] },
-    router: { label: 'Router', lucide: 'router', syn: ['wifi', 'network', 'internet'] },
-    nas_drive: { label: 'NAS / External Drive', lucide: 'hard-drive', syn: ['storage', 'disk', 'backup'] },
-    server_rack: { label: 'Server', lucide: 'server', syn: ['server', 'homelab', 'compute'] },
-    smart_lock: { label: 'Smart Lock', lucide: 'lock', syn: ['lock', 'door', 'keyless'] },
-    lighting: { label: 'Lighting', lucide: 'lightbulb', syn: ['light', 'bulb', 'lamp'] },
-    generator: { label: 'Generator / Power', lucide: 'zap', syn: ['power', 'electricity', 'inverter'] },
-    lawn_garden: { label: 'Lawn & Garden', lucide: 'flower-2', syn: ['mower', 'garden', 'yard'] }
+// Curated household glyphs shown when the picker opens with an empty search.
+// This is only the initial view — typing searches ALL of LUCIDE_ICON_NAMES.
+// Mirrors DEFAULT_ICON_PICKER in homestew/services/device_icons.py.
+const DEVICE_ICON_STARTERS = [
+    'plug', 'refrigerator', 'snowflake', 'cooking-pot', 'droplets',
+    'microwave', 'washing-machine', 'coffee', 'blender', 'glass-water',
+    'air-vent', 'wind', 'cloud-rain', 'heater', 'thermometer', 'fan',
+    'robot-vacuum', 'flame', 'tv', 'monitor', 'laptop', 'tablet',
+    'smartphone', 'watch', 'headphones', 'keyboard', 'mouse', 'gamepad2',
+    'printer', 'projector', 'camera', 'cctv', 'speaker', 'router',
+    'hard-drive', 'server', 'lock', 'lightbulb', 'zap', 'plant-pot'
+];
+
+// How many icons the picker grid renders at once (the full set is ~2,100 —
+// rendering all of them per keystroke would freeze the UI). "Load more"
+// appends another page.
+const ICON_PAGE_SIZE = 120;
+
+// Names that read better as acronyms in picker labels. Mirrors
+// _ICON_LABEL_OVERRIDES in homestew/services/device_icons.py.
+const ICON_LABEL_OVERRIDES = {
+    cctv: 'CCTV', tv: 'TV', wifi: 'WiFi', led: 'LED', dvd: 'DVD',
+    usb: 'USB', pc: 'PC', hd: 'HD', id: 'ID', ai: 'AI', '3d': '3D'
 };
 
-// Search words per icon (never displayed): everyday wording like 'boiler',
-// 'aircon' or 'bbq' finds the right glyph in the picker's search box. The
-// key/label/syn sets MUST mirror DEVICE_ICON_CATALOG in
-// homestew/services/device_icons.py — the same sync test compares all three.
-function iconMatchesQuery(icon, key, words) {
-    // AND over the query words: every word must appear somewhere in the
-    // icon's key / label / synonym text (substring match, case-insensitive).
-    const blob = `${key.replace(/_/g, ' ')} ${icon.label.toLowerCase()} ${(icon.syn || []).join(' ')}`;
-    return words.every((w) => blob.includes(w));
+// Picker label for a kebab-case name: 'washing-machine' -> 'Washing Machine'.
+function iconLabel(name) {
+    return name.split('-').map((w) => ICON_LABEL_OVERRIDES[w] || w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-// Rank the catalog against a query: phrase on the key beats the label beats
-// the synonyms, plus a bonus per exact word match; ties keep map order.
-// Mirrors search_icon_keys() in homestew/services/device_icons.py.
-function filterDeviceIcons(query) {
+// Rank LUCIDE_ICON_NAMES against a query: AND over the words (every word
+// must be a substring of the name), phrase hits beat prefix hits beat plain
+// substring hits, exact hyphen-words add a bonus and shorter names win ties
+// ('coffee' ranks above 'coffee-bean'). Mirrors search_icon_keys() in
+// homestew/services/device_icons.py. Returns matching names (sorted).
+function filterIconNames(query) {
     const text = (query || '').trim().toLowerCase();
     const words = text.split(/[^a-z0-9]+/).filter(Boolean);
-    const entries = Object.entries(DEVICE_ICONS);
-    if (words.length === 0) return entries;
+    if (words.length === 0) return DEVICE_ICON_STARTERS.slice();
     const phrase = words.join(' ');
-    return entries
-        .filter(([key, icon]) => iconMatchesQuery(icon, key, words))
-        .map(([key, icon]) => {
-            const keyWords = key.replace(/_/g, ' ');
-            const labelL = icon.label.toLowerCase();
-            const synL = (icon.syn || []).map((s) => s.toLowerCase());
-            let score = 0;
-            if (keyWords.includes(phrase)) score += 8;
-            else if (labelL.includes(phrase)) score += 6;
-            else if (synL.some((s) => s.includes(phrase))) score += 4;
-            const exact = new Set(keyWords.split(' '));
-            for (const s of synL) s.split(/[^a-z0-9]+/).filter(Boolean).forEach((w) => exact.add(w));
-            words.forEach((w) => { if (exact.has(w)) score += 3; });
-            return [key, icon, score];
-        })
-        .sort((a, b) => b[2] - a[2])
-        .map(([key, icon]) => [key, icon]);
+    const scored = [];
+    for (const name of LUCIDE_ICON_NAMES) {
+        if (!words.every((w) => name.includes(w))) continue;
+        let score = 0;
+        if (name.includes(phrase)) score += 8;
+        if (name.startsWith(phrase)) score += 4;
+        else if (words.some((w) => name.startsWith(w))) score += 2;
+        const parts = new Set(name.split('-'));
+        words.forEach((w) => { if (parts.has(w)) score += 3; });
+        scored.push([name, -score, name.length]);
+    }
+    scored.sort((a, b) => a[1] - b[1] || a[2] - b[2] || (a[0] < b[0] ? -1 : 1));
+    return scored.map(([name]) => name);
 }
 
-// Placeholder markup for a device's icon key; null/unknown keys fall back to
-// the default appliance glyph. renderLucideIcons() replaces every
-// <i data-lucide> element with the real Lucide SVG after each dynamic render.
-function deviceIconSvg(key) {
-    const icon = DEVICE_ICONS[key] || DEVICE_ICONS[DEVICE_ICON_DEFAULT];
-    return `<i data-lucide="${icon.lucide}"></i>`;
+// Placeholder markup for a device's icon name; null/unknown names fall back
+// to the default glyph. renderLucideIcons() replaces every <i data-lucide>
+// element with the real Lucide SVG after each dynamic render.
+function deviceIconSvg(name) {
+    const safe = name && LUCIDE_ICON_NAMES.includes(name) ? name : DEVICE_ICON_DEFAULT;
+    return `<i data-lucide="${safe}"></i>`;
 }
 
 // Replace all <i data-lucide> placeholders in the document with their Lucide
@@ -1017,7 +987,8 @@ function renderLucideIcons() {
 // State of the open icon picker: which form field receives the choice and
 // whether picking saves immediately (card/sidebar click) or only fills the
 // form (Add/Edit dialog). currentKey keeps the selection highlighted across
-// search re-renders.
+// search re-renders; shown is how many of the current matches the grid has
+// rendered so far (the full set is ~2,100 — see ICON_PAGE_SIZE).
 let _iconPicker = null;
 
 function openIconPicker(prefix, deviceId, saveDirect) {
@@ -1060,26 +1031,56 @@ function onIconSearchKeydown(e) {
     }
 }
 
+// Render the first page of matches for `query`; "Load more" (renderMoreIcons)
+// appends further pages without re-running the search.
 function renderIconPickerGrid(currentKey, query) {
     const grid = document.getElementById('icon-picker-grid');
     if (!grid) return;
-    const matches = filterDeviceIcons(query);
+    const matches = filterIconNames(query);
+    if (_iconPicker) {
+        _iconPicker.matches = matches;
+        _iconPicker.shown = 0;
+    }
     const count = document.getElementById('icon-picker-count');
     if (count) {
-        count.textContent = matches.length === Object.keys(DEVICE_ICONS).length
-            ? `${matches.length} icons`
-            : `${matches.length} of ${Object.keys(DEVICE_ICONS).length} icons`;
+        count.textContent = query.trim()
+            ? `${matches.length} of ${LUCIDE_ICON_NAMES.length} icons`
+            : `${DEVICE_ICON_STARTERS.length} common of ${LUCIDE_ICON_NAMES.length} — search for anything`;
     }
     if (matches.length === 0) {
-        grid.innerHTML = `<div class="icon-picker-empty">No icon matches "${escapeHtml(query.trim())}". Try another word — e.g. 'coffee', 'wifi', 'bbq'.</div>`;
+        grid.innerHTML = `<div class="icon-picker-empty">No icon matches "${escapeHtml(query.trim())}". Try a simpler word — the name must contain it, e.g. 'coffee', 'wifi', 'lamp'.</div>`;
         return;
     }
-    grid.innerHTML = matches.map(([key, icon]) => `
-        <button type="button" class="icon-option${key === currentKey ? ' selected' : ''}"
-                title="${escapeHtml(icon.label)}" onclick="selectDeviceIcon('${key}')">
-            ${deviceIconSvg(key)}
-            <span>${escapeHtml(icon.label)}</span>
+    renderMoreIcons();
+}
+
+// Append the next ICON_PAGE_SIZE matches to the grid (also used for the
+// first page). Keeps huge result sets responsive: only what is shown gets
+// an SVG injected.
+function renderMoreIcons() {
+    const picker = _iconPicker;
+    const grid = document.getElementById('icon-picker-grid');
+    if (!picker || !grid || !picker.matches) return;
+    const from = picker.shown;
+    const to = Math.min(from + ICON_PAGE_SIZE, picker.matches.length);
+    const html = picker.matches.slice(from, to).map((name) => `
+        <button type="button" class="icon-option${name === picker.currentKey ? ' selected' : ''}"
+                title="${escapeHtml(iconLabel(name))}" onclick="selectDeviceIcon('${name}')">
+            ${deviceIconSvg(name)}
+            <span>${escapeHtml(iconLabel(name))}</span>
         </button>`).join('');
+    const more = picker.matches.length > to
+        ? `<button type="button" class="icon-load-more" onclick="renderMoreIcons()">Load ${Math.min(ICON_PAGE_SIZE, picker.matches.length - to)} more (${picker.matches.length - to} left)</button>`
+        : '';
+    if (from === 0) {
+        grid.innerHTML = html + more;
+    } else {
+        // Replace the old "Load more" row, then append the new page + next.
+        const oldMore = grid.querySelector('.icon-load-more');
+        if (oldMore) oldMore.remove();
+        grid.insertAdjacentHTML('beforeend', html + more);
+    }
+    picker.shown = to;
     renderLucideIcons();
 }
 

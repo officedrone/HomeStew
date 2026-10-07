@@ -1166,7 +1166,8 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
     gap: 8px;
-    margin-top: 4px;
+    /* Same breathing room below the search box as between two icon rows. */
+    margin-top: 8px;
 }
 
 .icon-option {
@@ -1249,6 +1250,25 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     text-align: center;
     color: var(--text-secondary);
     font-size: 0.85rem;
+}
+
+/* Appends the next page of matches to the picker grid (the full Lucide set
+   is ~2,100 icons, rendered ICON_PAGE_SIZE at a time). */
+.icon-load-more {
+    grid-column: 1 / -1;
+    padding: 10px;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--primary-color);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.icon-load-more:hover {
+    background: var(--bg-light);
+    border-color: var(--primary-color);
 }
 
 /* "Mark done" gets the matching green tint on hover. */

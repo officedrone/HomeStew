@@ -314,19 +314,19 @@ def test_bad_device_id_reports_how_to_find_ids(db_env):
 def test_create_with_valid_icon_stores_and_reports_it(db_env):
     report = run({
         "action": "create", "name": "Fridge", "brand": "LG", "model": "LFX",
-        "icon": "fridge",
+        "icon": "refrigerator",
     })
     assert report.startswith("Created device id=1:")
-    assert "icon=fridge" in report
-    assert fetch(1)["icon"] == "fridge"
+    assert "icon=refrigerator" in report
+    assert fetch(1)["icon"] == "refrigerator"
 
 
-def test_create_rejects_unknown_icon_and_lists_valid_keys(db_env):
+def test_create_rejects_unknown_icon_and_points_at_search(db_env):
     r = run({"action": "create", "name": "A", "brand": "B", "model": "C",
              "icon": "toaster"})
     assert r.startswith("Error") and "icon" in r
-    # The report teaches the model the real choices.
-    assert "fridge" in r and "coffee_maker" in r
+    # The report teaches the model how to find real keys.
+    assert "search_icons" in r
 
 
 def test_update_sets_icon(db_env):
@@ -342,7 +342,7 @@ def test_update_empty_icon_resets_to_default(db_env):
          "icon": "tv"})
     report = run({"action": "update", "device_id": 1, "icon": ""})
     assert report.startswith("Updated device id=1")
-    # Cleared -> NULL, which the frontend renders as the default appliance.
+    # Cleared -> NULL, which the frontend renders as the default glyph.
     assert fetch(1)["icon"] is None
 
 
@@ -354,118 +354,109 @@ def test_update_rejects_unknown_icon(db_env):
     assert fetch(1)["icon"] is None
 
 
-def test_icon_is_case_insensitive(db_env):
+def test_icon_is_case_insensitive_and_normalises_underscores(db_env):
     run({"action": "create", "name": "TV", "brand": "Sony", "model": "X1"})
-    r = run({"action": "update", "device_id": 1, "icon": "  Coffee_Maker "})
+    # Models habitually write snake_case; canonical Lucide names are kebab.
+    r = run({"action": "update", "device_id": 1, "icon": "  Washing_Machine "})
     assert r.startswith("Updated device id=1")
-    assert fetch(1)["icon"] == "coffee_maker"
+    assert fetch(1)["icon"] == "washing-machine"
 
 
 def test_list_reports_icon(db_env):
     run({"action": "create", "name": "Kettle", "brand": "Breville",
-         "model": "BKE", "icon": "coffee_maker"})
+         "model": "BKE", "icon": "coffee"})
     report = run({"action": "list"})
-    assert "icon=coffee_maker" in report
+    assert "icon=coffee" in report
 
 
-def test_icon_keys_match_frontend_picker():
-    """Backend DEVICE_ICON_CATALOG must mirror the frontend DEVICE_ICONS map.
+def test_icon_names_match_frontend_list():
+    """Backend lucide_icon_names.txt must mirror frontend/lucide-icon-names.js.
 
-    The glyphs live only in frontend/app.js; a key stored on a device that is
-    absent from that map renders the default glyph, so the two lists drifting
-    apart means the LLM offers icons the UI cannot draw (or vice-versa). The
-    search synonyms must match too - both sides implement the same filter and
-    users must get the same results in the picker as the model does via
-    action='search_icons'. This test parses each JS entry line and compares
-    key order, labels and synonym sets.
+    Both files are generated from the vendored lucide.min.js by
+    _gen_icon_names.py; a drift means one side offers names the other cannot
+    render. Also checks every curated DEFAULT_ICON_PICKER entry is valid and
+    that all names survive the API's stored-key pattern.
     """
     import re
     from pathlib import Path
 
-    from homestew.services.device_icons import DEVICE_ICON_CATALOG, DEVICE_ICON_KEYS
-
-    app_js = Path(__file__).resolve().parent.parent / "frontend" / "app.js"
-    src = app_js.read_text(encoding="utf-8")
-    # Each icon is one top-level entry line:
-    #   `    key: { label: '...', lucide: '...', syn: ['a', 'b'] },`
-    entries = re.findall(
-        r"^ {4}([a-z0-9_]+):\s*\{\s*label:\s*'([^']*)'[^}]*?"
-        r"syn:\s*\[([^\]]*)\]\s*\}",
-        src,
-        flags=re.MULTILINE,
+    from homestew.services.device_icons import (
+        DEFAULT_ICON_PICKER,
+        LUCIDE_ICON_NAMES,
     )
-    frontend = [
-        (key, label, tuple(s.strip().strip("'") for s in syns.split(",") if s.strip()))
-        for key, label, syns in entries
-    ]
-    frontend_keys = tuple(key for key, _l, _s in frontend)
-    assert frontend_keys == DEVICE_ICON_KEYS
-    assert len(frontend) == len(DEVICE_ICON_CATALOG)
-    for (fkey, flabel, fsyn), (bkey, blabel, bsyn) in zip(frontend, DEVICE_ICON_CATALOG):
-        assert fkey == bkey
-        assert flabel == blabel, f"label mismatch for {fkey}"
-        assert set(fsyn) == set(bsyn), f"synonym mismatch for {fkey}"
+
+    root = Path(__file__).resolve().parent.parent
+    js = (root / "frontend" / "lucide-icon-names.js").read_text(encoding="utf-8")
+    frontend_names = set(re.findall(r'"([a-z0-9][a-z0-9-]*)"', js))
+    assert frontend_names == set(LUCIDE_ICON_NAMES)
+
+    # Curated picker defaults must all be renderable names.
+    assert len(DEFAULT_ICON_PICKER) == len(set(DEFAULT_ICON_PICKER))
+    for name in DEFAULT_ICON_PICKER:
+        assert name in LUCIDE_ICON_NAMES, f"DEFAULT_ICON_PICKER has {name}"
+
+    # Every stored name fits the API schema pattern (^[a-z0-9_-]+$).
+    for name in LUCIDE_ICON_NAMES:
+        assert re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,49}", name), name
 
 
-# --- icon search (catalog matcher + tool action) ---------------------------
+# --- icon search (name matcher + tool action) ------------------------------
 
-def test_search_icon_keys_matches_key_label_and_synonyms():
+def test_search_icon_keys_matches_name_substrings():
     from homestew.services.device_icons import search_icon_keys
 
     keys = [k for k, _l in search_icon_keys("coffee")]
-    assert "coffee_maker" in keys
-    # Synonym hit: 'boiler' is not in any key/label of water_heater's text
-    # besides the synonym list.
-    assert [k for k, _l in search_icon_keys("boiler")] == ["water_heater"]
+    assert "coffee" in keys
+    # Partial match: the query need not be the full name.
+    assert "washing-machine" in [k for k, _l in search_icon_keys("washing")]
     # Multi-word AND semantics across words.
-    assert "water_heater" in [k for k, _l in search_icon_keys("water heater")]
-    # Substring tolerance on the key itself.
-    assert "air_conditioner" in [k for k, _l in search_icon_keys("condition")]
+    assert "lamp-ceiling" in [k for k, _l in search_icon_keys("lamp ceiling")]
+    # Substring tolerance mid-name.
+    assert "air-vent" in [k for k, _l in search_icon_keys("vent")]
 
 
 def test_search_icon_keys_and_semantics_reject_partial_queries():
     from homestew.services.device_icons import search_icon_keys
 
-    # 'wifi' matches router (synonym) but 'printer' must not survive the AND.
-    assert [k for k, _l in search_icon_keys("wifi printer")] == []
+    # 'wifi' matches many names but the AND with 'washing' must empty it.
+    assert search_icon_keys("wifi washing") == []
 
 
-def test_search_icon_keys_blank_returns_everything():
+def test_search_icon_keys_blank_returns_curated_picker():
     from homestew.services.device_icons import (
-        DEVICE_ICON_CATALOG,
+        DEFAULT_ICON_PICKER,
         search_icon_keys,
     )
 
-    assert search_icon_keys("") == [
-        (k, l) for k, l, _s in DEVICE_ICON_CATALOG
-    ]
-    # Punctuation-only queries carry no words: no matches (not the catalog).
+    # A blank query returns the curated initial view, not all ~2,100 names.
+    assert [k for k, _l in search_icon_keys("")] == list(DEFAULT_ICON_PICKER)
+    # Punctuation-only queries carry no words: no matches (not the picker).
     assert search_icon_keys("!!!") == []
 
 
-def test_search_icon_keys_ranks_exact_key_first():
+def test_search_icon_keys_ranks_exact_name_first():
     from homestew.services.device_icons import search_icon_keys
 
     keys = [k for k, _l in search_icon_keys("fan")]
-    assert keys[0] == "fan"  # exact key word beats 'cooling' synonym hits
+    assert keys[0] == "fan"  # exact name beats fan-tastic longer names
 
 
 def test_search_icons_action_reports_matches_for_the_model(db_env):
     r = run({"action": "search_icons", "query": "coffee"})
-    assert r.startswith("1 icon") or "icon(s) match" in r
-    assert "coffee_maker" in r
+    assert "icon(s) match" in r
+    assert "coffee" in r
 
 
-def test_search_icons_action_finds_synonyms_and_caps_list(db_env):
-    r = run({"action": "search_icons", "query": "bbq"})
-    assert "grill" in r
+def test_search_icons_action_finds_partial_names(db_env):
+    r = run({"action": "search_icons", "query": "washing"})
+    assert "washing-machine" in r
 
 
-def test_search_icons_action_no_match_offers_full_list(db_env):
+def test_search_icons_action_no_match_points_at_simpler_words(db_env):
     r = run({"action": "search_icons", "query": "spaceship"})
     assert "No icon matches" in r
-    # The fallback teaches the model the real choices.
-    assert "fridge" in r and "coffee_maker" in r
+    # The fallback teaches the model how to search again.
+    assert "Lucide" in r
 
 
 def test_search_icons_action_empty_query_asks_for_words(db_env):
