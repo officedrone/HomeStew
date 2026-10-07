@@ -32,6 +32,7 @@ from fastapi.concurrency import run_in_threadpool
 from homestew.config import settings
 from homestew.db import get_db_context
 from homestew.models.schemas import BackupData
+from homestew.services.device_icons import is_valid_icon_key
 from homestew.services.indexer import (
     get_index_status,
     start_background_reindex,
@@ -384,7 +385,9 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
                 (
                     d.name, d.brand, d.model, d.description or "",
                     d.serial_number, d.product_number, purchase, length, unit, end,
-                    d.icon,
+                    # Pre-Lucide backups carry curated keys ('fridge') that
+                    # no longer render: restore them as NULL (default glyph).
+                    d.icon if is_valid_icon_key(d.icon or "") else None,
                     d.created_at, d.updated_at,
                 ),
             )

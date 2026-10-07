@@ -886,8 +886,8 @@
 
             <form id="add-device-form" class="device-form modal-form">
                 <input type="hidden" id="device-icon">
-                <!-- Icon: stores a key into the DEVICE_ICONS set in app.js;
-                     empty = default appliance glyph. -->
+                <!-- Icon: stores a Lucide icon name (kebab-case); empty =
+                     default plug glyph. Chosen from the full Lucide set. -->
                 <div class="settings-field device-icon-field">
                     <label>Icon</label>
                     <div class="icon-picker-row">
@@ -970,8 +970,8 @@
             <form id="edit-device-form" class="device-form modal-form">
                 <input type="hidden" id="edit-device-id">
                 <input type="hidden" id="edit-device-icon">
-                <!-- Icon: stores a key into the DEVICE_ICONS set in app.js;
-                     empty = default appliance glyph. -->
+                <!-- Icon: stores a Lucide icon name (kebab-case); empty =
+                     default plug glyph. Chosen from the full Lucide set. -->
                 <div class="settings-field device-icon-field">
                     <label>Icon</label>
                     <div class="icon-picker-row">
@@ -1068,13 +1068,22 @@
         </div>
     </div>
 
-    <!-- Icon Picker dialog: grid of the built-in appliance/electronics glyphs
-         (DEVICE_ICONS in app.js). Stacks on top of the Add/Edit dialogs and
-         closes with Escape before them. -->
+    <!-- Icon Picker dialog: searches the FULL Lucide set (~2,100 glyphs, the
+         names come from frontend/lucide-icon-names.js). An empty search shows
+         curated household icons; typing filters live client-side by name
+         substring and results page in via "Load more". Stacks on top of the
+         Add/Edit dialogs and closes with Escape before them. -->
     <div id="icon-picker-modal" class="modal">
         <div class="modal-content modal-medium">
             <span class="modal-close" onclick="closeIconPicker()">&times;</span>
             <h2>Choose an Icon</h2>
+            <div class="icon-picker-search-row">
+                <input type="text" id="icon-picker-search" class="icon-picker-search"
+                       placeholder="Search icons... (e.g. coffee, microwave, computer, etc.)"
+                       autocomplete="off" aria-label="Search icons"
+                       oninput="onIconSearchInput()" onkeydown="onIconSearchKeydown(event)">
+                <span id="icon-picker-count" class="icon-picker-count"></span>
+            </div>
             <div id="icon-picker-grid" class="icon-picker-grid"></div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeIconPicker()">Cancel</button>
@@ -1344,6 +1353,7 @@
     <script src="/static/vendor/marked.min.js"></script>
     <script src="/static/vendor/purify.min.js"></script>
     <script src="/static/vendor/lucide.min.js"></script>
+    <script src="/static/lucide-icon-names.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

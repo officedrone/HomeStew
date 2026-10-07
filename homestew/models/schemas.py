@@ -24,7 +24,7 @@ class DeviceBase(BaseModel):
         None,
         max_length=50,
         pattern="^[a-z0-9_-]+$",
-        description="Key of the device icon in the frontend icon set (e.g. 'fridge'); null = default appliance icon",
+        description="Lucide icon name in kebab-case (e.g. 'washing-machine'); null = default plug icon",
     )
 
 
@@ -59,6 +59,12 @@ class DeviceAttribute(BaseModel):
         from_attributes = True
 
 
+class DeviceIconOption(BaseModel):
+    """One selectable device icon, as offered by GET /api/devices/icons."""
+    key: str = Field(..., description="Lucide icon name stored on the device (e.g. 'washing-machine')")
+    label: str = Field(..., description="Human-readable label shown in the picker")
+
+
 class DeviceResponse(BaseModel):
     """Device response with additional metadata."""
     id: int
@@ -72,7 +78,7 @@ class DeviceResponse(BaseModel):
     warranty_length: Optional[int] = None
     warranty_unit: Optional[str] = None
     warranty_end: Optional[date] = None
-    icon: Optional[str] = Field(None, description="Icon key from the frontend icon set; null = default appliance icon")
+    icon: Optional[str] = Field(None, description="Lucide icon name (kebab-case); null = default plug icon")
     created_at: datetime = Field(..., description="When the device was added (read-only)")
     updated_at: datetime = Field(..., description="When the device was last modified (read-only)")
     manual_count: int = 0
@@ -717,7 +723,9 @@ class BackupDevice(BaseModel):
     warranty_length: Optional[int] = None
     warranty_unit: Optional[str] = None
     warranty_end: Optional[str] = None
-    # Old backups have no "icon" key; None restores the default appliance icon.
+    # Old backups have no "icon" key; None restores the default plug icon.
+    # Pre-Lucide backups may hold curated keys ('fridge') — restore nulls
+    # anything that is not a renderable Lucide name.
     icon: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None

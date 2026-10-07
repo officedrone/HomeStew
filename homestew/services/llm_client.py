@@ -21,7 +21,7 @@ from homestew.default_prompts import (
     DEFAULT_DEVICE_TOOL_DESCRIPTION,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
-from homestew.services.device_icons import DEVICE_ICON_KEYS
+from homestew.services.device_icons import DEFAULT_DEVICE_ICON
 
 logger = logging.getLogger(__name__)
 
@@ -522,6 +522,7 @@ def create_device_tool() -> Dict[str, Any]:
                         "type": "string",
                         "enum": [
                             "search_devices",
+                            "search_icons",
                             "create",
                             "update",
                             "list",
@@ -535,20 +536,24 @@ def create_device_tool() -> Dict[str, Any]:
                             "work laptop') and returns its brand, model and "
                             "attributes - call it FIRST for any question "
                             "about a device named by nickname before "
-                            "searching manuals; create a device, update an "
-                            "existing one (needs device_id), list devices "
-                            "(to find ids/details), add or remove a custom "
-                            "attribute, or delete - which is refused and "
-                            "returns a link for the user to delete it "
+                            "searching manuals; search_icons finds icon keys "
+                            "matching a description (query='coffee') when "
+                            "you are unsure which key fits; create a device, "
+                            "update an existing one (needs device_id), list "
+                            "devices (to find ids/details), add or remove a "
+                            "custom attribute, or delete - which is refused "
+                            "and returns a link for the user to delete it "
                             "themselves."
                         ),
                     },
                     "query": {
                         "type": "string",
                         "description": (
-                            "For action='search_devices' only: how the user "
+                            "For action='search_devices': how the user "
                             "referred to the device, e.g. 'work laptop'. Use "
-                            "their own words, minus question words."
+                            "their own words, minus question words. For "
+                            "action='search_icons': what the icon should "
+                            "look like, e.g. 'coffee' or 'wifi'."
                         ),
                     },
                     "device_id": {
@@ -603,17 +608,23 @@ def create_device_tool() -> Dict[str, Any]:
                     },
                     "icon": {
                         "type": "string",
-                        # Enum (not free text): the glyph set is fixed in the
-                        # frontend, so only these keys ever render. The empty
-                        # string resets to the default appliance glyph.
-                        "enum": list(DEVICE_ICON_KEYS) + [""],
+                        # Free text (not an enum): keys are raw Lucide icon
+                        # names (~2,100, kebab-case) and the executor rejects
+                        # anything that would not render. The empty string
+                        # resets to the default glyph.
+                        "maxLength": 50,
                         "description": (
-                            "Icon shown for the device in the UI. Use it when "
-                            "the user asks to set/change/reset the icon, or "
-                            "pick one matching the device type on create when "
-                            "obvious (e.g. 'fridge' for a refrigerator). "
-                            "Empty string resets to the default appliance "
-                            "glyph. Never invent a key outside this list."
+                            "Icon shown for the device in the UI: a Lucide "
+                            "icon name in kebab-case (e.g. 'refrigerator', "
+                            "'washing-machine', 'router'). Use it when the "
+                            "user asks to set/change/reset the icon, or pick "
+                            "one matching the device type on create when "
+                            "obvious. Do NOT guess names: call "
+                            "action='search_icons' with a short query (e.g. "
+                            "'heater', 'wifi', 'lamp') and use a returned "
+                            "key - unknown keys are rejected. Empty string "
+                            f"resets to the default '{DEFAULT_DEVICE_ICON}' "
+                            "glyph."
                         ),
                     },
                     "attribute_name": {

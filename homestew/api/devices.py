@@ -8,7 +8,15 @@ from typing import List
 
 from homestew.config import settings
 from homestew.db import get_db_context
-from homestew.models.schemas import Device, DeviceCreate, DeviceResponse, DeviceAttribute, Manual
+from homestew.models.schemas import (
+    Device,
+    DeviceAttribute,
+    DeviceCreate,
+    DeviceIconOption,
+    DeviceResponse,
+    Manual,
+)
+from homestew.services.device_icons import search_icon_keys
 from homestew.services.indexer import index_manual
 from homestew.services.warranty import warranty_fields
 
@@ -139,6 +147,22 @@ async def list_devices():
             _row_to_response(row, row['manual_count'], attrs_by_device.get(row['id'], []))
             for row in rows
         ]
+
+
+@router.get("/icons", response_model=List[DeviceIconOption])
+async def list_device_icons(q: str = ""):
+    """Return the selectable device icons, optionally filtered by ``q``.
+
+    The picker dialog ships the whole catalog and filters it client-side for
+    instant results; this endpoint exists for programmatic callers (and any
+    future UI) that want the same search the manage_devices tool's
+    ``search_icons`` action applies. An empty ``q`` returns every icon.
+    Registered before ``/{device_id}`` so the literal path wins.
+    """
+    return [
+        DeviceIconOption(key=key, label=label)
+        for key, label in search_icon_keys(q)
+    ]
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)

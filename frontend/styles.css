@@ -1031,6 +1031,10 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 
 .device-card .device-name {
     color: var(--text-primary);
+    /* Grow to fill the space between the icon and the action buttons so the
+       name stays flush-left against the icon (its text-align defaults to left)
+       at any card width, instead of floating centered by space-between. */
+    flex: 1;
     /* Allow the (nowrap/ellipsis) name to shrink instead of pushing the
        action buttons out of the card. */
     min-width: 0;
@@ -1162,7 +1166,8 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
     gap: 8px;
-    margin-top: 4px;
+    /* Same breathing room below the search box as between two icon rows. */
+    margin-top: 8px;
 }
 
 .icon-option {
@@ -1199,6 +1204,71 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     border-color: var(--primary-color);
     background: color-mix(in srgb, var(--primary-color) 8%, var(--surface));
     color: var(--primary-color);
+}
+
+/* Icon Picker search row: live filter box above the grid (the modal is a
+   light surface, so the input matches .device-form.modal-form's fields). */
+.icon-picker-search-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.icon-picker-search {
+    flex: 1;
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.icon-picker-search:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: var(--ring);
+}
+
+.icon-picker-search::placeholder {
+    color: var(--text-secondary);
+}
+
+/* "N of M icons" counter beside the search box. */
+.icon-picker-count {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Shown in the grid area when no icon matches the search. */
+.icon-picker-empty {
+    grid-column: 1 / -1;
+    padding: 24px 8px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* Appends the next page of matches to the picker grid (the full Lucide set
+   is ~2,100 icons, rendered ICON_PAGE_SIZE at a time). */
+.icon-load-more {
+    grid-column: 1 / -1;
+    padding: 10px;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--primary-color);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.icon-load-more:hover {
+    background: var(--bg-light);
+    border-color: var(--primary-color);
 }
 
 /* "Mark done" gets the matching green tint on hover. */

@@ -81,13 +81,29 @@ async def init_db():
             except sqlite3.OperationalError:
                 pass  # Column already exists
         
-        # Icon: a key into the frontend's built-in icon set (e.g. "fridge",
-        # "tv"). NULL means "no icon chosen" and renders the default
-        # appliance glyph, so no backfill is needed.
+        # Icon: a kebab-case Lucide icon name (e.g. "washing-machine", "tv").
+        # NULL means "no icon chosen" and renders the default glyph.
         try:
             await db.execute("ALTER TABLE devices ADD COLUMN icon TEXT")
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # v0.1.9: icons moved from a curated key list ("fridge", "washer",
+        # ...) to raw Lucide names. Keys that are not valid Lucide names are
+        # orphaned and would render the default glyph anyway, so clear them
+        # once (idempotent — after this every stored icon is renderable).
+        from homestew.services.device_icons import LUCIDE_ICON_NAMES
+
+        cursor = await db.execute("SELECT id, icon FROM devices WHERE icon IS NOT NULL")
+        orphaned = [row[0] for row in await cursor.fetchall() if row[1] not in LUCIDE_ICON_NAMES]
+        # Batch to stay under SQLite's host-parameter limit.
+        for i in range(0, len(orphaned), 500):
+            chunk = orphaned[i:i + 500]
+            placeholders = ",".join("?" * len(chunk))
+            await db.execute(
+                f"UPDATE devices SET icon = NULL WHERE id IN ({placeholders})",
+                chunk,
+            )
         
         # Audit timestamps: SQLite rejects CURRENT_TIMESTAMP as an ALTER
         # default, so add the column plainly and backfill existing rows from

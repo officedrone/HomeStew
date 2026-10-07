@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.7]
+
+- ADD: The icon picker now has live search across the full Lucide set (~2,100 icons); a blank search shows 40 common glyphs and "Load more" pages long results.
+- ADD: The assistant can set any Lucide icon by name via chat and gained a `search_icons` action to find names first.
+- UPDATE: Icons are stored as raw Lucide names; unknown legacy keys reset to the default plug icon on startup.
+- FIX: Device name on a device card now stays left-aligned next to its icon at any card width (previously it floated toward center as the card grew).
+
 ## [0.1.6]
 
 - ADD: "New Device" now offers an AI shortcut when a model is configured: a chooser asks whether to enter details manually or add the device via AI Chat.
