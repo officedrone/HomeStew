@@ -29,13 +29,18 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from homestew.db import get_db_context
-from homestew.services.device_icons import DEFAULT_DEVICE_ICON, DEVICE_ICON_KEYS
+from homestew.services.device_icons import (
+    DEFAULT_DEVICE_ICON,
+    DEVICE_ICON_KEYS,
+    search_icon_keys,
+)
 from homestew.services.warranty import WARRANTY_UNITS, compute_warranty_end
 
 logger = logging.getLogger(__name__)
 
 _ACTIONS = (
     "search_devices",
+    "search_icons",
     "create",
     "update",
     "list",
@@ -114,6 +119,35 @@ def _icon_error(value: str) -> str:
         + ", ".join(DEVICE_ICON_KEYS)
         + ". Pick the one closest to what the device is, or pass an empty "
         f"string to reset it to the default '{DEFAULT_DEVICE_ICON}' glyph."
+    )
+
+
+def _search_icons(args: Dict[str, Any]) -> str:
+    """Report matching icon keys for a free-text query (action='search_icons').
+
+    Same matcher as GET /api/devices/icons and the picker's search box: every
+    query word must appear in an icon's key/label/synonym text. The model gets
+    the ranked matches and decides which fits - it is never forced to pick,
+    and only keys from this list may be passed to create/update.
+    """
+    raw = _clean_text(args.get("query"), 100)
+    matches = search_icon_keys(raw)
+    if not raw:
+        return (
+            "Pass a 'query' describing the icon you need (e.g. 'coffee', "
+            "'wifi', 'bbq', 'water heater'). An empty query lists every key."
+        )
+    if not matches:
+        return (
+            f"No icon matches '{raw}'. Try simpler words (drop question words, "
+            "keep one or two nouns like 'coffee' or 'fan'), or pick from the "
+            "full list: " + ", ".join(DEVICE_ICON_KEYS) + "."
+        )
+    lines = [f"- {key} ({label})" for key, label in matches]
+    return (
+        f"{len(matches)} icon(s) match '{raw}' (best first). Pick the key "
+        "closest to what the user wants and pass it as 'icon' to create/"
+        "update - only these keys render:\n" + "\n".join(lines)
     )
 
 
@@ -878,6 +912,9 @@ async def execute_device_tool(
     try:
         if action == "search_devices":
             return await _search_devices(args, chat_device_id)
+        if action == "search_icons":
+            # Pure catalog lookup - no db, no device scope needed.
+            return _search_icons(args)
         if action == "create":
             return await _create(args, chat_device_id)
         if action == "update":

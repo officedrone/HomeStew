@@ -369,22 +369,105 @@ def test_list_reports_icon(db_env):
 
 
 def test_icon_keys_match_frontend_picker():
-    """Backend DEVICE_ICON_KEYS must mirror the frontend DEVICE_ICONS map.
+    """Backend DEVICE_ICON_CATALOG must mirror the frontend DEVICE_ICONS map.
 
     The glyphs live only in frontend/app.js; a key stored on a device that is
     absent from that map renders the default glyph, so the two lists drifting
-    apart means the LLM offers icons the UI cannot draw (or vice-versa). This
-    test parses the JS object's entry keys and compares them, order included.
+    apart means the LLM offers icons the UI cannot draw (or vice-versa). The
+    search synonyms must match too - both sides implement the same filter and
+    users must get the same results in the picker as the model does via
+    action='search_icons'. This test parses each JS entry line and compares
+    key order, labels and synonym sets.
     """
     import re
     from pathlib import Path
 
-    from homestew.services.device_icons import DEVICE_ICON_KEYS
+    from homestew.services.device_icons import DEVICE_ICON_CATALOG, DEVICE_ICON_KEYS
 
     app_js = Path(__file__).resolve().parent.parent / "frontend" / "app.js"
     src = app_js.read_text(encoding="utf-8")
-    # Each icon is one top-level entry line: `    key: { label: '...', ... }`
-    frontend_keys = re.findall(
-        r"^ {4}([a-z0-9_]+):\s*\{\s*label:", src, flags=re.MULTILINE
+    # Each icon is one top-level entry line:
+    #   `    key: { label: '...', lucide: '...', syn: ['a', 'b'] },`
+    entries = re.findall(
+        r"^ {4}([a-z0-9_]+):\s*\{\s*label:\s*'([^']*)'[^}]*?"
+        r"syn:\s*\[([^\]]*)\]\s*\}",
+        src,
+        flags=re.MULTILINE,
     )
-    assert tuple(frontend_keys) == DEVICE_ICON_KEYS
+    frontend = [
+        (key, label, tuple(s.strip().strip("'") for s in syns.split(",") if s.strip()))
+        for key, label, syns in entries
+    ]
+    frontend_keys = tuple(key for key, _l, _s in frontend)
+    assert frontend_keys == DEVICE_ICON_KEYS
+    assert len(frontend) == len(DEVICE_ICON_CATALOG)
+    for (fkey, flabel, fsyn), (bkey, blabel, bsyn) in zip(frontend, DEVICE_ICON_CATALOG):
+        assert fkey == bkey
+        assert flabel == blabel, f"label mismatch for {fkey}"
+        assert set(fsyn) == set(bsyn), f"synonym mismatch for {fkey}"
+
+
+# --- icon search (catalog matcher + tool action) ---------------------------
+
+def test_search_icon_keys_matches_key_label_and_synonyms():
+    from homestew.services.device_icons import search_icon_keys
+
+    keys = [k for k, _l in search_icon_keys("coffee")]
+    assert "coffee_maker" in keys
+    # Synonym hit: 'boiler' is not in any key/label of water_heater's text
+    # besides the synonym list.
+    assert [k for k, _l in search_icon_keys("boiler")] == ["water_heater"]
+    # Multi-word AND semantics across words.
+    assert "water_heater" in [k for k, _l in search_icon_keys("water heater")]
+    # Substring tolerance on the key itself.
+    assert "air_conditioner" in [k for k, _l in search_icon_keys("condition")]
+
+
+def test_search_icon_keys_and_semantics_reject_partial_queries():
+    from homestew.services.device_icons import search_icon_keys
+
+    # 'wifi' matches router (synonym) but 'printer' must not survive the AND.
+    assert [k for k, _l in search_icon_keys("wifi printer")] == []
+
+
+def test_search_icon_keys_blank_returns_everything():
+    from homestew.services.device_icons import (
+        DEVICE_ICON_CATALOG,
+        search_icon_keys,
+    )
+
+    assert search_icon_keys("") == [
+        (k, l) for k, l, _s in DEVICE_ICON_CATALOG
+    ]
+    # Punctuation-only queries carry no words: no matches (not the catalog).
+    assert search_icon_keys("!!!") == []
+
+
+def test_search_icon_keys_ranks_exact_key_first():
+    from homestew.services.device_icons import search_icon_keys
+
+    keys = [k for k, _l in search_icon_keys("fan")]
+    assert keys[0] == "fan"  # exact key word beats 'cooling' synonym hits
+
+
+def test_search_icons_action_reports_matches_for_the_model(db_env):
+    r = run({"action": "search_icons", "query": "coffee"})
+    assert r.startswith("1 icon") or "icon(s) match" in r
+    assert "coffee_maker" in r
+
+
+def test_search_icons_action_finds_synonyms_and_caps_list(db_env):
+    r = run({"action": "search_icons", "query": "bbq"})
+    assert "grill" in r
+
+
+def test_search_icons_action_no_match_offers_full_list(db_env):
+    r = run({"action": "search_icons", "query": "spaceship"})
+    assert "No icon matches" in r
+    # The fallback teaches the model the real choices.
+    assert "fridge" in r and "coffee_maker" in r
+
+
+def test_search_icons_action_empty_query_asks_for_words(db_env):
+    r = run({"action": "search_icons"})
+    assert r.startswith("Pass a 'query'")

@@ -123,6 +123,50 @@ def test_invalid_icon_keys_rejected_with_422(client, bad):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/devices/icons - the selectable icon catalog + search
+# ---------------------------------------------------------------------------
+
+def test_icons_endpoint_lists_whole_catalog(client):
+    r = client.get("/api/devices/icons")
+    assert r.status_code == 200
+    icons = r.json()
+    # Every entry is a key/label pair and the default is present.
+    assert {"key": "appliance", "label": "Appliance (default)"} in icons
+    keys = [i["key"] for i in icons]
+    assert len(keys) == len(set(keys))
+    assert "fridge" in keys and "coffee_maker" in keys
+
+
+def test_icons_endpoint_filters_by_query(client):
+    r = client.get("/api/devices/icons", params={"q": "coffee"})
+    assert r.status_code == 200
+    keys = [i["key"] for i in r.json()]
+    assert "coffee_maker" in keys
+    # The AND semantics keep unrelated icons out.
+    assert "fridge" not in keys
+
+
+def test_icons_endpoint_matches_synonyms(client):
+    # 'boiler' only exists in water_heater's synonym list, never in a key or
+    # label - proof the endpoint searches synonyms, not just names.
+    keys = [i["key"] for i in client.get("/api/devices/icons", params={"q": "boiler"}).json()]
+    assert keys == ["water_heater"]
+
+
+def test_icons_endpoint_unknown_query_returns_empty_list(client):
+    r = client.get("/api/devices/icons", params={"q": "spaceship"})
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_icons_route_wins_over_device_id_route(client):
+    # "/icons" must resolve to the catalog, not to get_device(device_id="icons").
+    r = client.get("/api/devices/icons")
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+# ---------------------------------------------------------------------------
 # init_db migration: legacy devices table without the icon column
 # ---------------------------------------------------------------------------
 

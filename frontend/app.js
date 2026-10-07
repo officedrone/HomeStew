@@ -732,11 +732,13 @@ function setupEventListeners() {
         // The setup wizard is intentionally absent: skipping/saving a step
         // must persist its resolution, so it can't be dismissed with Escape.
         // The icon picker comes first: Escape closes it before the editor
-        // dialog it is stacked on top of.
+        // dialog it is stacked on top of (closeIconPicker also clears the
+        // picker state so a stale query never survives a dismissal).
         for (const id of ['icon-picker-modal', 'new-device-choice-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
-                modal.style.display = 'none';
+                if (id === 'icon-picker-modal') closeIconPicker();
+                else modal.style.display = 'none';
                 return;
             }
         }
@@ -908,48 +910,91 @@ const CARD_ACTION_ICONS = {
 
 const DEVICE_ICON_DEFAULT = 'appliance';
 
+// Each entry: display label, Lucide glyph name, and `syn` — extra lowercase
+// search words used by the picker's filter box (see iconMatchesQuery). The
+// key order, labels and syn lists MUST mirror DEVICE_ICON_CATALOG in
+// homestew/services/device_icons.py (tests/test_device_tool.py enforces it).
 const DEVICE_ICONS = {
-    appliance: { label: 'Appliance (default)', lucide: 'plug' },
-    fridge: { label: 'Fridge', lucide: 'refrigerator' },
-    freezer: { label: 'Freezer', lucide: 'snowflake' },
-    oven: { label: 'Oven / Stove', lucide: 'cooking-pot' },
-    dishwasher: { label: 'Dishwasher', lucide: 'droplets' },
-    microwave: { label: 'Microwave', lucide: 'microwave' },
-    washer: { label: 'Washing Machine', lucide: 'washing-machine' },
-    coffee_maker: { label: 'Coffee Maker', lucide: 'coffee' },
-    blender: { label: 'Blender', lucide: 'blender' },
-    water_dispenser: { label: 'Water Dispenser / Filter', lucide: 'glass-water' },
-    air_conditioner: { label: 'Air Conditioner / HVAC', lucide: 'air-vent' },
-    air_purifier: { label: 'Air Purifier', lucide: 'wind' },
-    humidifier: { label: 'Humidifier', lucide: 'cloud-rain' },
-    water_heater: { label: 'Water Heater / Boiler', lucide: 'heater' },
-    thermostat: { label: 'Thermostat', lucide: 'thermometer' },
-    fan: { label: 'Fan', lucide: 'fan' },
-    vacuum: { label: 'Vacuum', lucide: 'robot-vacuum' },
-    grill: { label: 'Grill / Fire Pit', lucide: 'flame-kindling' },
-    tv: { label: 'TV', lucide: 'tv' },
-    computer: { label: 'Computer', lucide: 'monitor' },
-    laptop: { label: 'Laptop', lucide: 'laptop' },
-    tablet: { label: 'Tablet', lucide: 'tablet' },
-    phone: { label: 'Phone', lucide: 'smartphone' },
-    smartwatch: { label: 'Smartwatch', lucide: 'watch' },
-    headphones: { label: 'Headphones', lucide: 'headphones' },
-    keyboard: { label: 'Keyboard', lucide: 'keyboard' },
-    mouse: { label: 'Mouse', lucide: 'mouse' },
-    gaming_console: { label: 'Gaming Console', lucide: 'gamepad-2' },
-    printer: { label: 'Printer', lucide: 'printer' },
-    projector: { label: 'Projector', lucide: 'projector' },
-    camera: { label: 'Camera', lucide: 'camera' },
-    security_camera: { label: 'Security Camera', lucide: 'cctv' },
-    smart_speaker: { label: 'Smart Speaker', lucide: 'speaker' },
-    router: { label: 'Router', lucide: 'router' },
-    nas_drive: { label: 'NAS / External Drive', lucide: 'hard-drive' },
-    server_rack: { label: 'Server', lucide: 'server' },
-    smart_lock: { label: 'Smart Lock', lucide: 'lock' },
-    lighting: { label: 'Lighting', lucide: 'lightbulb' },
-    generator: { label: 'Generator / Power', lucide: 'zap' },
-    lawn_garden: { label: 'Lawn & Garden', lucide: 'flower-2' }
+    appliance: { label: 'Appliance (default)', lucide: 'plug', syn: ['plug', 'generic', 'electronics'] },
+    fridge: { label: 'Fridge', lucide: 'refrigerator', syn: ['refrigerator', 'cooler', 'icebox'] },
+    freezer: { label: 'Freezer', lucide: 'snowflake', syn: ['freeze', 'ice', 'deep freezer'] },
+    oven: { label: 'Oven / Stove', lucide: 'cooking-pot', syn: ['stove', 'range', 'cooker'] },
+    dishwasher: { label: 'Dishwasher', lucide: 'droplets', syn: ['dishes', 'dish washer'] },
+    microwave: { label: 'Microwave', lucide: 'microwave', syn: ['micro', 'reheat'] },
+    washer: { label: 'Washing Machine', lucide: 'washing-machine', syn: ['laundry', 'washing machine'] },
+    coffee_maker: { label: 'Coffee Maker', lucide: 'coffee', syn: ['coffee', 'espresso', 'cup'] },
+    blender: { label: 'Blender', lucide: 'blender', syn: ['smoothie', 'mixer', 'juicer'] },
+    water_dispenser: { label: 'Water Dispenser / Filter', lucide: 'glass-water', syn: ['water', 'filter', 'dispenser'] },
+    air_conditioner: { label: 'Air Conditioner / HVAC', lucide: 'air-vent', syn: ['ac', 'aircon', 'cooling', 'hvac'] },
+    air_purifier: { label: 'Air Purifier', lucide: 'wind', syn: ['purifier', 'clean air'] },
+    humidifier: { label: 'Humidifier', lucide: 'cloud-rain', syn: ['mist', 'moisture', 'steam'] },
+    water_heater: { label: 'Water Heater / Boiler', lucide: 'heater', syn: ['boiler', 'hot water', 'geyser'] },
+    thermostat: { label: 'Thermostat', lucide: 'thermometer', syn: ['temperature', 'climate', 'heating'] },
+    fan: { label: 'Fan', lucide: 'fan', syn: ['blower', 'cooling'] },
+    vacuum: { label: 'Vacuum', lucide: 'robot-vacuum', syn: ['robot vacuum', 'cleaning', 'hoover'] },
+    grill: { label: 'Grill / Fire Pit', lucide: 'flame-kindling', syn: ['bbq', 'barbecue', 'smoker', 'fire pit'] },
+    tv: { label: 'TV', lucide: 'tv', syn: ['television', 'screen', 'display'] },
+    computer: { label: 'Computer', lucide: 'monitor', syn: ['desktop', 'pc', 'monitor', 'workstation'] },
+    laptop: { label: 'Laptop', lucide: 'laptop', syn: ['notebook', 'macbook'] },
+    tablet: { label: 'Tablet', lucide: 'tablet', syn: ['ipad', 'pad'] },
+    phone: { label: 'Phone', lucide: 'smartphone', syn: ['smartphone', 'mobile', 'cell'] },
+    smartwatch: { label: 'Smartwatch', lucide: 'watch', syn: ['watch', 'wearable'] },
+    headphones: { label: 'Headphones', lucide: 'headphones', syn: ['earphones', 'headset', 'audio'] },
+    keyboard: { label: 'Keyboard', lucide: 'keyboard', syn: ['typing', 'keys'] },
+    mouse: { label: 'Mouse', lucide: 'mouse', syn: ['pointer', 'cursor'] },
+    gaming_console: { label: 'Gaming Console', lucide: 'gamepad-2', syn: ['console', 'playstation', 'xbox', 'games'] },
+    printer: { label: 'Printer', lucide: 'printer', syn: ['printing', 'print'] },
+    projector: { label: 'Projector', lucide: 'projector', syn: ['beamer', 'cinema', 'presentation'] },
+    camera: { label: 'Camera', lucide: 'camera', syn: ['photo', 'photography'] },
+    security_camera: { label: 'Security Camera', lucide: 'cctv', syn: ['cctv', 'surveillance'] },
+    smart_speaker: { label: 'Smart Speaker', lucide: 'speaker', syn: ['speaker', 'alexa', 'assistant'] },
+    router: { label: 'Router', lucide: 'router', syn: ['wifi', 'network', 'internet'] },
+    nas_drive: { label: 'NAS / External Drive', lucide: 'hard-drive', syn: ['storage', 'disk', 'backup'] },
+    server_rack: { label: 'Server', lucide: 'server', syn: ['server', 'homelab', 'compute'] },
+    smart_lock: { label: 'Smart Lock', lucide: 'lock', syn: ['lock', 'door', 'keyless'] },
+    lighting: { label: 'Lighting', lucide: 'lightbulb', syn: ['light', 'bulb', 'lamp'] },
+    generator: { label: 'Generator / Power', lucide: 'zap', syn: ['power', 'electricity', 'inverter'] },
+    lawn_garden: { label: 'Lawn & Garden', lucide: 'flower-2', syn: ['mower', 'garden', 'yard'] }
 };
+
+// Search words per icon (never displayed): everyday wording like 'boiler',
+// 'aircon' or 'bbq' finds the right glyph in the picker's search box. The
+// key/label/syn sets MUST mirror DEVICE_ICON_CATALOG in
+// homestew/services/device_icons.py — the same sync test compares all three.
+function iconMatchesQuery(icon, key, words) {
+    // AND over the query words: every word must appear somewhere in the
+    // icon's key / label / synonym text (substring match, case-insensitive).
+    const blob = `${key.replace(/_/g, ' ')} ${icon.label.toLowerCase()} ${(icon.syn || []).join(' ')}`;
+    return words.every((w) => blob.includes(w));
+}
+
+// Rank the catalog against a query: phrase on the key beats the label beats
+// the synonyms, plus a bonus per exact word match; ties keep map order.
+// Mirrors search_icon_keys() in homestew/services/device_icons.py.
+function filterDeviceIcons(query) {
+    const text = (query || '').trim().toLowerCase();
+    const words = text.split(/[^a-z0-9]+/).filter(Boolean);
+    const entries = Object.entries(DEVICE_ICONS);
+    if (words.length === 0) return entries;
+    const phrase = words.join(' ');
+    return entries
+        .filter(([key, icon]) => iconMatchesQuery(icon, key, words))
+        .map(([key, icon]) => {
+            const keyWords = key.replace(/_/g, ' ');
+            const labelL = icon.label.toLowerCase();
+            const synL = (icon.syn || []).map((s) => s.toLowerCase());
+            let score = 0;
+            if (keyWords.includes(phrase)) score += 8;
+            else if (labelL.includes(phrase)) score += 6;
+            else if (synL.some((s) => s.includes(phrase))) score += 4;
+            const exact = new Set(keyWords.split(' '));
+            for (const s of synL) s.split(/[^a-z0-9]+/).filter(Boolean).forEach((w) => exact.add(w));
+            words.forEach((w) => { if (exact.has(w)) score += 3; });
+            return [key, icon, score];
+        })
+        .sort((a, b) => b[2] - a[2])
+        .map(([key, icon]) => [key, icon]);
+}
 
 // Placeholder markup for a device's icon key; null/unknown keys fall back to
 // the default appliance glyph. renderLucideIcons() replaces every
@@ -971,19 +1016,23 @@ function renderLucideIcons() {
 
 // State of the open icon picker: which form field receives the choice and
 // whether picking saves immediately (card/sidebar click) or only fills the
-// form (Add/Edit dialog).
+// form (Add/Edit dialog). currentKey keeps the selection highlighted across
+// search re-renders.
 let _iconPicker = null;
 
 function openIconPicker(prefix, deviceId, saveDirect) {
-    _iconPicker = { prefix, deviceId, saveDirect };
     let currentKey = '';
     if (saveDirect && deviceId != null) {
         currentKey = devices.find(d => d.id === deviceId)?.icon || '';
     } else if (prefix) {
         currentKey = document.getElementById(`${prefix}-icon`)?.value || '';
     }
-    renderIconPickerGrid(currentKey || DEVICE_ICON_DEFAULT);
+    _iconPicker = { prefix, deviceId, saveDirect, currentKey: currentKey || DEVICE_ICON_DEFAULT };
+    const search = document.getElementById('icon-picker-search');
+    if (search) search.value = '';
+    renderIconPickerGrid(_iconPicker.currentKey, '');
     document.getElementById('icon-picker-modal').style.display = 'flex';
+    if (search) search.focus();
     renderLucideIcons();
 }
 
@@ -992,15 +1041,46 @@ function closeIconPicker() {
     _iconPicker = null;
 }
 
-function renderIconPickerGrid(currentKey) {
+// Typing in the picker's search box filters the grid live (client-side, so
+// every keystroke is instant — no round trip). Escape in the box clears the
+// search first and only closes the modal when it is already empty.
+function onIconSearchInput() {
+    if (!_iconPicker) return;
+    const search = document.getElementById('icon-picker-search');
+    renderIconPickerGrid(_iconPicker.currentKey, search ? search.value : '');
+}
+
+function onIconSearchKeydown(e) {
+    if (e.key !== 'Escape') return;
+    if (e.target.value) {
+        // Clear the query instead of closing the dialog underneath.
+        e.stopPropagation();
+        e.target.value = '';
+        onIconSearchInput();
+    }
+}
+
+function renderIconPickerGrid(currentKey, query) {
     const grid = document.getElementById('icon-picker-grid');
     if (!grid) return;
-    grid.innerHTML = Object.entries(DEVICE_ICONS).map(([key, icon]) => `
+    const matches = filterDeviceIcons(query);
+    const count = document.getElementById('icon-picker-count');
+    if (count) {
+        count.textContent = matches.length === Object.keys(DEVICE_ICONS).length
+            ? `${matches.length} icons`
+            : `${matches.length} of ${Object.keys(DEVICE_ICONS).length} icons`;
+    }
+    if (matches.length === 0) {
+        grid.innerHTML = `<div class="icon-picker-empty">No icon matches "${escapeHtml(query.trim())}". Try another word — e.g. 'coffee', 'wifi', 'bbq'.</div>`;
+        return;
+    }
+    grid.innerHTML = matches.map(([key, icon]) => `
         <button type="button" class="icon-option${key === currentKey ? ' selected' : ''}"
                 title="${escapeHtml(icon.label)}" onclick="selectDeviceIcon('${key}')">
             ${deviceIconSvg(key)}
             <span>${escapeHtml(icon.label)}</span>
         </button>`).join('');
+    renderLucideIcons();
 }
 
 // Apply the picked icon. When opened from a card/sidebar row (saveDirect),

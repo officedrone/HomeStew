@@ -1069,12 +1069,21 @@
     </div>
 
     <!-- Icon Picker dialog: grid of the built-in appliance/electronics glyphs
-         (DEVICE_ICONS in app.js). Stacks on top of the Add/Edit dialogs and
+         (DEVICE_ICONS in app.js). The search box filters the grid live as the
+         user types (everyday words like 'boiler' or 'bbq' match via each
+         icon's synonym list). Stacks on top of the Add/Edit dialogs and
          closes with Escape before them. -->
     <div id="icon-picker-modal" class="modal">
         <div class="modal-content modal-medium">
             <span class="modal-close" onclick="closeIconPicker()">&times;</span>
             <h2>Choose an Icon</h2>
+            <div class="icon-picker-search-row">
+                <input type="text" id="icon-picker-search" class="icon-picker-search"
+                       placeholder="Search icons... (e.g. coffee, wifi, bbq)"
+                       autocomplete="off" aria-label="Search icons"
+                       oninput="onIconSearchInput()" onkeydown="onIconSearchKeydown(event)">
+                <span id="icon-picker-count" class="icon-picker-count"></span>
+            </div>
             <div id="icon-picker-grid" class="icon-picker-grid"></div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeIconPicker()">Cancel</button>

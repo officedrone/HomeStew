@@ -1205,6 +1205,52 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     color: var(--primary-color);
 }
 
+/* Icon Picker search row: live filter box above the grid (the modal is a
+   light surface, so the input matches .device-form.modal-form's fields). */
+.icon-picker-search-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.icon-picker-search {
+    flex: 1;
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.icon-picker-search:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: var(--ring);
+}
+
+.icon-picker-search::placeholder {
+    color: var(--text-secondary);
+}
+
+/* "N of M icons" counter beside the search box. */
+.icon-picker-count {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Shown in the grid area when no icon matches the search. */
+.icon-picker-empty {
+    grid-column: 1 / -1;
+    padding: 24px 8px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
 /* "Mark done" gets the matching green tint on hover. */
 .card-icon-success:hover {
     background: color-mix(in srgb, var(--success) 12%, transparent);

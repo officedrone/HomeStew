@@ -522,6 +522,7 @@ def create_device_tool() -> Dict[str, Any]:
                         "type": "string",
                         "enum": [
                             "search_devices",
+                            "search_icons",
                             "create",
                             "update",
                             "list",
@@ -535,20 +536,24 @@ def create_device_tool() -> Dict[str, Any]:
                             "work laptop') and returns its brand, model and "
                             "attributes - call it FIRST for any question "
                             "about a device named by nickname before "
-                            "searching manuals; create a device, update an "
-                            "existing one (needs device_id), list devices "
-                            "(to find ids/details), add or remove a custom "
-                            "attribute, or delete - which is refused and "
-                            "returns a link for the user to delete it "
+                            "searching manuals; search_icons finds icon keys "
+                            "matching a description (query='coffee') when "
+                            "you are unsure which key fits; create a device, "
+                            "update an existing one (needs device_id), list "
+                            "devices (to find ids/details), add or remove a "
+                            "custom attribute, or delete - which is refused "
+                            "and returns a link for the user to delete it "
                             "themselves."
                         ),
                     },
                     "query": {
                         "type": "string",
                         "description": (
-                            "For action='search_devices' only: how the user "
+                            "For action='search_devices': how the user "
                             "referred to the device, e.g. 'work laptop'. Use "
-                            "their own words, minus question words."
+                            "their own words, minus question words. For "
+                            "action='search_icons': what the icon should "
+                            "look like, e.g. 'coffee' or 'wifi'."
                         ),
                     },
                     "device_id": {
@@ -611,9 +616,13 @@ def create_device_tool() -> Dict[str, Any]:
                             "Icon shown for the device in the UI. Use it when "
                             "the user asks to set/change/reset the icon, or "
                             "pick one matching the device type on create when "
-                            "obvious (e.g. 'fridge' for a refrigerator). "
-                            "Empty string resets to the default appliance "
-                            "glyph. Never invent a key outside this list."
+                            "obvious (e.g. 'fridge' for a refrigerator). If "
+                            "no key below obviously fits what was described, "
+                            "call action='search_icons' with a short query "
+                            "(e.g. 'boiler', 'bbq') first and use a returned "
+                            "key. Empty string resets to the default "
+                            "appliance glyph. Never invent a key outside "
+                            "this list."
                         ),
                     },
                     "attribute_name": {

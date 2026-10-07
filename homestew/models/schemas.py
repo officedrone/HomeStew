@@ -59,6 +59,12 @@ class DeviceAttribute(BaseModel):
         from_attributes = True
 
 
+class DeviceIconOption(BaseModel):
+    """One selectable device icon, as offered by GET /api/devices/icons."""
+    key: str = Field(..., description="Icon key stored on the device (e.g. 'fridge')")
+    label: str = Field(..., description="Human-readable label shown in the picker")
+
+
 class DeviceResponse(BaseModel):
     """Device response with additional metadata."""
     id: int

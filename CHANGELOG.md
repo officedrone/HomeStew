@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.8]
+
+- ADD: The icon picker now has a live search box — type to filter the grid as you go (e.g. 'coffee', 'wifi', 'bbq', 'boiler'). Each icon carries a set of everyday synonyms so common wording finds the right glyph; an "N of 40 icons" counter and a friendly empty state round it out. Filtering is instant (client-side).
+- ADD: The assistant can now search the icon set too — `manage_devices` gained a `search_icons` action that returns ranked matching keys for a description, so it can find e.g. `water_heater` from "boiler" before setting an icon. Backed by a shared `GET /api/devices/icons?q=...` endpoint.
+
 ## [0.1.7]
 
 - FIX: Device name on a device card now stays left-aligned next to its icon at any card width (previously it floated toward center as the card grew).
