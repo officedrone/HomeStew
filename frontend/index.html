@@ -1354,6 +1354,24 @@
     <script src="/static/vendor/purify.min.js"></script>
     <script src="/static/vendor/lucide.min.js"></script>
     <script src="/static/lucide-icon-names.js"></script>
-    <script src="/static/app.js"></script>
+    <!-- Realm modules (split from the old single app.js). Classic scripts on
+         purpose: they share one global scope, which is what the inline
+         on*="fn(...)" handlers in index.html and in generated HTML rely on.
+         Order = load-order discipline: state/utils first, realm files next,
+         bootstrap LAST so its DOMContentLoaded listener fires after every
+         function declaration exists. -->
+    <script src="/static/js/core/state.js"></script>
+    <script src="/static/js/core/utils.js"></script>
+    <script src="/static/js/core/markdown.js"></script>
+    <script src="/static/js/core/auth.js"></script>
+    <script src="/static/js/core/chrome.js"></script>
+    <script src="/static/js/devices/devices.js"></script>
+    <script src="/static/js/calendar/calendar.js"></script>
+    <script src="/static/js/dashboard/dashboard.js"></script>
+    <script src="/static/js/chat/chat.js"></script>
+    <script src="/static/js/search/search.js"></script>
+    <script src="/static/js/settings/settings.js"></script>
+    <script src="/static/js/wizard/wizard.js"></script>
+    <script src="/static/js/bootstrap.js"></script>
 </body>
 </html>
