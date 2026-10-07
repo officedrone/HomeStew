@@ -2,14 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
-
-- ADD: "None" option in Settings > Notifications > Webhook Type, now the default. No webhook is sent while it's selected (URL/token from an earlier configuration are kept and reused if you switch back); the dashboard shows a grey "None" for Notification Type, matching the way Notifications-off is displayed.
-
 ## [0.1.6]
 
+- ADD: "New Device" now offers an AI shortcut when a model is configured: a chooser asks whether to enter details manually or add the device via AI Chat.
+- ADD: "None" option in Settings > Notifications > Webhook Type, now the default.
 - ADD: The assistant can now set/change/reset a device's icon via chat (the `manage_devices` tool gained an `icon` parameter constrained to the same 40-key set the UI picker uses). Ask it things like "give my fridge a coffee-maker icon" or "reset the router's icon"; it updates live in the sidebar and Devices grid.
-- ADD: Per-device icons powered by the Lucide icon set (vendored offline, ISC). Click a device's icon (card or sidebar) to pick from 40 appliance / electronics / BBQ & home glyphs; also selectable via an Icon row in the Add/Edit forms. Stored as a key string (`icon` column); devices without one show the default appliance glyph.
+- ADD: Per-device icons powered by the Lucide icon set (vendored offline, ISC). Click a device's icon (card or sidebar) to pick from 40 appliance / electronics / BBQ & home glyphs; also selectable via an Icon row in the Add/Edit forms.
 - UPDATE: Edit Device modal now shows field titles above every input (Device Name, Brand, Model, Description, Serial Number, Product Number), matching the Purchase Date style.
 
 ## [0.1.5]

@@ -454,9 +454,11 @@ function setupEventListeners() {
         btn.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab));
     });
     
-    // Add device: both sidebar and in-tab buttons open the same modal.
-    document.getElementById('add-device-btn').addEventListener('click', openAddDeviceModal);
-    document.getElementById('add-device-btn-devices').addEventListener('click', openAddDeviceModal);
+    // Add device: both sidebar and in-tab buttons run the New Device flow,
+    // which offers an AI-Chat shortcut when a model is configured (falling
+    // back straight to the manual form otherwise).
+    document.getElementById('add-device-btn').addEventListener('click', startNewDeviceFlow);
+    document.getElementById('add-device-btn-devices').addEventListener('click', startNewDeviceFlow);
     document.getElementById('add-device-form').addEventListener('submit', handleAddDevice);
     
     // Edit device form
@@ -731,7 +733,7 @@ function setupEventListeners() {
         // must persist its resolution, so it can't be dismissed with Escape.
         // The icon picker comes first: Escape closes it before the editor
         // dialog it is stacked on top of.
-        for (const id of ['icon-picker-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
+        for (const id of ['icon-picker-modal', 'new-device-choice-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 modal.style.display = 'none';
@@ -1633,6 +1635,93 @@ function fillWarrantyFields(prefix, device) {
     set(`${prefix}-warranty-length`, device.warranty_length ?? '');
     set(`${prefix}-warranty-unit`, device.warranty_unit || 'years');
     set(`${prefix}-warranty-end`, device.warranty_end);
+}
+
+// ---------------------------------------------------------------------------
+// New Device flow (manual form vs. add-via-AI-Chat)
+// ---------------------------------------------------------------------------
+
+// Vision state captured when the chooser was opened, so the AI option's hint
+// and the post-navigation tip agree with what the user was just shown (rather
+// than a value that could change while the dialog sat open).
+let _newDeviceVision = false;
+
+// Entry point for both "New Device" buttons. When an LLM is configured we ask
+// how to add the device first - manually or via AI Chat, where the model can
+// read the details from a description or a nameplate photo. With no model set
+// up there is nothing to offer, so go straight to the manual form. The config
+// read hits /api/settings (a local DB read, NOT the slow LLM probe), so the
+// click stays responsive.
+async function startNewDeviceFlow() {
+    let configured = false;
+    let vision = chatVisionEnabled;
+    try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+            const s = await response.json();
+            configured = !!s.llm_configured;
+            vision = !!s.llm_supports_vision;
+        }
+    } catch (e) { /* offline / server starting - fall through to the form */ }
+
+    if (!configured) {
+        openAddDeviceModal();
+        return;
+    }
+
+    _newDeviceVision = vision;
+    // Tailor the AI option's subtitle to whether photos can be attached.
+    const hint = document.getElementById('new-device-choice-ai-hint');
+    if (hint) {
+        hint.textContent = vision
+            ? 'Describe it - or attach a photo of its nameplate - and HomeStew fills everything in.'
+            : 'Describe it in the chat and HomeStew fills everything in for you.';
+    }
+    document.getElementById('new-device-choice-modal').style.display = 'flex';
+}
+
+function closeNewDeviceChoice() {
+    document.getElementById('new-device-choice-modal').style.display = 'none';
+}
+
+// "Enter details manually" - dismiss the chooser and open the Add Device form.
+function chooseNewDeviceManual() {
+    closeNewDeviceChoice();
+    openAddDeviceModal();
+}
+
+// "Add with AI Chat" - jump to the chat tab with the add-device prompt already
+// typed so the user only has to complete (or replace) it. When the model can
+// see images, also surface a hint pointing at the attach buttons.
+function chooseNewDeviceChat() {
+    closeNewDeviceChoice();
+    const prefill = 'Add this device - Name: <Name Here>, Manufacturer: <Manufacturer Here>, Model: <Model Here>';
+    switchTab('chat');
+    prefillChatForNewDevice(prefill, _newDeviceVision);
+}
+
+// Fill the chat input with `text`, select the first <placeholder> so typing
+// replaces it, and (optionally) reveal the vision hint. Focus is deferred a
+// tick because switchTab is still settling the tab's layout.
+function prefillChatForNewDevice(text, showVisionTip) {
+    const input = document.getElementById('chat-input');
+    if (input) {
+        input.value = text;
+        const start = text.indexOf('<');
+        const end = text.indexOf('>', start + 1);
+        if (start !== -1 && end !== -1) input.setSelectionRange(start, end + 1);
+        else input.setSelectionRange(text.length, text.length);
+        setTimeout(() => input.focus(), 60);
+    }
+    if (showVisionTip) {
+        const tip = document.getElementById('chat-attach-tip');
+        if (tip) tip.style.display = 'flex';
+    }
+}
+
+function hideChatAttachTip() {
+    const tip = document.getElementById('chat-attach-tip');
+    if (tip) tip.style.display = 'none';
 }
 
 function openAddDeviceModal() {
@@ -2815,6 +2904,10 @@ async function sendChatMessage() {
     // start a parallel conversation turn.
     if (!beginOp('send-chat')) return;
 
+    // The message is on its way: the one-shot "attach a photo" hint from the
+    // New Device flow has served its purpose.
+    hideChatAttachTip();
+
     // Add user message to chat (with thumbnails of any attached images).
     addMessageToChat('user', message, pendingChatImages);
     input.value = '';
@@ -2967,6 +3060,7 @@ function startNewSession() {
     const input = document.getElementById('chat-input');
     if (input) input.value = '';
     clearPendingChatImages();
+    hideChatAttachTip();
     // Replacing innerHTML clamps scrollTop to 0; pin explicitly so the fresh
     // session starts at its (single) message with auto-follow armed.
     scrollToBottom();
@@ -3361,6 +3455,11 @@ function switchTab(tabName, pushHistory = true) {
     if (tabName === 'dashboard') {
         refreshDashboard();
     }
+
+    // The "attach a photo" hint from the New Device flow is one-shot: it
+    // belongs to the visit it was shown on, so any tab change clears it
+    // (chooseNewDeviceChat re-shows it AFTER switching here).
+    hideChatAttachTip();
 
     // Opening the chat re-runs the settings "model refresh" probe against the
     // saved configuration so a broken/unconfigured LLM is surfaced up front.

@@ -3904,3 +3904,128 @@ body.no-vision .chat-input-wrap textarea {
         transition-duration: 0.01ms !important;
     }
 }
+
+/* ---------------------------------------------------------------------------
+   New Device chooser (manual form vs. add-via-AI-Chat)
+   Shown from "New Device" only when an LLM is configured. Two large cards so
+   the choice reads at a glance; the AI card carries a subtle brand tint to
+   signal it as the assisted path.
+   --------------------------------------------------------------------------- */
+.new-device-choice h2 {
+    margin-bottom: 2px;
+}
+
+.new-device-choice-sub {
+    margin: 0 0 18px;
+    color: var(--text-secondary);
+    font-size: .95rem;
+}
+
+.new-device-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.new-device-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    text-align: left;
+    padding: 18px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: inherit;
+    cursor: pointer;
+    transition: border-color .2s, background .2s, box-shadow .2s, transform .1s;
+}
+
+.new-device-option:hover {
+    border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 5%, var(--surface));
+    box-shadow: var(--shadow-sm);
+}
+
+.new-device-option:active {
+    transform: translateY(1px);
+}
+
+.new-device-option-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--surface));
+    color: var(--primary-color);
+}
+
+.new-device-option-ai .new-device-option-icon {
+    background: color-mix(in srgb, var(--accent-color) 20%, var(--surface));
+    color: var(--primary-color);
+}
+
+.new-device-option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.new-device-option-text strong {
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.new-device-option-text small {
+    color: var(--text-secondary);
+    font-size: .82rem;
+    line-height: 1.35;
+}
+
+/* One-shot "you can attach a photo" hint above the chat input, shown after
+   arriving from the New Device flow with a vision-capable model. Uses the
+   gold accent so it reads as helpful guidance rather than an error. */
+.chat-attach-tip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 9px 12px;
+    border-radius: var(--radius-md);
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-text);
+    font-size: .85rem;
+    line-height: 1.4;
+    flex-shrink: 0;
+}
+
+.chat-attach-tip > svg {
+    flex-shrink: 0;
+}
+
+.chat-attach-tip-close {
+    margin-left: auto;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    opacity: .7;
+}
+
+.chat-attach-tip-close:hover {
+    opacity: 1;
+}
+
+/* Single-column chooser on narrow screens / phones. */
+@media (max-width: 560px) {
+    .new-device-options {
+        grid-template-columns: 1fr;
+    }
+}
