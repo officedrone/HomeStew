@@ -6,6 +6,27 @@
 // Set so the open/closed state survives re-renders (e.g. after loadDevices()).
 const expandedDeviceIds = new Set();
 
+// Ids of devices whose Devices-tab grid card is currently expanded. Separate
+// from the sidebar's expandedDeviceIds on purpose - the two views keep their
+// own open state. Like the sidebar Set it survives loadDevices() re-renders
+// because the card template reads it at render time.
+const gridExpandedIds = new Set();
+
+// The "Expanded" checkbox in the Devices toolbar is the user's global
+// preference: '1' = all cards start expanded, anything else = collapsed.
+// Applied to the checkbox once per page load (first grid render).
+function getDevicesGridExpanded() {
+    try { return localStorage.getItem('devicesGridExpanded') === '1'; }
+    catch (e) { return false; /* private mode */ }
+}
+
+function saveDevicesGridExpanded(expanded) {
+    try { localStorage.setItem('devicesGridExpanded', expanded ? '1' : '0'); }
+    catch (e) { /* private mode */ }
+}
+
+let _devicesGridPrefApplied = false;
+
 async function loadDevices() {
     try {
         const response = await fetch('/api/devices');
@@ -382,22 +403,38 @@ function setDeviceIcon(prefix, key) {
     renderLucideIcons();
 }
 
-// Devices tab: card grid with the full device details and actions.
+// Devices tab: card grid. Cards are collapsed by default to just the icon +
+// name (+ caret and Edit/Delete buttons); clicking a collapsed card expands
+// it with the same animated panel as the sidebar "Recent Devices" accordion,
+// and clicking the expanded body opens the Edit dialog. The "Expanded"
+// checkbox in the toolbar expands/collapses every card at once and is
+// persisted; individually collapsing one card unchecks it (see sync).
 function renderDevicesGrid() {
     const container = document.getElementById('devices-grid');
     if (!container) return;
+
+    // Apply the saved preference to the checkbox once per page load, then let
+    // a checked box keep every card (including freshly added ones) expanded.
+    const checkbox = document.getElementById('devices-expanded-toggle');
+    if (!_devicesGridPrefApplied) {
+        _devicesGridPrefApplied = true;
+        if (checkbox) checkbox.checked = getDevicesGridExpanded();
+    }
+    if (checkbox && checkbox.checked) {
+        devices.forEach(device => gridExpandedIds.add(device.id));
+    }
 
     if (devices.length === 0) {
         container.innerHTML = '<div class="empty-state">No devices yet. Add your first device!</div>';
         return;
     }
 
-    // The whole card is clickable and opens the Edit dialog; the icon buttons
-    // beside the title keep their own actions (stopPropagation keeps a card
-    // click from firing twice).
-    container.innerHTML = devices.map(device => `
-        <div class="device-card" data-id="${device.id}" onclick="editDevice(${device.id})">
+    container.innerHTML = devices.map(device => {
+        const open = gridExpandedIds.has(device.id);
+        return `
+        <div class="device-card${open ? ' open' : ''}" data-id="${device.id}" onclick="onDeviceCardClick(event, ${device.id})">
             <div class="device-card-header">
+                <span class="device-caret">\u203a</span>
                 <button type="button" class="device-icon" title="Change icon" aria-label="Change icon" data-dedupe onclick="event.stopPropagation(); openIconPicker(null, ${device.id}, true)">${deviceIconSvg(device.icon)}</button>
                 <div class="device-name">${escapeHtml(device.name)}</div>
                 <div class="card-actions">
@@ -405,14 +442,56 @@ function renderDevicesGrid() {
                     <button type="button" class="card-icon-btn card-icon-danger" title="Delete device" aria-label="Delete device" data-dedupe onclick="event.stopPropagation(); deleteDevice(${device.id})">${CARD_ACTION_ICONS.trash}</button>
                 </div>
             </div>
-            <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
-            ${device.serial_number ? `<div class="device-meta">Serial: ${escapeHtml(device.serial_number)}</div>` : ''}
-            ${device.product_number ? `<div class="device-meta">Product: ${escapeHtml(device.product_number)}</div>` : ''}
-            ${warrantyDetailLines(device).map(line => `<div class="device-meta">${escapeHtml(line)}</div>`).join('')}
-            <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
-        </div>
-    `).join('');
+            <div class="device-details">
+                <div class="device-details-inner">
+                    <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
+                    ${device.serial_number ? `<div class="device-meta">Serial: ${escapeHtml(device.serial_number)}</div>` : ''}
+                    ${device.product_number ? `<div class="device-meta">Product: ${escapeHtml(device.product_number)}</div>` : ''}
+                    ${warrantyDetailLines(device).map(line => `<div class="device-meta">${escapeHtml(line)}</div>`).join('')}
+                    <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
     renderLucideIcons();
+    syncDevicesExpandedCheckbox();
+}
+
+// Expand / collapse one grid card and keep the toolbar checkbox in sync.
+function setDeviceCardExpanded(deviceId, open) {
+    const card = document.querySelector(`.device-card[data-id="${deviceId}"]`);
+    if (!card) return;
+    card.classList.toggle('open', open);
+    if (open) gridExpandedIds.add(deviceId);
+    else gridExpandedIds.delete(deviceId);
+    syncDevicesExpandedCheckbox();
+}
+
+// Card click routing: buttons keep their own actions; a collapsed card
+// expands; clicking the expanded details body opens Edit (like the sidebar
+// accordion); clicking the header of an open card collapses it again.
+function onDeviceCardClick(event, deviceId) {
+    if (event.target.closest('button')) return;
+    const card = document.querySelector(`.device-card[data-id="${deviceId}"]`);
+    if (!card) return;
+    if (!card.classList.contains('open')) {
+        setDeviceCardExpanded(deviceId, true);
+        return;
+    }
+    if (event.target.closest('.device-details')) {
+        editDevice(deviceId);
+        return;
+    }
+    setDeviceCardExpanded(deviceId, false);
+}
+
+// The checkbox means "every card is expanded", so it reflects the grid state
+// after any individual toggle. Unchecking here also stops the next re-render
+// from silently re-expanding a card the user just collapsed by hand.
+function syncDevicesExpandedCheckbox() {
+    const checkbox = document.getElementById('devices-expanded-toggle');
+    if (!checkbox) return;
+    checkbox.checked = devices.length > 0 && devices.every(device => gridExpandedIds.has(device.id));
 }
 
 function updateDeviceFilter() {
@@ -1509,6 +1588,7 @@ async function deleteDevice(deviceId) {
         if (!response.ok) throw new Error('Failed to delete device');
         
         expandedDeviceIds.delete(deviceId);
+        gridExpandedIds.delete(deviceId);
         showToast('Device deleted', 'success');
         await loadDevices();
     } catch (error) {
@@ -1530,6 +1610,15 @@ function wireDevicesEvents() {
     document.getElementById('add-device-btn').addEventListener('click', startNewDeviceFlow);
     document.getElementById('add-device-btn-devices').addEventListener('click', startNewDeviceFlow);
     document.getElementById('add-device-form').addEventListener('submit', handleAddDevice);
+
+    // "Expanded" checkbox: expand or collapse every grid card at once and
+    // persist the choice for the next page load.
+    document.getElementById('devices-expanded-toggle').addEventListener('change', (e) => {
+        saveDevicesGridExpanded(e.target.checked);
+        gridExpandedIds.clear();
+        if (e.target.checked) devices.forEach(device => gridExpandedIds.add(device.id));
+        renderDevicesGrid();
+    });
 
     // Edit device form
     document.getElementById('edit-device-form').addEventListener('submit', handleEditDevice);
