@@ -24,7 +24,7 @@ from homestew.services.secret_store import (
 
 logger = logging.getLogger(__name__)
 
-# Base URL of OpenAI's hosted API, used when the "OpenAI (Cloud Based)"
+# Base URL of OpenAI's hosted API, used when the "Cloud - OpenAI"
 # provider is selected without a URL override. Mirrored in frontend/js/
 # settings/settings.js (OPENAI_CLOUD_BASE_URL) for the form prefill.
 OPENAI_CLOUD_BASE_URL = "https://api.openai.com/v1"

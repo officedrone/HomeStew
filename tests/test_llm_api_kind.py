@@ -1,4 +1,4 @@
-"""The "API Type" selector (Settings > AI + first-run wizard).
+"""The "API Endpoint Type" selector (Settings > AI + first-run wizard).
 
 Covers the chat-completions vs responses surface added for
 ``LLM_API_KIND`` / ``LLM_REASONING_EFFORT``:

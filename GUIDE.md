@@ -84,7 +84,7 @@ every request (`chat_template_kwargs.enable_thinking`/`thinking` for llama.cpp &
 needed for models that always reason unless told otherwise (e.g. Qwen3), or simply to get faster answers. Servers
 that don't understand the parameters ignore them, so leaving it unticked is harmless for non-thinking models.
 
-**API Type (Chat Completions vs Responses).** The **API Type** dropdown sits right under the LLM Base URL in
+**API Endpoint Type (Chat Completions vs Responses).** The **API Endpoint Type** dropdown sits right under the LLM Base URL in
 **Settings → AI** (and the wizard's AI step). It chooses which OpenAI-compatible endpoint HomeStew calls:
 
 - **Chat Completions** (`POST {base}/chat/completions`) is the default and what Ollama, vLLM, llama.cpp and LM Studio
@@ -174,7 +174,7 @@ docker-compose up -d
 ### Example: Using with OpenAI (Cloud)
 
 The easiest way is the UI: open **Settings > AI**, set **Provider** to
-**OpenAI (Cloud Based)**, enter your API key and pick a model. HomeStew sets
+**Cloud - OpenAI**, enter your API key and pick a model. HomeStew sets
 the URL (`https://api.openai.com/v1`) for you - leave **Override URL**
 unticked unless you route through an Azure/proxy endpoint that speaks the
 same API. The API key is encrypted at rest (see below) and never written to

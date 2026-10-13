@@ -406,12 +406,12 @@
                                     <label for="settings-llm-provider">Provider</label>
                                     <span class="info-wrap">
                                         <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
-                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Choose "OpenAI (Cloud Based)" for api.openai.com - HomeStew sets the URL for you and you only provide your API key. Choose "Custom" for any OpenAI-compatible server (Ollama, LM Studio, vLLM, ...) and enter its Base URL below.</p></span>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Choose "Cloud - OpenAI" for api.openai.com - HomeStew sets the URL for you and you only provide your API key. Choose "Custom" for any OpenAI-compatible server (Ollama, LM Studio, vLLM, ...) and enter its Base URL below.</p></span>
                                     </span>
                                 </div>
                                 <select id="settings-llm-provider">
-                                    <option value="custom">Custom (OpenAI-compatible server)</option>
-                                    <option value="openai">OpenAI (Cloud Based)</option>
+                                    <option value="custom">Custom (OpenAI-compatible endpoint)</option>
+                                    <option value="openai">Cloud - OpenAI</option>
                                 </select>
                             </div>
                             <div class="settings-field" id="settings-llm-base-url-field">
@@ -432,7 +432,7 @@
                             </div>
                             <div class="settings-field">
                                 <div class="label-row">
-                                    <label for="settings-llm-api-kind">API Type</label>
+                                    <label for="settings-llm-api-kind">API Endpoint Type</label>
                                     <span class="info-wrap">
                                         <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
                                         <span class="info-popover" role="tooltip"><p class="settings-hint">Which OpenAI-compatible endpoint HomeStew calls. Keep "Chat Completions" unless your server only offers the newer Responses API (e.g. LM Studio with gpt-oss) or you want to prepare for completions deprecation.</p></span>
@@ -1259,10 +1259,10 @@
                 <div class="settings-field">
                     <label for="wizard-llm-provider">Provider</label>
                     <select id="wizard-llm-provider">
-                        <option value="custom">Custom (OpenAI-compatible server)</option>
-                        <option value="openai">OpenAI (Cloud Based)</option>
+                        <option value="custom">Custom (OpenAI-compatible endpoint)</option>
+                        <option value="openai">Cloud - OpenAI</option>
                     </select>
-                    <p class="settings-hint">Choose "OpenAI (Cloud Based)" for api.openai.com - the URL is set for you and you only provide your API key. Choose "Custom" for Ollama, LM Studio, vLLM etc. and enter its Base URL.</p>
+                    <p class="settings-hint">Choose "Cloud - OpenAI" for api.openai.com - the URL is set for you and you only provide your API key. Choose "Custom" for Ollama, LM Studio, vLLM etc. and enter its Base URL.</p>
                 </div>
                 <div class="settings-field" id="wizard-llm-base-url-field">
                     <label for="wizard-llm-base-url">LLM Base URL</label>
@@ -1276,7 +1276,7 @@
                     <p class="settings-hint">Tick this to send OpenAI-format requests to a different URL (e.g. an Azure OpenAI or proxy endpoint).</p>
                 </div>
                 <div class="settings-field">
-                    <label for="wizard-llm-api-kind">API Type</label>
+                    <label for="wizard-llm-api-kind">API Endpoint Type</label>
                     <select id="wizard-llm-api-kind">
                         <option value="chat_completions">Chat Completions (/chat/completions)</option>
                         <option value="responses">Responses (/responses)</option>
