@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from homestew.config import settings
+from homestew.config import effective_llm_base_url, settings
 from homestew.db import get_db_context
 from homestew.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
 from homestew.models.schemas import ChatMessage, ChatRequest, ChatResponse
@@ -37,9 +37,15 @@ def get_llm_client() -> LLMClient:
     global _llm_client
     if _llm_client is None:
         _llm_client = LLMClient(
-            base_url=settings.LLM_BASE_URL,
+            # Resolved through the provider setting: 'openai' without a URL
+            # override targets OpenAI's hosted endpoint regardless of the
+            # stored custom base URL. Settings PUTs rebuild this client.
+            base_url=effective_llm_base_url(),
             api_key=settings.LLM_API_KEY,
-            model=settings.LLM_MODEL
+            model=settings.LLM_MODEL,
+            # Which HTTP surface to target (chat completions vs responses).
+            # getattr fallback keeps older settings objects working.
+            api_kind=getattr(settings, "LLM_API_KIND", "chat_completions"),
         )
     return _llm_client
 

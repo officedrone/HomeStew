@@ -84,6 +84,19 @@ every request (`chat_template_kwargs.enable_thinking`/`thinking` for llama.cpp &
 needed for models that always reason unless told otherwise (e.g. Qwen3), or simply to get faster answers. Servers
 that don't understand the parameters ignore them, so leaving it unticked is harmless for non-thinking models.
 
+**API Endpoint Type (Chat Completions vs Responses).** The **API Endpoint Type** dropdown sits right under the LLM Base URL in
+**Settings → AI** (and the wizard's AI step). It chooses which OpenAI-compatible endpoint HomeStew calls:
+
+- **Chat Completions** (`POST {base}/chat/completions`) is the default and what Ollama, vLLM, llama.cpp and LM Studio
+  all serve today.
+- **Responses** (`POST {base}/responses`) targets the newer OpenAI API that is intended to replace Chat Completions.
+  Select it when your server only offers Responses (e.g. LM Studio with `gpt-oss`), or to prepare an install for the
+  eventual completions deprecation. HomeStew replays the whole conversation on every request and declares tools in the
+  flat Responses format, so no server-side state is required. When Responses is selected, the **Reasoning** checkbox is
+  replaced by a **Reasoning effort** dropdown (`low` / `medium` / `high`) sent as `reasoning.effort`.
+
+The model list and Test Connection still probe `{base}/models`, which both surfaces expose.
+
 ### 5. Backup & Restore
 
 HomeStew supports backup and Restore of Device and Calendar data.
@@ -105,14 +118,18 @@ Open **Settings → General**:
 
 ### Environment Variables
 
-| Variable                | Default                            | Description                                             |
-| ----------------------- | ---------------------------------- | ------------------------------------------------------- |
-| `LLM_BASE_URL`          | `http://localhost:11434/v1`        | LLM API endpoint (Ollama, vLLM, etc.)                   |
-| `LLM_API_KEY`           | _(empty)_                          | API key (ignored by local servers)                      |
-| `LLM_MODEL`             | _(empty)_                          | Model name (pick one in the wizard or Settings > AI)    |
-| `DATA_DIR`              | `/data`                            | Persistent data directory                               |
-| `SECRETS_KEY_FILE`      | `/run/secrets/homestew_secret_key` | Master-key file for secret encryption (see Secrets)     |
-| `EXTRA_ALLOWED_ORIGINS` | _(empty - same-origin only)_       | Comma-separated origins allowed cross-origin API access |
+| Variable                | Default                            | Description                                                                                 |
+| ----------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| `LLM_PROVIDER`          | `custom`                           | `custom` (any OpenAI-compatible server) or `openai` (hosted, URL set for you)               |
+| `LLM_BASE_URL`          | `http://localhost:11434/v1`        | LLM API endpoint (Ollama, vLLM, etc.). Ignored when `LLM_PROVIDER=openai` unless overridden |
+| `LLM_BASE_URL_OVERRIDE` | `false`                            | With `LLM_PROVIDER=openai`, use `LLM_BASE_URL` instead of `https://api.openai.com/v1`       |
+| `LLM_API_KEY`           | _(empty)_                          | API key (ignored by local servers)                                                          |
+| `LLM_MODEL`             | _(empty)_                          | Model name (pick one in the wizard or Settings > AI)                                        |
+| `LLM_API_KIND`          | `chat_completions`                 | Endpoint to call: `chat_completions` or `responses`                                         |
+| `LLM_REASONING_EFFORT`  | `medium`                           | Responses API reasoning effort: `low`/`medium`/`high`                                       |
+| `DATA_DIR`              | `/data`                            | Persistent data directory                                                                   |
+| `SECRETS_KEY_FILE`      | `/run/secrets/homestew_secret_key` | Master-key file for secret encryption (see Secrets)                                         |
+| `EXTRA_ALLOWED_ORIGINS` | _(empty - same-origin only)_       | Comma-separated origins allowed cross-origin API access                                     |
 
 Note: `HEALTHCHECK_INTERVAL` below is **not** in this table on purpose - it is
 read by the `docker compose` CLI itself (host env / `.env`), never inside the
@@ -154,15 +171,21 @@ docker exec -it <ollama_container> ollama pull llama3.2
 docker-compose up -d
 ```
 
-### Example: Using with OpenAI
+### Example: Using with OpenAI (Cloud)
 
-Set the base URL / model in `docker-compose.yml`, but **do not put the API key
-there** - enter it once in the Settings UI instead. It is encrypted at rest
-(see below) and never written to any file you commit:
+The easiest way is the UI: open **Settings > AI**, set **Provider** to
+**Cloud - OpenAI**, enter your API key and pick a model. HomeStew sets
+the URL (`https://api.openai.com/v1`) for you - leave **Override URL**
+unticked unless you route through an Azure/proxy endpoint that speaks the
+same API. The API key is encrypted at rest (see below) and never written to
+any file you commit.
+
+You can also configure it via `docker-compose.yml` instead, but **do not put
+the API key there** - enter it once in the Settings UI:
 
 ```yaml
 environment:
-  - LLM_BASE_URL=https://api.openai.com/v1
+  - LLM_PROVIDER=openai
   - LLM_MODEL=gpt-4o-mini
 ```
 

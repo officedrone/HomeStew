@@ -907,7 +907,8 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     transition: transform 0.25s ease;
 }
 
-.device-accordion.open .device-caret {
+.device-accordion.open .device-caret,
+.device-card.open .device-caret {
     transform: rotate(90deg);
 }
 
@@ -925,7 +926,8 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     transition: grid-template-rows 0.25s ease;
 }
 
-.device-accordion.open .device-details {
+.device-accordion.open .device-details,
+.device-card.open .device-details {
     grid-template-rows: 1fr;
 }
 
@@ -935,12 +937,14 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 }
 
 /* The expanded body is clickable (opens the Edit dialog). */
-.device-accordion.open .device-details-inner {
+.device-accordion.open .device-details-inner,
+.device-card.open .device-details-inner {
     cursor: pointer;
 }
 
 /* Keep content clickable only when actually open (0fr still renders at height 0) */
-.device-accordion:not(.open) .device-details-inner {
+.device-accordion:not(.open) .device-details-inner,
+.device-card:not(.open) .device-details-inner {
     visibility: hidden;
 }
 
@@ -954,6 +958,27 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
 
 .device-details-inner > :last-child {
     padding-bottom: 8px;
+}
+
+/* Grid cards already carry their own 14px padding, so the panel only needs a
+   little air under the header (the card's bottom padding covers the rest). */
+.device-card .device-details {
+    margin-top: 2px;
+}
+
+.device-card .device-details-inner > :last-child {
+    padding-bottom: 0;
+}
+
+/* Collapsed cards are just the title row, so trim the vertical padding to
+   keep them compact (expanded cards keep the roomier 13px). */
+.device-card:not(.open) {
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+.device-card:not(.open) .device-card-header {
+    margin-bottom: 0;
 }
 
 .device-meta {
@@ -980,6 +1005,8 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
    above the card grid. */
 .devices-actions {
     display: flex;
+    align-items: center;
+    gap: 14px;
     margin-bottom: 10px;
 }
 
@@ -987,6 +1014,25 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+}
+
+/* "Expanded" toggle beside New Device: expands/collapses every grid card. */
+.devices-collapse-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.devices-collapse-toggle input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+    margin: 0;
+    accent-color: var(--primary-color);
 }
 
 /* Devices tab: card grid */
@@ -1017,6 +1063,13 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     box-shadow: var(--shadow-md);
     /* Tint the whole card on hover so it's obvious which one is under the cursor. */
     background: color-mix(in srgb, var(--primary-color) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+}
+
+/* An open card keeps a soft tint (no lift) so it stays distinct from the
+   collapsed ones around it - mirrors .device-accordion.open. */
+.device-card.open {
+    background: color-mix(in srgb, var(--primary-color) 9%, var(--surface));
     border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
 }
 

@@ -328,6 +328,10 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         <span>New Device</span>
                     </button>
+                    <label class="devices-collapse-toggle" title="Show every device card expanded with its details">
+                        <input type="checkbox" id="devices-expanded-toggle">
+                        <span>Expanded</span>
+                    </label>
                 </div>
                 <div id="devices-grid" class="devices-grid"></div>
             </div>
@@ -402,8 +406,46 @@
                         <!-- AI -->
                         <section id="settings-panel-ai" class="settings-panel" hidden>
                             <div class="settings-field">
+                                <div class="label-row">
+                                    <label for="settings-llm-provider">Provider</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Choose "Cloud - OpenAI" for api.openai.com - HomeStew sets the URL for you and you only provide your API key. Choose "Custom" for any OpenAI-compatible server (Ollama, LM Studio, vLLM, ...) and enter its Base URL below.</p></span>
+                                    </span>
+                                </div>
+                                <select id="settings-llm-provider">
+                                    <option value="custom">Custom (OpenAI)</option>
+                                    <option value="openai">Cloud - OpenAI</option>
+                                </select>
+                            </div>
+                            <div class="settings-field" id="settings-llm-base-url-field">
                                 <label for="settings-llm-base-url">LLM Base URL</label>
                                 <input type="text" id="settings-llm-base-url" placeholder="e.g., http://localhost:11434/v1" required>
+                            </div>
+                            <div class="settings-field" id="settings-llm-base-url-override-field" hidden>
+                                <div class="label-row">
+                                    <label class="checkbox-option" for="settings-llm-base-url-override">
+                                        <input type="checkbox" id="settings-llm-base-url-override">
+                                        Override URL
+                                    </label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Tick this to send OpenAI-format requests somewhere other than https://api.openai.com/v1 - e.g. an Azure OpenAI or proxy endpoint that speaks the same API.</p></span>
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="settings-field">
+                                <div class="label-row">
+                                    <label for="settings-llm-api-kind">API Endpoint Type</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Which OpenAI-compatible endpoint HomeStew calls. Keep "Chat Completions" unless your server only offers the newer Responses API (e.g. LM Studio with gpt-oss) or you want to prepare for completions deprecation.</p></span>
+                                    </span>
+                                </div>
+                                <select id="settings-llm-api-kind">
+                                    <option value="chat_completions">Chat Completions (/chat/completions)</option>
+                                    <option value="responses">Responses (/responses)</option>
+                                </select>
                             </div>
                             <div class="settings-field">
                                 <div class="label-row">
@@ -462,6 +504,20 @@
                                         <span class="info-popover" role="tooltip"><p class="settings-hint">Enable or Disable model reasoning.</p></span>
                                     </span>
                                 </div>
+                            </div>
+                            <div class="settings-field" id="settings-llm-reasoning-effort-field" hidden>
+                                <div class="label-row">
+                                    <label for="settings-llm-reasoning-effort">Reasoning effort</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">How much thinking the Responses API allows the model. Low answers faster, high thinks longer for harder questions.</p></span>
+                                    </span>
+                                </div>
+                                <select id="settings-llm-reasoning-effort">
+                                    <option value="low">Low</option>
+                                    <option value="medium" selected>Medium</option>
+                                    <option value="high">High</option>
+                                </select>
                             </div>
 
                             <!-- Prompt customization (collapsed by default). The
@@ -1205,8 +1261,31 @@
                      You can change this later under Settings &gt; AI.
                 </p>
                 <div class="settings-field">
+                    <label for="wizard-llm-provider">Provider</label>
+                    <select id="wizard-llm-provider">
+                        <option value="custom">Custom (OpenAI)</option>
+                        <option value="openai">Cloud - OpenAI</option>
+                    </select>
+                    <p class="settings-hint">Choose "Cloud - OpenAI" for api.openai.com - the URL is set for you and you only provide your API key. Choose "Custom" for Ollama, LM Studio, vLLM etc. and enter its Base URL.</p>
+                </div>
+                <div class="settings-field" id="wizard-llm-base-url-field">
                     <label for="wizard-llm-base-url">LLM Base URL</label>
                     <input type="text" id="wizard-llm-base-url" placeholder="e.g., http://localhost:11434/v1">
+                </div>
+                <div class="settings-field" id="wizard-llm-base-url-override-field" hidden>
+                    <label class="checkbox-option" for="wizard-llm-base-url-override">
+                        <input type="checkbox" id="wizard-llm-base-url-override">
+                        Override URL
+                    </label>
+                    <p class="settings-hint">Tick this to send OpenAI-format requests to a different URL (e.g. an Azure OpenAI or proxy endpoint).</p>
+                </div>
+                <div class="settings-field">
+                    <label for="wizard-llm-api-kind">API Endpoint Type</label>
+                    <select id="wizard-llm-api-kind">
+                        <option value="chat_completions">Chat Completions (/chat/completions)</option>
+                        <option value="responses">Responses (/responses)</option>
+                    </select>
+                    <p class="settings-hint">Keep "Chat Completions" unless your server only offers the newer Responses API (e.g. LM Studio with gpt-oss).</p>
                 </div>
                 <div class="settings-field">
                     <label for="wizard-llm-api-key">API Key (optional)</label>
@@ -1241,6 +1320,15 @@
                         Reasoning
                     </label>
                     <p class="settings-hint">Enable or Disable model reasoning. Leave ticked to let the model think before answering; untick to tell it not to reason (required by some models, e.g. Qwen3 thinking mode).</p>
+                </div>
+                <div class="settings-field" id="wizard-llm-reasoning-effort-field" hidden>
+                    <label for="wizard-llm-reasoning-effort">Reasoning effort</label>
+                    <select id="wizard-llm-reasoning-effort">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                    <p class="settings-hint">How much thinking the Responses API allows. Low answers faster, high thinks longer for harder questions.</p>
                 </div>
             </section>
 

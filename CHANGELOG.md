@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.1]
+
+- ADD: Devices page cards are now collapsible.
+- ADD: Add Support for OpenAI /Responses api endpoint
+- ADD: "Provider" dropdown in Settings > AI and the first-run wizard: **Cloud - OpenAI** or **Custom**.
+
 ## [0.2.0]
 
 - REFACTOR: The single `frontend/app.js` (5,580 lines) is split into 13 realm-based files under `frontend/js/` (`core/`, `devices/`, `calendar/`, `dashboard/`, `chat/`, `search/`, `settings/`, `wizard/` plus `bootstrap.js`). Loaded as classic scripts in dependency order with `bootstrap.js` last; behavior is unchanged. The monolithic `setupEventListeners()` is decomposed into per-realm `wireXxxEvents()` functions called from `wireAll()`. Guarded by `tests/test_frontend_split.py`.

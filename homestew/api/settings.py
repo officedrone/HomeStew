@@ -9,6 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from homestew.config import (
     create_master_key_runtime,
     delete_master_key_runtime,
+    effective_llm_base_url,
     llm_looks_configured,
     normalize_setup_steps,
     resolve_setup_step,
@@ -77,10 +78,26 @@ def _current_settings() -> SettingsResponse:
     """
     return SettingsResponse(
         theme=settings.THEME,
+        # Provider choice + URL-override flag drive how the UI renders the AI
+        # panel; llm_base_url below stays the STORED url (the custom server's),
+        # so switching back from 'openai' restores it. getattr fallbacks keep
+        # an older settings.json working with the defaults.
+        llm_provider=(
+            "openai"
+            if str(getattr(settings, "LLM_PROVIDER", "custom")) == "openai"
+            else "custom"
+        ),
+        llm_base_url_override=bool(
+            getattr(settings, "LLM_BASE_URL_OVERRIDE", False)
+        ),
         llm_base_url=settings.LLM_BASE_URL,
         llm_model=settings.LLM_MODEL,
         llm_supports_vision=bool(getattr(settings, "LLM_SUPPORTS_VISION", False)),
         llm_reasoning_enabled=bool(getattr(settings, "LLM_REASONING_ENABLED", True)),
+        # getattr fallbacks keep an older settings.json (neither key present)
+        # reporting the defaults instead of crashing the response model.
+        llm_api_kind=str(getattr(settings, "LLM_API_KIND", "chat_completions")),
+        llm_reasoning_effort=str(getattr(settings, "LLM_REASONING_EFFORT", "medium")),
         llm_api_key_set=bool(settings.LLM_API_KEY),
         chat_system_prompt=settings.CHAT_SYSTEM_PROMPT,
         search_tool_description=settings.SEARCH_TOOL_DESCRIPTION,
@@ -151,6 +168,15 @@ async def update_settings(update: SettingsUpdate):
     if update.theme is not None:
         changes["THEME"] = update.theme
 
+    # Provider selector + cloud URL-override flag (both validated by the
+    # schema). The stored LLM_BASE_URL is deliberately NOT rewritten when
+    # 'openai' is chosen: effective_llm_base_url() resolves the real target,
+    # and keeping the custom URL stored means switching back restores it.
+    if update.llm_provider is not None:
+        changes["LLM_PROVIDER"] = update.llm_provider
+    if update.llm_base_url_override is not None:
+        changes["LLM_BASE_URL_OVERRIDE"] = update.llm_base_url_override
+
     if update.llm_base_url is not None and update.llm_base_url.strip():
         base_url = update.llm_base_url.strip()
         if not base_url.startswith(("http://", "https://")):
@@ -173,6 +199,18 @@ async def update_settings(update: SettingsUpdate):
     # next chat completion without waiting for the client rebuild below.
     if update.llm_reasoning_enabled is not None:
         changes["LLM_REASONING_ENABLED"] = update.llm_reasoning_enabled
+
+    # API surface selector (validated by the schema Literal). Unlike the
+    # toggles above, this one IS baked into the cached LLMClient instance, so
+    # the reset_llm_client() call at the end of this handler is what applies
+    # it - not a live per-request read.
+    if update.llm_api_kind is not None:
+        changes["LLM_API_KIND"] = update.llm_api_kind
+
+    # Responses-API reasoning effort (validated by the schema Literal). Read
+    # live per request by llm_client, so no client rebuild dependency here.
+    if update.llm_reasoning_effort is not None:
+        changes["LLM_REASONING_EFFORT"] = update.llm_reasoning_effort
 
     if update.llm_api_key is not None and update.llm_api_key.strip():
         changes["LLM_API_KEY"] = update.llm_api_key.strip()
@@ -374,7 +412,9 @@ async def list_llm_models(probe: ModelListRequest):
     endpoint would let any caller ship the saved credential to an arbitrary
     host.
     """
-    base_url = (probe.llm_base_url or "").strip() or settings.LLM_BASE_URL
+    # An omitted probe URL falls back to the EFFECTIVE url, i.e. the OpenAI
+    # cloud endpoint when that provider is selected without an override.
+    base_url = (probe.llm_base_url or "").strip() or effective_llm_base_url()
     base_url = base_url.rstrip("/")
     if not base_url.startswith(("http://", "https://")):
         raise HTTPException(
@@ -382,10 +422,12 @@ async def list_llm_models(probe: ModelListRequest):
             detail="LLM base URL must start with http:// or https://"
         )
 
+    # The saved key belongs to the effective URL (the cloud endpoint when
+    # provider='openai'), so that is what a probe must match against.
     typed_key = (probe.llm_api_key or "").strip()
     if typed_key:
         api_key = typed_key
-    elif _normalize_base_url(base_url) == _normalize_base_url(settings.LLM_BASE_URL):
+    elif _normalize_base_url(base_url) == _normalize_base_url(effective_llm_base_url()):
         api_key = settings.LLM_API_KEY
     else:
         api_key = ""
@@ -430,7 +472,7 @@ async def get_model_status():
     available. Never raises on a connection failure - the caller (the chat
     tab) needs a structured answer to show the user, not an HTTP error.
     """
-    base_url = settings.LLM_BASE_URL
+    base_url = effective_llm_base_url()
     model_selected = bool((settings.LLM_MODEL or "").strip())
 
     try:

@@ -24,9 +24,21 @@ from homestew.services.secret_store import (
 
 logger = logging.getLogger(__name__)
 
+# Base URL of OpenAI's hosted API, used when the "Cloud - OpenAI"
+# provider is selected without a URL override. Mirrored in frontend/js/
+# settings/settings.js (OPENAI_CLOUD_BASE_URL) for the form prefill.
+OPENAI_CLOUD_BASE_URL = "https://api.openai.com/v1"
+
 # Settings that can be changed at runtime via the UI and persisted to disk.
 EDITABLE_SETTINGS = (
     "THEME",
+    # Which LLM server the AI panel targets: 'custom' (any OpenAI-compatible
+    # endpoint at LLM_BASE_URL - Ollama, LM Studio, ...) or 'openai' (OpenAI's
+    # hosted API; the URL is abstracted away unless overridden).
+    "LLM_PROVIDER",
+    # When true AND LLM_PROVIDER is 'openai', LLM_BASE_URL replaces the
+    # built-in cloud URL - e.g. an Azure/proxy endpoint speaking OpenAI API.
+    "LLM_BASE_URL_OVERRIDE",
     "LLM_BASE_URL",
     "LLM_API_KEY",
     "LLM_MODEL",
@@ -38,6 +50,14 @@ EDITABLE_SETTINGS = (
     # answering. On by default; when off, every chat request carries the
     # explicit disable parameters servers understand (see llm_client).
     "LLM_REASONING_ENABLED",
+    # Which OpenAI-compatible HTTP surface to call: 'chat_completions'
+    # (POST {base}/chat/completions, today's default) or 'responses'
+    # (POST {base}/responses, the API that replaces it upstream).
+    "LLM_API_KIND",
+    # Reasoning effort sent to the Responses API ('low' | 'medium' | 'high').
+    # Only used when LLM_API_KIND is 'responses'; the completions path keeps
+    # using LLM_REASONING_ENABLED.
+    "LLM_REASONING_EFFORT",
     "CHAT_SYSTEM_PROMPT",
     "SEARCH_TOOL_DESCRIPTION",
     "CALENDAR_TOOL_DESCRIPTION",
@@ -102,6 +122,15 @@ class Settings(BaseSettings):
     THEME: str = "auto"
     
     # LLM Configuration
+    # 'custom' = talk to whatever OpenAI-compatible server LLM_BASE_URL
+    # points at (the historical behaviour); 'openai' = OpenAI's hosted API,
+    # where HomeStew hard-sets the URL (OPENAI_CLOUD_BASE_URL) and only the
+    # API key + model are asked for. The Settings > AI / wizard provider
+    # dropdown writes this; effective_llm_base_url() resolves the URL.
+    LLM_PROVIDER: str = "custom"
+    # Only meaningful with LLM_PROVIDER='openai': use the stored LLM_BASE_URL
+    # instead of the built-in cloud URL (the "Override URL" checkbox).
+    LLM_BASE_URL_OVERRIDE: bool = False
     LLM_BASE_URL: str = "http://localhost:11434/v1"
     # Empty by default - local servers (Ollama etc.) ignore the key, and an
     # empty value means "no API key configured" in the Settings UI.
@@ -123,6 +152,18 @@ class Settings(BaseSettings):
     # reason unless told otherwise (qwen3 and friends). The checkbox lives in
     # Settings > AI and the first-run wizard.
     LLM_REASONING_ENABLED: bool = True
+    # Which OpenAI-compatible HTTP surface HomeStew calls. 'chat_completions'
+    # posts to {base}/chat/completions (the historical default); 'responses'
+    # posts to {base}/responses, the newer API that supersedes it - selecting
+    # it lets an install keep working once a server drops completions. The
+    # dropdown lives in Settings > AI right after the base URL (and in the
+    # first-run wizard); llm_client shapes payload + stream parsing per kind.
+    LLM_API_KIND: str = "chat_completions"
+    # Reasoning effort for the Responses API ('low' | 'medium' | 'high'),
+    # shown as a dropdown in place of the Reasoning checkbox when
+    # LLM_API_KIND is 'responses'. Medium balances thinking time against
+    # answer quality for local models.
+    LLM_REASONING_EFFORT: str = "medium"
 
     # LLM prompts (editable under Settings > Advanced Settings). Defaults are
     # the built-in prompt texts from homestew.default_prompts.
@@ -402,15 +443,35 @@ def resolve_setup_step(step: str, resolution: str) -> dict:
     return merged
 
 
+def effective_llm_base_url() -> str:
+    """The LLM URL actually used for requests, honouring the provider choice.
+
+    'openai' without a URL override resolves to OpenAI's hosted endpoint and
+    ignores the stored base URL (which keeps the user's previous custom URL,
+    so switching back to 'custom' restores it). Everything else - 'custom',
+    or 'openai' with the Override URL checkbox ticked - uses LLM_BASE_URL as
+    stored. All request paths (chat client, model probe, status) go through
+    this instead of reading LLM_BASE_URL directly.
+    """
+    provider = str(getattr(settings, "LLM_PROVIDER", "custom") or "custom")
+    override = bool(getattr(settings, "LLM_BASE_URL_OVERRIDE", False))
+    if provider == "openai" and not override:
+        return OPENAI_CLOUD_BASE_URL
+    return settings.LLM_BASE_URL
+
+
 def llm_looks_configured() -> bool:
     """Whether the LLM integration appears set up already.
 
-    True when a key is configured, the wizard's AI step was saved once, or
-    the base URL / model differ from the built-in defaults - i.e. someone
-    (env vars, compose, Settings) deliberately pointed HomeStew at an LLM
-    server and the first-run wizard should not offer to do it again.
+    True when a key is configured, the wizard's AI step was saved once, the
+    OpenAI cloud provider was deliberately selected, or the base URL / model
+    differ from the built-in defaults - i.e. someone (env vars, compose,
+    Settings) pointed HomeStew at an LLM server and the first-run wizard
+    should not offer to do it again.
     """
     if (settings.LLM_API_KEY or "").strip():
+        return True
+    if str(getattr(settings, "LLM_PROVIDER", "custom")) == "openai":
         return True
     if (settings.SETUP_STEPS or {}).get("llm") == "saved":
         return True

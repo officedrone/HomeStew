@@ -290,6 +290,17 @@ class StoreManualResponse(BaseModel):
 class SettingsResponse(BaseModel):
     """Current application settings (secrets are never included)."""
     theme: str = Field(..., description="UI theme preference: auto | light | dark")
+    llm_provider: Literal["custom", "openai"] = Field(
+        "custom",
+        description="Which LLM server the AI panel targets: 'custom' is any "
+        "OpenAI-compatible endpoint at llm_base_url; 'openai' is OpenAI's "
+        "hosted API (URL hard-set unless llm_base_url_override is true)",
+    )
+    llm_base_url_override: bool = Field(
+        False,
+        description="True when the OpenAI cloud provider uses a custom URL "
+        "instead of the built-in https://api.openai.com/v1",
+    )
     llm_base_url: str
     llm_model: str
     llm_supports_vision: bool = Field(
@@ -301,6 +312,17 @@ class SettingsResponse(BaseModel):
         True,
         description="True when model reasoning is allowed; when false every "
         "chat request carries explicit 'do not think' parameters",
+    )
+    llm_api_kind: Literal["chat_completions", "responses"] = Field(
+        "chat_completions",
+        description="Which OpenAI-compatible HTTP surface chat requests "
+        "target: 'chat_completions' posts to {base}/chat/completions, "
+        "'responses' posts to the newer {base}/responses API",
+    )
+    llm_reasoning_effort: Literal["low", "medium", "high"] = Field(
+        "medium",
+        description="Reasoning effort sent to the Responses API; only used "
+        "when llm_api_kind is 'responses'",
     )
     llm_api_key_set: bool = Field(
         ..., description="True if an LLM API key is configured (value not exposed)"
@@ -435,6 +457,20 @@ class SettingsUpdate(BaseModel):
     theme: Optional[Literal["auto", "light", "dark"]] = Field(
         None, description="UI theme preference: auto follows the OS; light/dark pin it"
     )
+    # Provider selector (None = unchanged). Validated by the Literal, so any
+    # accepted value is safe to persist without extra checks in the route.
+    llm_provider: Optional[Literal["custom", "openai"]] = Field(
+        None,
+        description="LLM server choice: 'custom' (any OpenAI-compatible "
+        "endpoint) or 'openai' (OpenAI's hosted API, URL abstracted away "
+        "unless llm_base_url_override is true)",
+    )
+    # Plain boolean toggle - unticking the Override checkbox must persist too.
+    llm_base_url_override: Optional[bool] = Field(
+        None,
+        description="With provider 'openai', send requests to llm_base_url "
+        "instead of the built-in cloud URL",
+    )
     llm_base_url: Optional[str] = Field(None, max_length=500)
     llm_api_key: Optional[str] = Field(None, max_length=500)
     llm_model: Optional[str] = Field(None, min_length=1, max_length=200)
@@ -449,6 +485,20 @@ class SettingsUpdate(BaseModel):
         None,
         description="Enable or disable model reasoning; when disabled, chat "
         "requests explicitly tell the model not to think",
+    )
+    # API surface selector (None = unchanged). Validated by the Literal, so
+    # any accepted value is safe to persist without extra checks in the route.
+    llm_api_kind: Optional[Literal["chat_completions", "responses"]] = Field(
+        None,
+        description="Target API for chat requests: 'chat_completions' "
+        "({base}/chat/completions) or 'responses' ({base}/responses)",
+    )
+    # Responses-API reasoning effort (None = unchanged); ignored by the
+    # completions path, which keeps using llm_reasoning_enabled.
+    llm_reasoning_effort: Optional[Literal["low", "medium", "high"]] = Field(
+        None,
+        description="Reasoning effort for the Responses API: low, medium "
+        "or high",
     )
     chat_system_prompt: Optional[str] = Field(
         None, max_length=16000, description="Custom chat system prompt"
