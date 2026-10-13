@@ -2,12 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
-
-- ADD: Devices page cards are now collapsible. By default each card shows only its icon, name and Edit/Delete buttons; clicking a card expands it (same animated panel as the sidebar "Recent Devices" accordion) to reveal brand/model, serial, product, warranty and manual count, and clicking the expanded details opens the Edit dialog. An "Expanded" checkbox next to the New Device button expands or collapses all cards at once; the choice is remembered across reloads.
-
 ## [0.2.1]
 
+- ADD: Devices page cards are now collapsible.
 - ADD: Add Support for OpenAI /Responses api endpoint
 - ADD: "Provider" dropdown in Settings > AI and the first-run wizard: **Cloud - OpenAI** or **Custom**.
 
