@@ -81,6 +81,10 @@ def _current_settings() -> SettingsResponse:
         llm_model=settings.LLM_MODEL,
         llm_supports_vision=bool(getattr(settings, "LLM_SUPPORTS_VISION", False)),
         llm_reasoning_enabled=bool(getattr(settings, "LLM_REASONING_ENABLED", True)),
+        # getattr fallbacks keep an older settings.json (neither key present)
+        # reporting the defaults instead of crashing the response model.
+        llm_api_kind=str(getattr(settings, "LLM_API_KIND", "chat_completions")),
+        llm_reasoning_effort=str(getattr(settings, "LLM_REASONING_EFFORT", "medium")),
         llm_api_key_set=bool(settings.LLM_API_KEY),
         chat_system_prompt=settings.CHAT_SYSTEM_PROMPT,
         search_tool_description=settings.SEARCH_TOOL_DESCRIPTION,
@@ -173,6 +177,18 @@ async def update_settings(update: SettingsUpdate):
     # next chat completion without waiting for the client rebuild below.
     if update.llm_reasoning_enabled is not None:
         changes["LLM_REASONING_ENABLED"] = update.llm_reasoning_enabled
+
+    # API surface selector (validated by the schema Literal). Unlike the
+    # toggles above, this one IS baked into the cached LLMClient instance, so
+    # the reset_llm_client() call at the end of this handler is what applies
+    # it - not a live per-request read.
+    if update.llm_api_kind is not None:
+        changes["LLM_API_KIND"] = update.llm_api_kind
+
+    # Responses-API reasoning effort (validated by the schema Literal). Read
+    # live per request by llm_client, so no client rebuild dependency here.
+    if update.llm_reasoning_effort is not None:
+        changes["LLM_REASONING_EFFORT"] = update.llm_reasoning_effort
 
     if update.llm_api_key is not None and update.llm_api_key.strip():
         changes["LLM_API_KEY"] = update.llm_api_key.strip()

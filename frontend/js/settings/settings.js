@@ -225,6 +225,16 @@ async function loadSettingsPage() {
     document.getElementById('settings-llm-reasoning').checked =
         settings.llm_reasoning_enabled !== false;
 
+    // API surface selector + Responses reasoning effort: unknown/missing
+    // values fall back to the defaults (older servers omit both keys).
+    const kindSelect = document.getElementById('settings-llm-api-kind');
+    kindSelect.value = ['chat_completions', 'responses'].includes(settings.llm_api_kind)
+        ? settings.llm_api_kind : 'chat_completions';
+    const effortSelect = document.getElementById('settings-llm-reasoning-effort');
+    effortSelect.value = ['low', 'medium', 'high'].includes(settings.llm_reasoning_effort)
+        ? settings.llm_reasoning_effort : 'medium';
+    updateLlmApiKindHints(kindSelect.value);
+
     // Advanced settings: current prompts + built-in defaults (for Restore).
     promptDefaults = {
         chat_system_prompt: settings.chat_system_prompt_default || '',
@@ -315,6 +325,23 @@ async function loadSettingsPage() {
     document.getElementById('advanced-settings-section').open = false;
     showSettingsSection(pendingSettingsSection || 'general');
     pendingSettingsSection = null;
+}
+
+// Show/hide the reasoning controls for the selected API surface: the
+// Responses API takes a reasoning effort object instead of the completions
+// enable/disable switches, so its dropdown replaces the checkbox there.
+// Applied to both the Settings AI panel and the wizard step (only one is
+// ever visible; each re-syncs from its own select on load/change).
+function updateLlmApiKindHints(apiKind) {
+    const responses = apiKind === 'responses';
+    const reasoningField = document.getElementById('settings-llm-reasoning')?.closest('.settings-field');
+    if (reasoningField) reasoningField.hidden = responses;
+    const effortField = document.getElementById('settings-llm-reasoning-effort-field');
+    if (effortField) effortField.hidden = !responses;
+    const wizReasoningField = document.getElementById('wizard-llm-reasoning')?.closest('.settings-field');
+    if (wizReasoningField) wizReasoningField.hidden = responses;
+    const wizEffortField = document.getElementById('wizard-llm-reasoning-effort-field');
+    if (wizEffortField) wizEffortField.hidden = !responses;
 }
 
 // Per-type help text for the webhook fields. Synology Chat incoming webhooks
@@ -1014,6 +1041,11 @@ async function handleSettingsSave(event) {
         // Always sent: a plain boolean, so unchecking must persist too.
         llm_supports_vision: document.getElementById('settings-llm-vision').checked,
         llm_reasoning_enabled: document.getElementById('settings-llm-reasoning').checked,
+        // Always sent: independent persisted fields, each read only by its
+        // own code path (kind selects the endpoint, effort the Responses
+        // reasoning body), so a hidden control still stores its preference.
+        llm_api_kind: document.getElementById('settings-llm-api-kind').value,
+        llm_reasoning_effort: document.getElementById('settings-llm-reasoning-effort').value,
         // Prompts are always sent; the server treats a blank value as
         // "restore the built-in default".
         chat_system_prompt: document.getElementById('settings-chat-system-prompt').value.trim(),
@@ -1235,6 +1267,9 @@ function wireSettingsEvents() {
     });
     document.getElementById('settings-form').addEventListener('submit', handleSettingsSave);
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
+    document.getElementById('settings-llm-api-kind').addEventListener('change', (event) => {
+        updateLlmApiKindHints(event.target.value);
+    });
     document.getElementById('test-connection-btn').addEventListener('click', () => testLlmConnection({
         urlId: 'settings-llm-base-url', keyId: 'settings-llm-api-key',
         btnId: 'test-connection-btn', resultId: 'settings-conn-test-result',

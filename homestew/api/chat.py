@@ -39,7 +39,10 @@ def get_llm_client() -> LLMClient:
         _llm_client = LLMClient(
             base_url=settings.LLM_BASE_URL,
             api_key=settings.LLM_API_KEY,
-            model=settings.LLM_MODEL
+            model=settings.LLM_MODEL,
+            # Which HTTP surface to target (chat completions vs responses).
+            # getattr fallback keeps older settings objects working.
+            api_kind=getattr(settings, "LLM_API_KIND", "chat_completions"),
         )
     return _llm_client
 

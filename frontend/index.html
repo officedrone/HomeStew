@@ -407,6 +407,19 @@
                             </div>
                             <div class="settings-field">
                                 <div class="label-row">
+                                    <label for="settings-llm-api-kind">API Type</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Which OpenAI-compatible endpoint HomeStew calls. Keep "Chat Completions" unless your server only offers the newer Responses API (e.g. LM Studio with gpt-oss) or you want to prepare for completions deprecation.</p></span>
+                                    </span>
+                                </div>
+                                <select id="settings-llm-api-kind">
+                                    <option value="chat_completions">Chat Completions (/chat/completions)</option>
+                                    <option value="responses">Responses (/responses)</option>
+                                </select>
+                            </div>
+                            <div class="settings-field">
+                                <div class="label-row">
                                     <label for="settings-llm-api-key">LLM API Key</label>
                                     <span class="info-wrap" id="api-key-info" hidden>
                                         <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
@@ -462,6 +475,20 @@
                                         <span class="info-popover" role="tooltip"><p class="settings-hint">Enable or Disable model reasoning.</p></span>
                                     </span>
                                 </div>
+                            </div>
+                            <div class="settings-field" id="settings-llm-reasoning-effort-field" hidden>
+                                <div class="label-row">
+                                    <label for="settings-llm-reasoning-effort">Reasoning effort</label>
+                                    <span class="info-wrap">
+                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                        <span class="info-popover" role="tooltip"><p class="settings-hint">How much thinking the Responses API allows the model. Low answers faster, high thinks longer for harder questions.</p></span>
+                                    </span>
+                                </div>
+                                <select id="settings-llm-reasoning-effort">
+                                    <option value="low">Low</option>
+                                    <option value="medium" selected>Medium</option>
+                                    <option value="high">High</option>
+                                </select>
                             </div>
 
                             <!-- Prompt customization (collapsed by default). The
@@ -1209,6 +1236,14 @@
                     <input type="text" id="wizard-llm-base-url" placeholder="e.g., http://localhost:11434/v1">
                 </div>
                 <div class="settings-field">
+                    <label for="wizard-llm-api-kind">API Type</label>
+                    <select id="wizard-llm-api-kind">
+                        <option value="chat_completions">Chat Completions (/chat/completions)</option>
+                        <option value="responses">Responses (/responses)</option>
+                    </select>
+                    <p class="settings-hint">Keep "Chat Completions" unless your server only offers the newer Responses API (e.g. LM Studio with gpt-oss).</p>
+                </div>
+                <div class="settings-field">
                     <label for="wizard-llm-api-key">API Key (optional)</label>
                     <input type="password" id="wizard-llm-api-key" autocomplete="new-password" placeholder="Not needed for local servers">
                 </div>
@@ -1241,6 +1276,15 @@
                         Reasoning
                     </label>
                     <p class="settings-hint">Enable or Disable model reasoning. Leave ticked to let the model think before answering; untick to tell it not to reason (required by some models, e.g. Qwen3 thinking mode).</p>
+                </div>
+                <div class="settings-field" id="wizard-llm-reasoning-effort-field" hidden>
+                    <label for="wizard-llm-reasoning-effort">Reasoning effort</label>
+                    <select id="wizard-llm-reasoning-effort">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                    <p class="settings-hint">How much thinking the Responses API allows. Low answers faster, high thinks longer for harder questions.</p>
                 </div>
             </section>
 

@@ -38,6 +38,14 @@ EDITABLE_SETTINGS = (
     # answering. On by default; when off, every chat request carries the
     # explicit disable parameters servers understand (see llm_client).
     "LLM_REASONING_ENABLED",
+    # Which OpenAI-compatible HTTP surface to call: 'chat_completions'
+    # (POST {base}/chat/completions, today's default) or 'responses'
+    # (POST {base}/responses, the API that replaces it upstream).
+    "LLM_API_KIND",
+    # Reasoning effort sent to the Responses API ('low' | 'medium' | 'high').
+    # Only used when LLM_API_KIND is 'responses'; the completions path keeps
+    # using LLM_REASONING_ENABLED.
+    "LLM_REASONING_EFFORT",
     "CHAT_SYSTEM_PROMPT",
     "SEARCH_TOOL_DESCRIPTION",
     "CALENDAR_TOOL_DESCRIPTION",
@@ -123,6 +131,18 @@ class Settings(BaseSettings):
     # reason unless told otherwise (qwen3 and friends). The checkbox lives in
     # Settings > AI and the first-run wizard.
     LLM_REASONING_ENABLED: bool = True
+    # Which OpenAI-compatible HTTP surface HomeStew calls. 'chat_completions'
+    # posts to {base}/chat/completions (the historical default); 'responses'
+    # posts to {base}/responses, the newer API that supersedes it - selecting
+    # it lets an install keep working once a server drops completions. The
+    # dropdown lives in Settings > AI right after the base URL (and in the
+    # first-run wizard); llm_client shapes payload + stream parsing per kind.
+    LLM_API_KIND: str = "chat_completions"
+    # Reasoning effort for the Responses API ('low' | 'medium' | 'high'),
+    # shown as a dropdown in place of the Reasoning checkbox when
+    # LLM_API_KIND is 'responses'. Medium balances thinking time against
+    # answer quality for local models.
+    LLM_REASONING_EFFORT: str = "medium"
 
     # LLM prompts (editable under Settings > Advanced Settings). Defaults are
     # the built-in prompt texts from homestew.default_prompts.

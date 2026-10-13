@@ -51,10 +51,143 @@ def _reasoning_params() -> Dict[str, Any]:
     }
 
 
+def _responses_reasoning_params() -> Dict[str, Any]:
+    """Reasoning body fields for the Responses API surface.
+
+    Driven by the "Reasoning effort" dropdown (Settings > AI / first-run
+    wizard), persisted as ``settings.LLM_REASONING_EFFORT`` ('low' | 'medium'
+    | 'high') and read live on every request so changing it applies without
+    a restart. The Responses API takes an effort object rather than the
+    completions-style switches, e.g. ``{"reasoning": {"effort": "low"}}``.
+    An empty/unknown value omits the field entirely and lets the server
+    decide. The completions path keeps using :func:`_reasoning_params`.
+    """
+    effort = str(getattr(settings, "LLM_REASONING_EFFORT", "medium") or "").strip().lower()
+    if not effort:
+        return {}
+    return {"reasoning": {"effort": effort}}
+
+
+def _flatten_tools(tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Convert chat-completions tool definitions to Responses API items.
+
+    Completions nests the definition (``{"type": "function", "function":
+    {name, description, parameters}}``); the Responses API declares tools
+    flat (``{"type": "function", name, description, parameters}``). The
+    nested shape stays the single source of truth in this module
+    (create_*_tool / ToolBinding), so only this boundary converts.
+    """
+    flat: List[Dict[str, Any]] = []
+    for tool in tools or []:
+        fn = tool.get("function") if isinstance(tool, dict) else None
+        if isinstance(fn, dict):
+            item = {"type": "function"}
+            for key in ("name", "description", "parameters"):
+                if fn.get(key) is not None:
+                    item[key] = fn[key]
+            flat.append(item)
+        elif isinstance(tool, dict):
+            # Already flat (or an unknown shape): pass through untouched.
+            flat.append(tool)
+    return flat
+
+
+def _to_responses_content(content: Any, role: Optional[str]) -> Any:
+    """Map chat-completions content parts onto Responses API parts.
+
+    ``to_openai_messages`` builds multimodal user turns with the completions
+    vocabulary (``{type: "text"}`` / ``{type: "image_url", image_url: {url}}``);
+    the Responses API rejects those shapes (LM Studio answers 400
+    ``invalid_union``) and expects its own part types instead:
+
+      - ``{"type": "text", ...}``       -> ``input_text`` (user) /
+        ``output_text`` (assistant replay);
+      - ``{"type": "image_url",
+          "image_url": {"url": ...}}``  -> ``{"type": "input_image",
+        "image_url": "<plain string url>"}`` (data: URLs included);
+      - parts already in Responses shape pass through untouched.
+
+    Plain string content is returned unchanged.
+    """
+    if not isinstance(content, list):
+        return content
+    text_type = "output_text" if role == "assistant" else "input_text"
+    parts: List[Dict[str, Any]] = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        ptype = part.get("type")
+        if ptype == "text":
+            parts.append({"type": text_type, "text": part.get("text") or ""})
+        elif ptype == "image_url":
+            image = part.get("image_url")
+            url = image.get("url") if isinstance(image, dict) else image
+            if url:
+                parts.append({"type": "input_image", "image_url": url})
+        elif ptype in ("input_text", "input_image", "output_text"):
+            parts.append(part)
+    return parts
+
+
+def _to_responses_input(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Translate the internal completions-style history into input items.
+
+    HomeStew keeps one conversation representation everywhere upstream of
+    the transport (api/chat.py and chat_with_tool_events build/extend
+    ``messages`` with assistant ``tool_calls`` echoes and ``role: "tool"``
+    replies); this function is the single place that maps it onto the
+    Responses API's item list:
+
+      - assistant turn with tool_calls -> one ``function_call`` item per call
+        (the assistant text, when any, rides along as its own message item);
+      - ``role: "tool"`` reply -> ``function_call_output`` keyed by call_id;
+      - multimodal turns (content is a part list from to_openai_messages)
+        have their parts converted by :func:`_to_responses_content`;
+      - plain text turns become ``{"role", "content"}`` items.
+
+    The whole conversation is replayed on every request (stateless), so a
+    server restart can never strand a chat by forgetting response ids.
+    """
+    items: List[Dict[str, Any]] = []
+    for msg in messages:
+        role = msg.get("role")
+        content = msg.get("content")
+        tool_calls = msg.get("tool_calls")
+        if role == "assistant" and tool_calls:
+            if content:
+                items.append({
+                    "role": "assistant",
+                    "content": _to_responses_content(content, role),
+                })
+            for call in tool_calls:
+                fn = call.get("function") or {}
+                items.append({
+                    "type": "function_call",
+                    "call_id": call.get("id") or "",
+                    "name": fn.get("name") or "",
+                    "arguments": fn.get("arguments") or "{}",
+                })
+            continue
+        if role == "tool":
+            items.append({
+                "type": "function_call_output",
+                "call_id": msg.get("tool_call_id") or "",
+                "output": content if content is not None else "",
+            })
+            continue
+        item: Dict[str, Any] = {"role": role, "content": _to_responses_content(content, role)}
+        if msg.get("images"):
+            # ChatMessage.images never reach the transport (to_openai_messages
+            # folds them into multimodal content parts); defensive only.
+            item["images"] = msg["images"]
+        items.append(item)
+    return items
+
+
 class LLMClient:
     """Client for OpenAI-compatible LLM APIs."""
     
-    def __init__(self, base_url: str, api_key: str, model: str):
+    def __init__(self, base_url: str, api_key: str, model: str, api_kind: str = "chat_completions"):
         """
         Initialize LLM client.
         
@@ -62,12 +195,18 @@ class LLMClient:
             base_url: Base URL of the API (e.g., http://localhost:11434/v1)
             api_key: API key (can be dummy for local servers)
             model: Model name to use
+            api_kind: Which OpenAI-compatible HTTP surface to call -
+                'chat_completions' (POST {base}/chat/completions, default) or
+                'responses' (POST {base}/responses). Unknown values fall back
+                to 'chat_completions'. The kind is baked into this instance:
+                settings PUTs rebuild the cached client (reset_llm_client).
         """
         self.base_url = base_url.rstrip('/')
         # OpenAI-compatible clients require a non-empty key even when the
         # server ignores it (local Ollama etc.) - substitute a dummy.
         self.api_key = api_key if api_key and api_key.strip() else "not-needed"
         self.model = model
+        self.api_kind = api_kind if api_kind == "responses" else "chat_completions"
         
         # Try to import openai library, fallback to requests if not available
         try:
@@ -77,7 +216,7 @@ class LLMClient:
                 base_url=self.base_url,
                 api_key=self.api_key
             )
-            logger.info("Using OpenAI library for LLM client")
+            logger.info("Using OpenAI library for LLM client (API surface: %s)", self.api_kind)
         except ImportError:
             self._use_openai = False
             logger.warning("OpenAI library not available, using requests fallback")
@@ -99,6 +238,10 @@ class LLMClient:
         Returns:
             Response object or generator if streaming
         """
+        if self.api_kind == "responses":
+            # The Responses surface is served over raw HTTP regardless of
+            # whether the OpenAI SDK is importable (see _responses_payload).
+            return self._requests_chat_completion(messages, tools, stream)
         if self._use_openai:
             return self._openai_chat_completion(messages, tools, stream)
         else:
@@ -110,7 +253,13 @@ class LLMClient:
         tools: Optional[List[Dict]] = None,
         stream: bool = False
     ) -> Any:
-        """Chat completion using OpenAI library."""
+        """Chat completion using OpenAI library.
+
+        Only the chat-completions surface uses the SDK: the Responses API is
+        served over raw requests (see _responses_payload), independent of
+        whether the pinned openai package exposes it — callers route on
+        api_kind before reaching this method.
+        """
         kwargs = {
             "model": self.model,
             "messages": messages,
@@ -128,27 +277,58 @@ class LLMClient:
 
         return self.client.chat.completions.create(**kwargs)
     
+    def _responses_payload(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict]] = None,
+        stream: bool = False,
+    ) -> Dict[str, Any]:
+        """Build a Responses API request body from internal shapes.
+
+        ``messages`` is the completions-style conversation (see
+        _to_responses_input) and ``tools`` the nested chat-completions
+        definitions (flattened here). Reasoning effort rides along per
+        _responses_reasoning_params, read live so UI changes apply at once.
+        """
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "input": _to_responses_input(messages),
+            "stream": stream,
+        }
+        if tools:
+            payload["tools"] = _flatten_tools(tools)
+        payload.update(_responses_reasoning_params())
+        return payload
+
     def _requests_chat_completion(
         self,
         messages: List[Dict[str, str]],
         tools: Optional[List[Dict]] = None,
         stream: bool = False
     ) -> Any:
-        """Chat completion using requests (fallback)."""
-        import requests
-        
-        url = f"{self.base_url}/chat/completions"
-        
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": stream
-        }
-        
-        if tools:
-            payload["tools"] = tools
+        """Chat completion using requests (fallback).
 
-        payload.update(_reasoning_params())
+        Honours the selected API surface: 'responses' posts the Responses
+        body to {base}/responses and returns the raw JSON dict (no
+        production caller unwraps non-streaming responses - chat always
+        streams via stream_chat_completion); 'chat_completions' keeps the
+        historical {base}/chat/completions behaviour.
+        """
+        import requests
+
+        if self.api_kind == "responses":
+            url = f"{self.base_url}/responses"
+            payload = self._responses_payload(messages, tools, stream)
+        else:
+            url = f"{self.base_url}/chat/completions"
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": stream,
+            }
+            if tools:
+                payload["tools"] = tools
+            payload.update(_reasoning_params())
 
         headers = {
             "Content-Type": "application/json",
@@ -202,7 +382,36 @@ class LLMClient:
         of normalised dicts and ``close`` tears down the underlying HTTP
         response (safe to call from another thread - it unblocks a pending
         read so generation can be interrupted).
+
+        When the client targets the Responses API ('responses'), the request
+        goes to {base}/responses over raw requests and the SSE events are
+        translated by _normalize_responses_stream into the same vocabulary.
         """
+        if self.api_kind == "responses":
+            import requests
+
+            payload = self._responses_payload(messages, tools, stream=True)
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            }
+            response = requests.post(
+                f"{self.base_url}/responses",
+                json=payload,
+                headers=headers,
+                stream=True,
+            )
+            response.raise_for_status()
+            raw_events = self._iter_sse_json_lines(response.iter_lines())
+
+            def _close():
+                try:
+                    response.close()
+                except Exception:  # noqa: BLE001 - teardown is best-effort
+                    pass
+
+            return _normalize_responses_stream(raw_events), _close
+
         if self._use_openai:
             kwargs = {
                 "model": self.model,
@@ -352,6 +561,142 @@ def _normalize_stream(raw_chunks):
 
     # Servers that never send a finish_reason still get their calls flushed.
     yield from _flush_tool_calls(tool_calls_acc)
+
+
+def _normalize_responses_stream(raw_events):
+    """Translate Responses API SSE events into the normalised event vocabulary.
+
+    The Responses API streams typed events (``response.created``,
+    ``response.output_text.delta``, ``response.function_call_arguments.delta``,
+    ``response.completed`` ...) instead of completion chunks. This emits the
+    same events as :func:`_normalize_stream` so the conversation loop in
+    chat_with_tool_events is surface-agnostic:
+
+      - ``*.output_text.delta``            -> {"type": "content", "delta": str}
+      - reasoning summary/reasoning deltas -> {"type": "reasoning", "delta": str}
+      - completed function-call items      -> {"type": "tool_call", "call": {...}}
+      - response.completed/incomplete/failed -> flush + {"type": "finish", "reason": str}
+      - error events                       -> RuntimeError (surfaces as the SSE
+        error frame via friendly_llm_error in api/chat.py)
+
+    Function calls arrive fragmented like completions tool_calls: arguments
+    stream in per-item deltas, while call_id/name ride on the item's added/
+    done events. Calls accumulate keyed by item id and flush when the item
+    completes (done event) or at the terminal event - so a call is emitted
+    exactly once with complete arguments.
+    """
+    # key: item id (or index fallback) -> {call_id, name, arguments}
+    calls_acc: Dict[Any, Dict[str, str]] = {}
+
+    def _slot(key):
+        return calls_acc.setdefault(
+            key, {"call_id": "", "name": "", "arguments": ""}
+        )
+
+    def _emit(call):
+        if call["call_id"] or call["name"] or call["arguments"]:
+            return {
+                "type": "tool_call",
+                "call": {
+                    "id": call["call_id"],
+                    "name": call["name"] or "search_manuals",
+                    "arguments": call["arguments"] or "{}",
+                },
+            }
+        return None
+
+    def _flush_all():
+        flushed = []
+        for key in sorted(calls_acc, key=str):
+            event = _emit(calls_acc[key])
+            if event:
+                flushed.append(event)
+        calls_acc.clear()
+        return flushed
+
+    for ev in raw_events:
+        etype = str(_pick(ev, "type") or "")
+
+        # Server-side failures: raise so the chat endpoint reports them
+        # instead of ending the answer silently.
+        if "error" in etype:
+            err = _pick(ev, "error")
+            message = _pick(err, "message") if err is not None else None
+            raise RuntimeError(
+                f"Responses API error: {message or etype}"
+            )
+
+        # Text deltas (response.output_text.delta and compatible variants).
+        if etype.endswith("output_text.delta"):
+            delta = _pick(ev, "delta") or _pick(ev, "text")
+            if delta:
+                yield {"type": "content", "delta": delta}
+            continue
+
+        # Reasoning deltas: response.reasoning_summary_text.delta and any
+        # reasoning-text variant. Checked before the generic text branch so
+        # thinking tokens never leak into the answer.
+        if "reasoning" in etype and etype.endswith("delta"):
+            delta = _pick(ev, "delta") or _pick(ev, "text")
+            if delta:
+                yield {"type": "reasoning", "delta": delta}
+            continue
+
+        # Function-call argument fragments (response.function_call_arguments.delta).
+        if etype.endswith("function_call_arguments.delta"):
+            key = _pick(ev, "item_id")
+            if key is None:
+                key = _pick(ev, "index") or 0
+            slot = _slot(key)
+            delta = _pick(ev, "delta")
+            if delta:
+                slot["arguments"] += delta
+            continue
+
+        # Function-call lifecycle events (added/done): carry call_id + name.
+        item = _pick(ev, "item")
+        if item is not None and _pick(item, "type") == "function_call":
+            key = _pick(ev, "item_id") or _pick(item, "id")
+            if key is None:
+                key = _pick(ev, "output_index") or 0
+            slot = _slot(key)
+            call_id = _pick(item, "call_id") or _pick(item, "id")
+            if call_id:
+                slot["call_id"] = call_id
+            name = _pick(item, "name")
+            if name:
+                slot["name"] = name
+            arguments = _pick(item, "arguments")
+            if arguments:
+                # The done event carries the full arguments string; prefer it
+                # over accumulated fragments (identical in practice).
+                slot["arguments"] = arguments
+            if etype.endswith("done"):
+                event = _emit(slot)
+                calls_acc.pop(key, None)
+                if event:
+                    yield event
+            continue
+
+        # Terminal events. 'completed' answered fully; 'incomplete'/'failed'
+        # still flush whatever the model produced so tool calls are not lost.
+        if etype in (
+            "response.completed",
+            "response.incomplete",
+            "response.failed",
+            "response.done",
+        ):
+            yield from _flush_all()
+            response_obj = _pick(ev, "response")
+            status_value = _pick(response_obj, "status") if response_obj is not None else None
+            yield {"type": "finish", "reason": str(status_value or etype)}
+            continue
+
+        # Everything else (response.created, content_part events, unknown
+        # future types) carries nothing this translator needs.
+
+    # Streams that end without a terminal event still flush pending calls.
+    yield from _flush_all()
 
 
 async def _aiter_stream(client: LLMClient, messages, tools):

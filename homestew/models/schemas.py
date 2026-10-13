@@ -302,6 +302,17 @@ class SettingsResponse(BaseModel):
         description="True when model reasoning is allowed; when false every "
         "chat request carries explicit 'do not think' parameters",
     )
+    llm_api_kind: Literal["chat_completions", "responses"] = Field(
+        "chat_completions",
+        description="Which OpenAI-compatible HTTP surface chat requests "
+        "target: 'chat_completions' posts to {base}/chat/completions, "
+        "'responses' posts to the newer {base}/responses API",
+    )
+    llm_reasoning_effort: Literal["low", "medium", "high"] = Field(
+        "medium",
+        description="Reasoning effort sent to the Responses API; only used "
+        "when llm_api_kind is 'responses'",
+    )
     llm_api_key_set: bool = Field(
         ..., description="True if an LLM API key is configured (value not exposed)"
     )
@@ -449,6 +460,20 @@ class SettingsUpdate(BaseModel):
         None,
         description="Enable or disable model reasoning; when disabled, chat "
         "requests explicitly tell the model not to think",
+    )
+    # API surface selector (None = unchanged). Validated by the Literal, so
+    # any accepted value is safe to persist without extra checks in the route.
+    llm_api_kind: Optional[Literal["chat_completions", "responses"]] = Field(
+        None,
+        description="Target API for chat requests: 'chat_completions' "
+        "({base}/chat/completions) or 'responses' ({base}/responses)",
+    )
+    # Responses-API reasoning effort (None = unchanged); ignored by the
+    # completions path, which keeps using llm_reasoning_enabled.
+    llm_reasoning_effort: Optional[Literal["low", "medium", "high"]] = Field(
+        None,
+        description="Reasoning effort for the Responses API: low, medium "
+        "or high",
     )
     chat_system_prompt: Optional[str] = Field(
         None, max_length=16000, description="Custom chat system prompt"

@@ -51,6 +51,15 @@ async function checkSetupWizard() {
         // (default on: only an explicit false unticks it).
         document.getElementById('wizard-llm-reasoning').checked =
             s.llm_reasoning_enabled !== false;
+        // API surface + Responses effort (unknown/missing = defaults), with
+        // the same checkbox/effort swap the Settings AI panel applies.
+        const wizKind = ['chat_completions', 'responses'].includes(s.llm_api_kind)
+            ? s.llm_api_kind : 'chat_completions';
+        document.getElementById('wizard-llm-api-kind').value = wizKind;
+        document.getElementById('wizard-llm-reasoning-effort').value =
+            ['low', 'medium', 'high'].includes(s.llm_reasoning_effort)
+                ? s.llm_reasoning_effort : 'medium';
+        updateLlmApiKindHints(wizKind);
         if (!wizardQueue.length) return;
         // Prefill the AI step from what the server has (defaults or env).
         document.getElementById('wizard-llm-base-url').value = s.llm_base_url || '';
@@ -262,6 +271,9 @@ async function wizardSaveLlm() {
         // Always sent so unchecking in the wizard persists too.
         llm_supports_vision: document.getElementById('wizard-llm-vision').checked,
         llm_reasoning_enabled: document.getElementById('wizard-llm-reasoning').checked,
+        // API surface + Responses effort: always sent, mirroring Settings.
+        llm_api_kind: document.getElementById('wizard-llm-api-kind').value,
+        llm_reasoning_effort: document.getElementById('wizard-llm-reasoning-effort').value,
     };
     // Blank key = none configured (local servers ignore it); omitted so the
     // server keeps any stored key untouched.
@@ -328,4 +340,7 @@ function wireWizardEvents() {
         modelSelectId: 'wizard-llm-model', hintId: 'wizard-model-list-hint',
     }));
     resetConnTestOnEdit('wizard-llm-base-url', 'wizard-llm-api-key', 'wizard-conn-test-result');
+    document.getElementById('wizard-llm-api-kind').addEventListener('change', (event) => {
+        updateLlmApiKindHints(event.target.value);
+    });
 }
