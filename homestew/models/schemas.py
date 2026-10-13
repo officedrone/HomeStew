@@ -290,6 +290,17 @@ class StoreManualResponse(BaseModel):
 class SettingsResponse(BaseModel):
     """Current application settings (secrets are never included)."""
     theme: str = Field(..., description="UI theme preference: auto | light | dark")
+    llm_provider: Literal["custom", "openai"] = Field(
+        "custom",
+        description="Which LLM server the AI panel targets: 'custom' is any "
+        "OpenAI-compatible endpoint at llm_base_url; 'openai' is OpenAI's "
+        "hosted API (URL hard-set unless llm_base_url_override is true)",
+    )
+    llm_base_url_override: bool = Field(
+        False,
+        description="True when the OpenAI cloud provider uses a custom URL "
+        "instead of the built-in https://api.openai.com/v1",
+    )
     llm_base_url: str
     llm_model: str
     llm_supports_vision: bool = Field(
@@ -445,6 +456,20 @@ class SettingsUpdate(BaseModel):
     """Update application settings. Omitted/blank fields are left unchanged."""
     theme: Optional[Literal["auto", "light", "dark"]] = Field(
         None, description="UI theme preference: auto follows the OS; light/dark pin it"
+    )
+    # Provider selector (None = unchanged). Validated by the Literal, so any
+    # accepted value is safe to persist without extra checks in the route.
+    llm_provider: Optional[Literal["custom", "openai"]] = Field(
+        None,
+        description="LLM server choice: 'custom' (any OpenAI-compatible "
+        "endpoint) or 'openai' (OpenAI's hosted API, URL abstracted away "
+        "unless llm_base_url_override is true)",
+    )
+    # Plain boolean toggle - unticking the Override checkbox must persist too.
+    llm_base_url_override: Optional[bool] = Field(
+        None,
+        description="With provider 'openai', send requests to llm_base_url "
+        "instead of the built-in cloud URL",
     )
     llm_base_url: Optional[str] = Field(None, max_length=500)
     llm_api_key: Optional[str] = Field(None, max_length=500)

@@ -5,6 +5,7 @@ All notable changes to this project are documented in this file.
 ## [0.2.1]
 
 - ADD: Add Support for OpenAI /Responses api endpoint
+- ADD: "Provider" dropdown in Settings > AI and the first-run wizard: **OpenAI (Cloud Based)** or **Custom**. Selecting OpenAI abstracts the URL away (hard-set to `https://api.openai.com/v1`) so only the API key and model are needed; an **Override URL** checkbox reopens the Base URL field for Azure/proxy endpoints that speak the same API. Custom keeps the existing form exactly, and your previously stored custom URL is restored when you switch back.
 
 ## [0.2.0]
 

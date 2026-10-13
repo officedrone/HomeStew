@@ -186,6 +186,17 @@ async function loadSettingsPage() {
 
     document.getElementById('settings-llm-base-url').value = settings.llm_base_url || '';
 
+    // Provider selector (Custom vs OpenAI cloud): unknown/missing values fall
+    // back to 'custom' (older servers omit the key). The stored base URL is
+    // kept as the backup so switching back from the cloud provider restores
+    // it, and updateLlmProviderUi() then hides/prefills the URL field.
+    const providerSelect = document.getElementById('settings-llm-provider');
+    providerSelect.value = settings.llm_provider === 'openai' ? 'openai' : 'custom';
+    llmCustomUrlBackup.settings = settings.llm_base_url || '';
+    document.getElementById('settings-llm-base-url-override').checked =
+        settings.llm_base_url_override === true;
+    updateLlmProviderUi('settings');
+
     // Write-only secret fields: remember what the server reports as
     // configured, reset any pending removals and paint placeholder/hint/Remove
     // for each. Values themselves never reach the browser.
@@ -325,6 +336,55 @@ async function loadSettingsPage() {
     document.getElementById('advanced-settings-section').open = false;
     showSettingsSection(pendingSettingsSection || 'general');
     pendingSettingsSection = null;
+}
+
+// OpenAI's hosted endpoint. Mirrors OPENAI_CLOUD_BASE_URL in
+// homestew/config.py; when the cloud provider is selected without a URL
+// override, the Base URL input is hidden and prefilled with this so the
+// probe / test-connection / save code paths keep reading one input.
+const OPENAI_CLOUD_BASE_URL = 'https://api.openai.com/v1';
+
+// The user's custom Base URL stashed while the cloud provider hides the
+// field ('settings' / 'wizard' prefixes), so switching back restores it.
+const llmCustomUrlBackup = { settings: '', wizard: '' };
+
+// Apply the Provider dropdown + "Override URL" checkbox to the form:
+//   custom            -> Base URL visible/editable (exactly as before)
+//   openai, no override -> Base URL hidden, input forced to the cloud URL
+//   openai, override  -> Base URL visible again for the custom endpoint
+// Shared by Settings > AI and the wizard step (prefix 'settings'/'wizard').
+function updateLlmProviderUi(prefix) {
+    const providerEl = document.getElementById(`${prefix}-llm-provider`);
+    if (!providerEl) return;
+    const openai = providerEl.value === 'openai';
+    const overrideEl = document.getElementById(`${prefix}-llm-base-url-override`);
+    const override = !!(overrideEl && overrideEl.checked);
+    const urlField = document.getElementById(`${prefix}-llm-base-url-field`);
+    const overrideField = document.getElementById(`${prefix}-llm-base-url-override-field`);
+    const input = document.getElementById(`${prefix}-llm-base-url`);
+    if (overrideField) overrideField.hidden = !openai;
+    if (urlField) urlField.hidden = openai && !override;
+    if (!input) return;
+    if (openai && !override) {
+        // Stash a typed custom URL before replacing it with the cloud one.
+        const current = input.value.trim();
+        if (current && current !== OPENAI_CLOUD_BASE_URL) {
+            llmCustomUrlBackup[prefix] = current;
+        }
+        input.value = OPENAI_CLOUD_BASE_URL;
+    } else if (!openai && input.value === OPENAI_CLOUD_BASE_URL && llmCustomUrlBackup[prefix]) {
+        // Coming back from the hidden cloud state to Custom: restore the
+        // custom URL. With Override ticked the field keeps the cloud URL as
+        // the starting point for editing instead.
+        input.value = llmCustomUrlBackup[prefix];
+    }
+    // The URL just changed without an 'input' event, so a previous
+    // "Connection Successful" no longer describes the target - clear it.
+    const connResult = document.getElementById(`${prefix}-conn-test-result`);
+    if (connResult) {
+        connResult.className = 'conn-test-result';
+        connResult.textContent = '';
+    }
 }
 
 // Show/hide the reasoning controls for the selected API surface: the
@@ -1029,9 +1089,19 @@ async function handleSettingsSave(event) {
     event.preventDefault();
 
     const themeInput = document.querySelector('#settings-form input[name="theme"]:checked');
+    // Provider state decides whether the URL field's content is sent: with
+    // the cloud provider and no override, the input only holds the built-in
+    // cloud URL, so omit it and keep the stored custom URL for later.
+    const providerValue = document.getElementById('settings-llm-provider').value;
+    const urlOverridden = document.getElementById('settings-llm-base-url-override').checked;
+    const sendBaseUrl = !(providerValue === 'openai' && !urlOverridden);
     const payload = {
         theme: themeInput ? themeInput.value : 'auto',
-        llm_base_url: document.getElementById('settings-llm-base-url').value.trim(),
+        llm_provider: providerValue,
+        llm_base_url_override: urlOverridden,
+        ...(sendBaseUrl
+            ? { llm_base_url: document.getElementById('settings-llm-base-url').value.trim() }
+            : {}),
         // Blank = the 'Select Model' placeholder (nothing picked yet): omit it
         // so saving other tabs never sends an empty model the server would
         // reject, and the saved selection is kept unchanged.
@@ -1269,6 +1339,12 @@ function wireSettingsEvents() {
     document.getElementById('fetch-models-btn').addEventListener('click', () => fetchLlmModels());
     document.getElementById('settings-llm-api-kind').addEventListener('change', (event) => {
         updateLlmApiKindHints(event.target.value);
+    });
+    document.getElementById('settings-llm-provider').addEventListener('change', () => {
+        updateLlmProviderUi('settings');
+    });
+    document.getElementById('settings-llm-base-url-override').addEventListener('change', () => {
+        updateLlmProviderUi('settings');
     });
     document.getElementById('test-connection-btn').addEventListener('click', () => testLlmConnection({
         urlId: 'settings-llm-base-url', keyId: 'settings-llm-api-key',

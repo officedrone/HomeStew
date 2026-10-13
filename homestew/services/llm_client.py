@@ -42,8 +42,15 @@ def _reasoning_params() -> Dict[str, Any]:
         Qwen3) and top-level ``think: false`` (Ollama's OpenAI-compat
         endpoint). Servers that know neither field ignore them, so models
         without reasoning are unaffected either way.
+
+    Cloud quirk: OpenAI's hosted API (provider 'openai') rejects unknown
+    top-level body fields with a 400, so these switches are never sent
+    there - the server decides natively (its thinking models expose effort
+    through the Responses API instead). The checkbox is simply inert on cloud.
     """
     if getattr(settings, "LLM_REASONING_ENABLED", True):
+        return {}
+    if str(getattr(settings, "LLM_PROVIDER", "custom") or "custom") == "openai":
         return {}
     return {
         "chat_template_kwargs": {"enable_thinking": False, "thinking": False},

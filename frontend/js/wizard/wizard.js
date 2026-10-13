@@ -60,9 +60,18 @@ async function checkSetupWizard() {
             ['low', 'medium', 'high'].includes(s.llm_reasoning_effort)
                 ? s.llm_reasoning_effort : 'medium';
         updateLlmApiKindHints(wizKind);
+        // Provider + URL override (unknown/missing = custom, no override),
+        // applied after the base URL prefill below so the field ends up in
+        // the right visibility/value for the chosen provider.
+        const wizProvider = s.llm_provider === 'openai' ? 'openai' : 'custom';
+        document.getElementById('wizard-llm-provider').value = wizProvider;
+        document.getElementById('wizard-llm-base-url-override').checked =
+            s.llm_base_url_override === true;
         if (!wizardQueue.length) return;
         // Prefill the AI step from what the server has (defaults or env).
         document.getElementById('wizard-llm-base-url').value = s.llm_base_url || '';
+        llmCustomUrlBackup.wizard = s.llm_base_url || '';
+        updateLlmProviderUi('wizard');
         seedWizardModelSelect(s.llm_model || '');
         wizardIndex = 0;
         showWizardStep();
@@ -265,8 +274,17 @@ async function wizardSaveLlm() {
     }
     if (!model) throw new Error('Pick a model - click "Refresh Models" to load the list from your server.');
 
+    const provider = document.getElementById('wizard-llm-provider').value;
+    const urlOverridden = document.getElementById('wizard-llm-base-url-override').checked;
     const payload = {
-        llm_base_url: baseUrl,
+        // Provider state mirrors Settings > AI: with the cloud provider and
+        // no override, the URL input only holds the built-in cloud URL, so
+        // omit it and keep whatever custom URL was stored before.
+        llm_provider: provider,
+        llm_base_url_override: urlOverridden,
+        ...(provider === 'openai' && !urlOverridden
+            ? {}
+            : { llm_base_url: baseUrl }),
         llm_model: model,
         // Always sent so unchecking in the wizard persists too.
         llm_supports_vision: document.getElementById('wizard-llm-vision').checked,
@@ -342,5 +360,11 @@ function wireWizardEvents() {
     resetConnTestOnEdit('wizard-llm-base-url', 'wizard-llm-api-key', 'wizard-conn-test-result');
     document.getElementById('wizard-llm-api-kind').addEventListener('change', (event) => {
         updateLlmApiKindHints(event.target.value);
+    });
+    document.getElementById('wizard-llm-provider').addEventListener('change', () => {
+        updateLlmProviderUi('wizard');
+    });
+    document.getElementById('wizard-llm-base-url-override').addEventListener('change', () => {
+        updateLlmProviderUi('wizard');
     });
 }
