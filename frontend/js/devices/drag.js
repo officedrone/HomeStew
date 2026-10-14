@@ -9,6 +9,10 @@
 //   - section grip -> reorder category sections => PUT /api/categories/reorder
 //     (the virtual Uncategorized section participates too; it has no row on
 //     the server, so its slot is saved locally via saveUncategorizedPosition).
+// Committed drops animate: renderDevicesGrid() rebuilds every node, so the
+// old and new layouts are diffed with a FLIP pass (captureFlipState before,
+// playFlip after) to glide displaced cards/sections into place, while the
+// ghost flies into the dropped slot instead of vanishing on release.
 // The drop is applied optimistically to the local arrays + re-render, and the
 // server call follows; a failed call reloads the list so the UI snaps back.
 // Grips set touch-action: none in CSS, which is what lets a touch drag start
@@ -18,11 +22,13 @@
 const DRAG_THRESHOLD_PX = 5;   // movement before a press becomes a drag
 const DRAG_EDGE_PX = 64;       // auto-scroll band near the viewport edges
 const DRAG_SCROLL_MAX_PX = 14; // px per frame when pinned to the very edge
+const FLIP_MS = 240;           // glide duration for elements displaced by a drop
+const GHOST_FLY_MS = 200;      // ghost flight from release point into its slot
 
 // The single active drag session, or null. Shape:
 // { kind: 'device'|'category', handle, sourceEl, pointerId, startX/Y,
 //   pointerX/Y, offsetX/Y, started, ghost, targetGrid, hoverCard,
-//   dropSection, dropSide, rafId }
+//   dropSection, dropSide, rafId, flyTarget }
 let _drag = null;
 
 // After a real drag the browser still synthesises a click on the nearest
@@ -75,6 +81,7 @@ function onDragGripPointerDown(event) {
         dropSection: null,
         dropSide: null,
         rafId: 0,
+        flyTarget: null,
     };
     // Pointer capture keeps move/up events flowing even when the finger
     // leaves the (tiny) grip; elementFromPoint() still hit-tests the page.
@@ -244,6 +251,131 @@ function sectionEls() {
 
 
 // ---------------------------------------------------------------------------
+// Drop animation (FLIP)
+// ---------------------------------------------------------------------------
+
+// renderDevicesGrid() rebuilds every node via innerHTML, so a committed drop
+// would otherwise snap into place. FLIP fixes that: captureFlipState() records
+// where things are BEFORE the re-render, playFlip() diffs against the new
+// layout and glides every displaced card/section from its old spot (First-
+// Last-Invert-Play). The dragged element itself is excluded - its ghost flies
+// into the landing slot instead (flyGhostIntoSlot).
+function flipEnabled() {
+    return !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function captureFlipState() {
+    if (!flipEnabled()) return null;
+    const state = { cards: new Map(), sections: new Map() };
+    document.querySelectorAll('#devices-grid .device-card').forEach(el => {
+        state.cards.set(el.dataset.id, el.getBoundingClientRect());
+    });
+    document.querySelectorAll('#devices-grid .category-section').forEach(el => {
+        const key = el.dataset.categoryKey || '';
+        if (key) state.sections.set(key, el.getBoundingClientRect());
+    });
+    return state;
+}
+
+function playFlip(state, excludeEl) {
+    if (!state) return;
+    // Measure EVERYTHING first: getBoundingClientRect() includes ancestor
+    // transforms, so applying a section's inverted transform before measuring
+    // the cards inside it would corrupt their deltas.
+    const moves = [];
+    document.querySelectorAll('#devices-grid .category-section').forEach(el => {
+        if (el === excludeEl) return;
+        const old = state.sections.get(el.dataset.categoryKey || '');
+        if (!old) return;
+        const r = el.getBoundingClientRect();
+        const dx = old.left - r.left;
+        const dy = old.top - r.top;
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+        moves.push({ el, dx, dy });
+    });
+    document.querySelectorAll('#devices-grid .device-card').forEach(el => {
+        if (el === excludeEl) return;
+        const old = state.cards.get(el.dataset.id);
+        if (!old) return;
+        const r = el.getBoundingClientRect();
+        let dx = old.left - r.left;
+        let dy = old.top - r.top;
+        // A card inside a section that is itself gliding rides along with it:
+        // only the leftover displacement relative to its container animates.
+        const host = moves.find(m => m.el.contains(el));
+        if (host) { dx -= host.dx; dy -= host.dy; }
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+        moves.push({ el, dx, dy });
+    });
+    // Invert: jump every mover to its old spot with transitions off (.device-
+    // card has a base transform transition that would animate this jump the
+    // wrong way), then play back to zero.
+    for (const { el, dx, dy } of moves) {
+        el.style.transition = 'none';
+        el.style.transform = `translate(${dx}px, ${dy}px)`;
+    }
+    // Force a reflow so the browser registers the inverted positions before
+    // they animate back.
+    void document.body.offsetHeight;
+    for (const { el } of moves) {
+        el.style.transition = `transform ${FLIP_MS}ms cubic-bezier(0.2, 0, 0.2, 1)`;
+        el.style.transform = '';
+        const done = (event) => {
+            if (event && event.propertyName !== 'transform') return;
+            el.removeEventListener('transitionend', done);
+            el.style.transition = '';
+        };
+        el.addEventListener('transitionend', done);
+        // Fallback: transitionend never fires if the element is removed or
+        // hidden mid-flight, so always clean up shortly after it should end.
+        setTimeout(done, FLIP_MS + 120);
+    }
+}
+
+// Section drops: glide the re-rendered dragged section in from where it was
+// and park the ghost on top of it until both land (same reveal trick as the
+// device-drop path in commitDeviceDrop).
+function animateLandedSection(session, flipState) {
+    const landed = document.querySelector(
+        `#devices-grid .category-section[data-category-key="${session.sourceEl.dataset.categoryKey}"]`);
+    playFlip(flipState, landed);
+    if (landed && flipEnabled()) {
+        landed.style.visibility = 'hidden';
+        session.flyTarget = landed;
+    }
+}
+
+// Fly the ghost from its release position into the re-rendered element's
+// slot, then reveal that element and drop the ghost. finishDrag calls this;
+// on failure it cleans up synchronously so nothing is left invisible.
+function flyGhostIntoSlot(session) {
+    const ghost = session.ghost;
+    const target = session.flyTarget;
+    session.ghost = null;
+    if (!ghost || !target || !flipEnabled()) {
+        if (ghost) ghost.remove();
+        if (target) target.style.visibility = '';
+        return;
+    }
+    // Deltas measured synchronously: the ghost is position:fixed, so a scroll
+    // inside the rAF frame below must not shift the target out from under it.
+    const g = ghost.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    const dx = t.left - g.left;
+    const dy = t.top - g.top;
+    requestAnimationFrame(() => {
+        ghost.style.transition = `transform ${GHOST_FLY_MS}ms cubic-bezier(0.2, 0, 0.2, 1), opacity ${GHOST_FLY_MS}ms ease`;
+        ghost.style.transform = `translate(${dx}px, ${dy}px) rotate(0deg)`;
+        ghost.style.opacity = '0.55';
+    });
+    setTimeout(() => {
+        ghost.remove();
+        target.style.visibility = '';
+    }, GHOST_FLY_MS + 30);
+}
+
+
+// ---------------------------------------------------------------------------
 // Drop commit
 // ---------------------------------------------------------------------------
 
@@ -303,7 +435,18 @@ function commitDeviceDrop(session) {
     devices.forEach(d => { if (!next.includes(d)) next.push(d); });
     devices = next;
 
+    const flipState = captureFlipState();
     renderDevicesGrid();
+    // The re-rendered card stands in for the ghost: hidden until the ghost
+    // lands on it (finishDrag -> flyGhostIntoSlot reveals it).
+    const landed = document.querySelector(
+        `#devices-grid .device-card[data-id="${_dragDeviceId(session)}"]`);
+    playFlip(flipState, landed);
+    if (landed && flipEnabled()) {
+        landed.style.visibility = 'hidden';
+        session.flyTarget = landed;
+    }
+
     fetch('/api/devices/reorder', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -338,7 +481,9 @@ function commitCategoryDrop(session) {
         // categories keep their server-side order. Its final index among the
         // remaining sections is exactly its new slot.
         saveUncategorizedPosition(newIndex);
+        const flipState = captureFlipState();
         renderDevicesGrid();
+        animateLandedSection(session, flipState);
         return;
     }
 
@@ -355,7 +500,9 @@ function commitCategoryDrop(session) {
     // With a real section spliced in at newIndex, Uncategorized ends up one
     // lower whenever the insertion happened at or above it.
     saveUncategorizedPosition(uncIdx + (newIndex <= uncIdx ? 1 : 0));
+    const flipState = captureFlipState();
     renderDevicesGrid();
+    animateLandedSection(session, flipState);
 
     fetch('/api/categories/reorder', {
         method: 'PUT',
@@ -379,7 +526,10 @@ function _dragDeviceId(session) {
 
 function finishDrag(session, wasClickSuppressed) {
     if (session.rafId) cancelAnimationFrame(session.rafId);
-    if (session.ghost) session.ghost.remove();
+    // A committed drop hands the ghost to flyGhostIntoSlot so it glides into
+    // the landing slot instead of vanishing on release.
+    if (session.flyTarget) flyGhostIntoSlot(session);
+    else if (session.ghost) session.ghost.remove();
     document.body.classList.remove('is-dragging');
     // A committed drop re-renders (new elements); a cancelled one leaves the
     // original in place, so its dimmed class must come off here.

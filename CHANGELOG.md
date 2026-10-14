@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 - ADD: The assistant can now create and rename Devices-page categories via chat — `manage_devices` gained `create_category` and `rename_category` actions (deleting a section stays a UI action).
 - UPDATE: Category section headers no longer show the tag glyph.
 - ADD: Sections in Devices page; drag & drop support for sections.
+- ADD: Drop animation — after a drag-and-drop the displaced device cards and category sections
 
 ## [0.2.1]
 
