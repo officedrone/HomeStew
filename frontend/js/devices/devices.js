@@ -28,6 +28,25 @@ function saveCollapsedCategories() {
     catch (e) { /* private mode */ }
 }
 
+// Render slot of the "Uncategorized" section: how many real category sections
+// appear above it (0 = top). drag.js writes it when a section drop changes
+// the order. No database row backs the section, so its position is a browser
+// layout preference like collapsedCategories rather than a sort_order.
+// Unset/corrupt = Infinity (last), matching builds that predate reordering.
+function getUncategorizedPosition() {
+    try {
+        const raw = localStorage.getItem('uncategorizedPosition');
+        if (raw === null) return Infinity;
+        const n = parseInt(raw, 10);
+        return Number.isInteger(n) ? n : Infinity;
+    } catch (e) { return Infinity; /* private mode */ }
+}
+
+function saveUncategorizedPosition(index) {
+    try { localStorage.setItem('uncategorizedPosition', String(index)); }
+    catch (e) { /* private mode */ }
+}
+
 // The "Expanded" checkbox in the Devices toolbar is the user's global
 // preference: '1' = all cards start expanded, anything else = collapsed.
 // Applied to the checkbox once per page load (first grid render).
@@ -434,11 +453,12 @@ function setDeviceIcon(prefix, key) {
 }
 
 // Devices tab: category sections, each holding a card grid. Sections are
-// collapsible exactly like the device cards (caret + animated panel); one
-// "Uncategorized" section always trails the real categories so every device
-// is visible. Cards behave as before: collapsed to icon + name, click to
-// expand, click the body to edit. Drag handles (see drag.js) move cards
-// between sections and reorder both cards and sections.
+// collapsible exactly like the device cards (caret + animated panel); a
+// virtual "Uncategorized" section holds every unfiled device and drags
+// between the real ones like any other section (its slot is a local layout
+// preference - see getUncategorizedPosition). Cards behave as before:
+// collapsed to icon + name, click to expand, click the body to edit. Drag
+// handles (see drag.js) move cards between sections and reorder sections.
 function renderDevicesGrid() {
     const container = document.getElementById('devices-grid');
     if (!container) return;
@@ -459,21 +479,21 @@ function renderDevicesGrid() {
         return;
     }
 
-    // Real categories in sort order, then Uncategorized last. A device whose
-    // category vanished (deleted elsewhere) counts as uncategorized.
+    // Real categories in sort order with the virtual Uncategorized section
+    // spliced into its saved slot (default: last). A device whose category
+    // vanished (deleted elsewhere) counts as uncategorized.
     const knownIds = new Set(categories.map(c => c.id));
     const sections = categories.map(cat => ({
         key: String(cat.id),
         categoryId: cat.id,
         title: cat.name,
-        icon: cat.icon,
         items: devices.filter(d => d.category_id === cat.id),
     }));
-    sections.push({
+    const uncategorizedSlot = Math.max(0, Math.min(getUncategorizedPosition(), sections.length));
+    sections.splice(uncategorizedSlot, 0, {
         key: 'uncategorized',
         categoryId: null,
         title: 'Uncategorized',
-        icon: null,
         items: devices.filter(d => d.category_id == null || !knownIds.has(d.category_id)),
     });
 
@@ -482,20 +502,18 @@ function renderDevicesGrid() {
     syncDevicesExpandedCheckbox();
 }
 
-// One collapsible section: header (grip, caret, icon, name, count, edit /
-// delete) over a grid of device cards. The collapse reuses the same
+// One collapsible section: header (grip, caret, name, count, edit / delete)
+// over a grid of device cards. The collapse reuses the same
 // grid-template-rows 0fr -> 1fr animation as .device-details.
 function categorySectionHtml(section) {
     const open = !collapsedCategoryIds.has(section.key);
-    const glyph = section.icon ? deviceIconSvg(section.icon) : CATEGORY_GLYPH;
     const isUncategorized = section.categoryId === null;
     return `
     <section class="category-section${open ? ' open' : ''}" data-category-key="${section.key}"
              data-category-id="${isUncategorized ? '' : section.categoryId}">
         <div class="category-header" onclick="onCategoryHeaderClick(event, '${section.key}')">
-            ${isUncategorized ? '' : `<button type="button" class="drag-grip" title="Drag to reorder sections" aria-label="Drag to reorder sections"><i data-lucide="grip-vertical"></i></button>`}
+            <button type="button" class="drag-grip" title="Drag to reorder sections" aria-label="Drag to reorder sections"><i data-lucide="grip-vertical"></i></button>
             <span class="device-caret">\u203a</span>
-            <span class="category-icon">${glyph}</span>
             <h3 class="category-title">${escapeHtml(section.title)}</h3>
             <span class="category-count">${section.items.length}</span>
             ${isUncategorized ? '' : `
@@ -543,10 +561,6 @@ function deviceCardHtml(device) {
             </div>
         </div>`;
 }
-
-// Generic tag glyph for sections without their own icon (v1: categories have
-// no icon picker yet; the schema column is ready for one).
-const CATEGORY_GLYPH = '<i data-lucide="tag"></i>';
 
 // Header click toggles the section open/closed - same interaction model as
 // the device cards. Buttons (grip / rename / delete) keep their own actions.

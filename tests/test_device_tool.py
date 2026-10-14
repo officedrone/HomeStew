@@ -534,8 +534,74 @@ def test_list_categories_reports_names_and_counts(db_env):
     assert 'category "Kitchen": 1 device(s)' in report
     assert 'category "Tools": 0 device(s)' in report
     assert "Uncategorized: 0 device(s)" in report
-    # The model is told it cannot create categories itself.
-    assert "cannot create" in report
+    # The model is pointed at the actions that manage sections themselves.
+    assert "create_category" in report and "rename_category" in report
+
+
+# --- create_category / rename_category -------------------------------------
+
+def test_create_category_adds_section_at_end(db_env):
+    mk_category("Kitchen")
+    report = run({"action": "create_category", "category": "Tools"})
+    assert report.startswith("Created category \"Tools\"")
+    # It is now visible to list_categories and fileable by name.
+    listed = run({"action": "list_categories"})
+    assert 'category "Tools": 0 device(s)' in listed
+
+
+def test_create_category_requires_name(db_env):
+    report = run({"action": "create_category"})
+    assert report.startswith("Error") and "'category' is required" in report
+
+
+def test_create_category_rejects_duplicate(db_env):
+    mk_category("Kitchen")
+    report = run({"action": "create_category", "category": "Kitchen"})
+    assert report.startswith("Nothing created") and "already exists" in report
+    # rename is offered as the way to change an existing section.
+    assert "rename_category" in report
+
+
+def test_rename_category_updates_devices_page_and_keeps_devices(db_env):
+    cat = mk_category("Kitchen")
+    run({"action": "create", "name": "Fridge", "brand": "LG", "model": "GML",
+         "category": "Kitchen"})
+    report = run({"action": "rename_category", "category": "kitchen",
+                  "new_name": "Workshop"})  # old name matched case-insensitively
+    assert report.startswith('Renamed category "Kitchen" to "Workshop"')
+    assert "1 device(s)" in report
+    # The device followed the rename: it is filed under the new name now.
+    listed = run({"action": "list_categories"})
+    assert 'category "Workshop": 1 device(s)' in listed
+    assert '"Kitchen"' not in listed
+
+
+def test_rename_category_unknown_old_name_errors(db_env):
+    mk_category("Kitchen")
+    report = run({"action": "rename_category", "category": "Nope",
+                  "new_name": "Workshop"})
+    assert report.startswith("Error") and "no category named 'Nope'" in report
+
+
+def test_rename_category_requires_new_name(db_env):
+    mk_category("Kitchen")
+    report = run({"action": "rename_category", "category": "Kitchen"})
+    assert report.startswith("Error") and "'new_name' is required" in report
+
+
+def test_rename_category_rejects_existing_target_name(db_env):
+    mk_category("Kitchen")
+    mk_category("Tools")
+    report = run({"action": "rename_category", "category": "Kitchen",
+                  "new_name": "Tools"})
+    assert report.startswith("Nothing renamed") and "already exists" in report
+
+
+def test_rename_category_noop_when_same_name(db_env):
+    mk_category("Kitchen")
+    report = run({"action": "rename_category", "category": "Kitchen",
+                  "new_name": "Kitchen"})
+    assert report.startswith("Nothing to change")
 
 
 def test_list_categories_empty_registry(db_env):

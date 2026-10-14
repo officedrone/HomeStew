@@ -879,6 +879,8 @@ def create_device_tool() -> Dict[str, Any]:
                             "update",
                             "list",
                             "list_categories",
+                            "create_category",
+                            "rename_category",
                             "add_attribute",
                             "remove_attribute",
                             "delete",
@@ -895,9 +897,12 @@ def create_device_tool() -> Dict[str, Any]:
                             "update an existing one (needs device_id), list "
                             "devices (to find ids/details), list_categories "
                             "shows the Devices-page categories to file "
-                            "devices under, add or remove a custom "
-                            "attribute, or delete - which is refused and "
-                            "returns a link for the user to delete it "
+                            "devices under, create_category adds a new "
+                            "section (category='Kitchen') when the user asks "
+                            "for one, rename_category renames a section "
+                            "(category=old name + new_name), add or remove a "
+                            "custom attribute, or delete - which is refused "
+                            "and returns a link for the user to delete it "
                             "themselves."
                         ),
                     },
@@ -1000,16 +1005,30 @@ def create_device_tool() -> Dict[str, Any]:
                         # rejects unknown ones with the current list.
                         "maxLength": 100,
                         "description": (
-                            "Devices-page section to file the device under, "
-                            "e.g. 'Kitchen' or 'Vehicles'. Use it when the "
-                            "user says a device belongs somewhere ('put the "
-                            "drill in Tools', 'it's a kitchen appliance'). "
-                            "Pass the name exactly as the user words it; if "
-                            "unsure which categories exist, call "
+                            "Devices-page section name, e.g. 'Kitchen' or "
+                            "'Vehicles'. For create/update: the section to "
+                            "file the device under - pass it when the user "
+                            "says a device belongs somewhere ('put the drill "
+                            "in Tools'). Pass the name exactly as the user "
+                            "words it; if unsure which categories exist, call "
                             "action='list_categories' first - unknown names "
-                            "are rejected with the list of real ones. Empty "
-                            "string moves the device to Uncategorized. This "
-                            "tool cannot create or rename categories."
+                            "are rejected with the list of real ones (do NOT "
+                            "invent one there - create it explicitly with "
+                            "action='create_category' when the user asked for "
+                            "a new section). Empty string moves the device to "
+                            "Uncategorized. For create_category: the name of "
+                            "the NEW section to add. For rename_category: the "
+                            "EXISTING section's current name (new_name gives "
+                            "its replacement)."
+                        ),
+                    },
+                    "new_name": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "description": (
+                            "For action='rename_category' only: the name the "
+                            "category should get, e.g. 'Workshop'. The "
+                            "section to rename is named by 'category'."
                         ),
                     },
                 },

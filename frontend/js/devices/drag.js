@@ -6,7 +6,9 @@
 //   - device grip  -> drop into a [data-drop-category] grid (optionally at an
 //     insertion point next to another card) => PUT /api/devices/reorder with
 //     the target bucket's full ordered id list;
-//   - section grip -> reorder category sections => PUT /api/categories/reorder.
+//   - section grip -> reorder category sections => PUT /api/categories/reorder
+//     (the virtual Uncategorized section participates too; it has no row on
+//     the server, so its slot is saved locally via saveUncategorizedPosition).
 // The drop is applied optimistically to the local arrays + re-render, and the
 // server call follows; a failed call reloads the list so the UI snaps back.
 // Grips set touch-action: none in CSS, which is what lets a touch drag start
@@ -194,22 +196,22 @@ function updateDropTarget(x, y) {
             near.classList.add('drop-hover');
         }
     } else {
-        // Section reorder: insertion point between real sections, decided by
-        // vertical midpoints. Uncategorized has no grip and always trails, so
-        // it is skipped - dropping anywhere in/below it appends at the end.
-        const reals = realSectionEls().filter(el => el !== _drag.sourceEl);
+        // Section reorder: insertion point between sections (Uncategorized
+        // included - it drags like any other section), decided by vertical
+        // midpoints.
+        const others = sectionEls().filter(el => el !== _drag.sourceEl);
+        if (others.length === 0) return;
         let target = null;
-        for (const el of reals) {
+        for (const el of others) {
             const r = el.getBoundingClientRect();
             if (y < r.top + r.height / 2) { target = el; break; }
         }
-        if (!target && reals.length === 0) return;
         if (target) {
             _drag.dropSection = target;
             _drag.dropSide = 'before';
             target.classList.add('drop-before');
         } else {
-            const last = reals[reals.length - 1];
+            const last = others[others.length - 1];
             _drag.dropSection = last;
             _drag.dropSide = 'after';
             last.classList.add('drop-after');
@@ -234,10 +236,10 @@ function nearestCardAtPoint(grid, x, y) {
     return best;
 }
 
-// Category sections that map to a real category row (Uncategorized has '').
-function realSectionEls() {
-    return [...document.querySelectorAll('#devices-grid .category-section')]
-        .filter(el => el.dataset.categoryId !== '');
+// Every section on screen, in display order. The virtual Uncategorized
+// section is included; its data-category-id is '' (no category row behind it).
+function sectionEls() {
+    return [...document.querySelectorAll('#devices-grid .category-section')];
 }
 
 
@@ -314,24 +316,45 @@ function commitDeviceDrop(session) {
 
 
 function commitCategoryDrop(session) {
-    const rawCat = session.sourceEl.dataset.categoryId;
-    if (rawCat === '' || rawCat === undefined) return; // Uncategorized has no grip
-    const draggedId = Number(rawCat);
-    if (!Number.isInteger(draggedId)) return;
-
-    // Index among real categories, matching the highlighted insertion point.
-    const reals = realSectionEls().filter(el => el !== session.sourceEl);
-    let newIndex = reals.length;
+    // Sections on screen minus the dragged one; the insertion index below is
+    // an index into this list, so it matches the highlighted slot exactly.
+    const others = sectionEls().filter(el => el !== session.sourceEl);
+    if (others.length === 0) return;
+    let newIndex = others.length;
     if (session.dropSide === 'before') {
-        newIndex = reals.indexOf(session.dropSection);
+        newIndex = others.indexOf(session.dropSection);
     } else if (session.dropSection) {
-        newIndex = reals.indexOf(session.dropSection) + 1;
+        newIndex = others.indexOf(session.dropSection) + 1;
+    }
+    if (newIndex < 0) return;
+
+    // Where the virtual Uncategorized section sits within `others` (-1 when
+    // the dragged section IS Uncategorized, since it was filtered out).
+    const uncIdx = others.findIndex(el => el.dataset.categoryId === '');
+    const rawCat = session.sourceEl.dataset.categoryId;
+
+    if (rawCat === '' || rawCat === undefined) {
+        // Dragging Uncategorized: only its local slot moves, the real
+        // categories keep their server-side order. Its final index among the
+        // remaining sections is exactly its new slot.
+        saveUncategorizedPosition(newIndex);
+        renderDevicesGrid();
+        return;
     }
 
+    const draggedId = Number(rawCat);
+    if (!Number.isInteger(draggedId)) return;
     const oldIndex = categories.findIndex(c => c.id === draggedId);
     if (oldIndex < 0) return;
+
+    // Translate the on-screen slot into an index into `categories` by
+    // discounting the Uncategorized section when it sits above the slot.
+    const realIndex = newIndex > uncIdx ? newIndex - 1 : newIndex;
     const [moved] = categories.splice(oldIndex, 1);
-    categories.splice(Math.min(newIndex, categories.length), 0, moved);
+    categories.splice(Math.min(realIndex, categories.length), 0, moved);
+    // With a real section spliced in at newIndex, Uncategorized ends up one
+    // lower whenever the insertion happened at or above it.
+    saveUncategorizedPosition(uncIdx + (newIndex <= uncIdx ? 1 : 0));
     renderDevicesGrid();
 
     fetch('/api/categories/reorder', {
