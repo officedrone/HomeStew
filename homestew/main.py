@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from homestew.config import settings
 from homestew.db import init_db
+from homestew.api.categories import router as categories_router
 from homestew.api.devices import router as devices_router
 from homestew.api.downloader import router as downloads_router
 from homestew.api.search import router as search_router
@@ -168,6 +169,7 @@ async def require_auth(request: Request, call_next):
     return await call_next(request)
 
 # Register API routers
+app.include_router(categories_router, prefix="/api")
 app.include_router(devices_router, prefix="/api")
 app.include_router(downloads_router, prefix="/api")
 app.include_router(search_router, prefix="/api")

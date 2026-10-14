@@ -95,7 +95,7 @@ function wireEscape() {
         // The icon picker comes first: Escape closes it before the editor
         // dialog it is stacked on top of (closeIconPicker also clears the
         // picker state so a stale query never survives a dismissal).
-        for (const id of ['icon-picker-modal', 'new-device-choice-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
+        for (const id of ['icon-picker-modal', 'new-device-choice-modal', 'category-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 if (id === 'icon-picker-modal') closeIconPicker();

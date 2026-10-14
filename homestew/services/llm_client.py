@@ -878,6 +878,7 @@ def create_device_tool() -> Dict[str, Any]:
                             "create",
                             "update",
                             "list",
+                            "list_categories",
                             "add_attribute",
                             "remove_attribute",
                             "delete",
@@ -892,9 +893,11 @@ def create_device_tool() -> Dict[str, Any]:
                             "matching a description (query='coffee') when "
                             "you are unsure which key fits; create a device, "
                             "update an existing one (needs device_id), list "
-                            "devices (to find ids/details), add or remove a "
-                            "custom attribute, or delete - which is refused "
-                            "and returns a link for the user to delete it "
+                            "devices (to find ids/details), list_categories "
+                            "shows the Devices-page categories to file "
+                            "devices under, add or remove a custom "
+                            "attribute, or delete - which is refused and "
+                            "returns a link for the user to delete it "
                             "themselves."
                         ),
                     },
@@ -989,6 +992,25 @@ def create_device_tool() -> Dict[str, Any]:
                     "attribute_value": {
                         "type": "string",
                         "description": "Value stored with attribute_name for add_attribute, e.g. '16GB'.",
+                    },
+                    "category": {
+                        "type": "string",
+                        # Free text (not an enum): categories are user-created
+                        # at runtime, so the executor resolves the name and
+                        # rejects unknown ones with the current list.
+                        "maxLength": 100,
+                        "description": (
+                            "Devices-page section to file the device under, "
+                            "e.g. 'Kitchen' or 'Vehicles'. Use it when the "
+                            "user says a device belongs somewhere ('put the "
+                            "drill in Tools', 'it's a kitchen appliance'). "
+                            "Pass the name exactly as the user words it; if "
+                            "unsure which categories exist, call "
+                            "action='list_categories' first - unknown names "
+                            "are rejected with the list of real ones. Empty "
+                            "string moves the device to Uncategorized. This "
+                            "tool cannot create or rename categories."
+                        ),
                     },
                 },
                 "required": ["action"],

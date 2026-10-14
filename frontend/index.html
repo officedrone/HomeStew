@@ -328,12 +328,16 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         <span>New Device</span>
                     </button>
+                    <button type="button" id="add-category-btn" class="btn btn-secondary btn-small" data-dedupe title="Create a category section (e.g. Kitchen, Vehicles)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
+                        <span>New Category</span>
+                    </button>
                     <label class="devices-collapse-toggle" title="Show every device card expanded with its details">
                         <input type="checkbox" id="devices-expanded-toggle">
                         <span>Expanded</span>
                     </label>
                 </div>
-                <div id="devices-grid" class="devices-grid"></div>
+                <div id="devices-grid" class="category-sections"></div>
             </div>
 
             <!-- Calendar Tab -->
@@ -954,6 +958,12 @@
                 <input type="text" id="device-name" placeholder="Device name (e.g., Living Room TV)" required>
                 <input type="text" id="device-brand" placeholder="Brand (e.g., Samsung)" required>
                 <input type="text" id="device-model" placeholder="Model (e.g., QN90A)" required>
+                <!-- Category: Devices-page section. New devices start
+                     Uncategorized unless one is picked here. -->
+                <div class="settings-field">
+                    <label for="device-category">Category</label>
+                    <select id="device-category"></select>
+                </div>
                 <textarea id="device-description" placeholder="Description (optional)" rows="2"></textarea>
                 <input type="text" id="device-serial-number" placeholder="Serial Number (optional)">
                 <input type="text" id="device-product-number" placeholder="Product Number (optional)">
@@ -1017,6 +1027,26 @@
         </div>
     </div>
 
+    <!-- Category modal: create (from the toolbar) or rename (from a section
+         header). Deleting is a confirm() on the trash button, not a dialog. -->
+    <div id="category-modal" class="modal">
+        <div class="modal-content modal-small">
+            <span class="modal-close" onclick="closeCategoryModal()">&times;</span>
+            <h2 id="category-modal-title">New Category</h2>
+            <form id="category-form" class="device-form modal-form">
+                <input type="hidden" id="category-id">
+                <div class="settings-field">
+                    <label for="category-name">Name</label>
+                    <input type="text" id="category-name" placeholder="e.g. Kitchen, Appliances, Vehicles" maxlength="100" required>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeCategoryModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-dedupe>Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Edit Device Modal -->
     <div id="edit-device-modal" class="modal">
         <div class="modal-content">
@@ -1046,6 +1076,10 @@
                 <div class="settings-field">
                     <label for="edit-device-model">Model</label>
                     <input type="text" id="edit-device-model" placeholder="Model" required>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-category">Category</label>
+                    <select id="edit-device-category"></select>
                 </div>
                 <div class="settings-field">
                     <label for="edit-device-description">Description</label>
@@ -1454,6 +1488,7 @@
     <script src="/static/js/core/auth.js"></script>
     <script src="/static/js/core/chrome.js"></script>
     <script src="/static/js/devices/devices.js"></script>
+    <script src="/static/js/devices/drag.js"></script>
     <script src="/static/js/calendar/calendar.js"></script>
     <script src="/static/js/dashboard/dashboard.js"></script>
     <script src="/static/js/chat/chat.js"></script>

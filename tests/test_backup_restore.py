@@ -131,7 +131,12 @@ def test_export_zip_layout_and_manifest(db_env):
 
         manifest = json.loads(zf.read("manifest.json"))
         assert manifest["format_version"] == backup_service.BACKUP_FORMAT_VERSION
-        assert manifest["counts"] == {"devices": 1, "manuals": 1, "calendar_events": 1}
+        assert manifest["counts"] == {
+            "devices": 1,
+            "categories": 0,
+            "manuals": 1,
+            "calendar_events": 1,
+        }
 
         data = json.loads(zf.read("data.json"))
     device = data["devices"][0]
@@ -392,3 +397,101 @@ def test_rejects_bad_manual_archive_path(db_env):
     })
     with pytest.raises(ValueError, match="invalid path"):
         asyncio.run(backup_service.restore_backup(zip_path, "merge"))
+
+
+# --- categories in backups ---------------------------------------------------
+
+async def _seed_categories():
+    """Two categories; one device filed in each, one uncategorized."""
+    async with get_db_context() as db:
+        cur = await db.execute(
+            "INSERT INTO categories (name, sort_order) VALUES ('Kitchen', 0)"
+        )
+        kitchen = cur.lastrowid
+        cur = await db.execute(
+            "INSERT INTO categories (name, sort_order) VALUES ('Tools', 1)"
+        )
+        tools = cur.lastrowid
+        for name, cat, order in (("Fridge", kitchen, 0), ("Drill", tools, 0),
+                                 ("Mystery", None, 0)):
+            await db.execute(
+                "INSERT INTO devices (name, brand, model, category_id, sort_order) "
+                "VALUES (?, 'Acme', 'M1', ?, ?)",
+                (name, cat, order),
+            )
+        await db.commit()
+        return kitchen, tools
+
+
+def test_export_includes_categories_and_membership(db_env):
+    asyncio.run(_seed_categories())
+    info = asyncio.run(backup_service.create_backup(include_manuals=False))
+    assert info["devices"] == 3
+
+    zip_path = cfg.settings.DATA_DIR / "backups" / info["filename"]
+    with zipfile.ZipFile(zip_path) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+        assert manifest["counts"]["categories"] == 2
+        data = json.loads(zf.read("data.json"))
+    assert [c["name"] for c in data["categories"]] == ["Kitchen", "Tools"]
+    by_name = {d["name"]: d for d in data["devices"]}
+    kitchen_id = next(c["id"] for c in data["categories"] if c["name"] == "Kitchen")
+    assert by_name["Fridge"]["category_id"] == kitchen_id
+    assert by_name["Mystery"]["category_id"] is None
+
+
+def test_restore_replace_remaps_category_ids(db_env):
+    """Replace wipes categories too: devices must follow the REMAPPED ids."""
+    asyncio.run(_seed_categories())
+    result, _ = backup_and_restore("replace", include_manuals=False)
+
+    assert result["categories_created"] == 2
+    cats = {c["name"]: c for c in asyncio.run(_rows("categories"))}
+    devices = {d["name"]: d for d in asyncio.run(_rows("devices"))}
+    assert devices["Fridge"]["category_id"] == cats["Kitchen"]["id"]
+    assert devices["Drill"]["category_id"] == cats["Tools"]["id"]
+    assert devices["Mystery"]["category_id"] is None
+
+
+def test_restore_merge_dedupes_categories_by_name(db_env):
+    """A live 'Kitchen' absorbs the archived one instead of creating a twin."""
+    asyncio.run(_seed_categories())
+    info = asyncio.run(backup_service.create_backup(include_manuals=False))
+    zip_path = cfg.settings.DATA_DIR / "backups" / info["filename"]
+
+    # Wipe devices but keep the categories themselves (same names, new ids).
+    async def _wipe_devices_only():
+        async with get_db_context() as db:
+            await db.execute("DELETE FROM devices")
+            await db.commit()
+
+    asyncio.run(_wipe_devices_only())
+
+    result = asyncio.run(backup_service.restore_backup(zip_path, "merge"))
+    # Both archived categories matched live ones -> nothing created...
+    assert result["categories_created"] == 0
+    cats = asyncio.run(_rows("categories"))
+    assert sorted(c["name"] for c in cats) == ["Kitchen", "Tools"]
+    # ...and the restored devices point at the surviving rows.
+    by_name = {d["name"]: d for d in asyncio.run(_rows("devices"))}
+    live = {c["name"]: c["id"] for c in cats}
+    assert by_name["Fridge"]["category_id"] == live["Kitchen"]
+    assert by_name["Drill"]["category_id"] == live["Tools"]
+
+
+def test_restore_old_backup_without_categories_field(db_env):
+    """Pre-category archives must still restore (categories defaults to [])."""
+    zip_path = _write_raw_zip(db_env, {
+        "manifest.json": json.dumps({"format_version": 1}),
+        "data.json": json.dumps({
+            "devices": [{"id": 1, "name": "TV", "brand": "A", "model": "B"}],
+            "device_attributes": [],
+            "manuals": [],
+            "calendar_events": [],
+            "notification_log": [],
+        }),
+    })
+    result = asyncio.run(backup_service.restore_backup(zip_path, "merge"))
+    assert result["devices_created"] == 1
+    devices = asyncio.run(_rows("devices"))
+    assert devices[0]["category_id"] is None

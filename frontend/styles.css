@@ -3595,6 +3595,193 @@ body.no-vision .chat-input-wrap textarea {
     z-index: 1;
 }
 
+/* ==========================================================================
+   Device categories (Devices page sections) + drag-and-drop.
+   Sections collapse with the same grid-template-rows 0fr -> 1fr animation
+   as .device-details; drag uses Pointer Events (mouse + touch), so grips
+   set touch-action: none and everything else keeps normal scrolling.
+   ========================================================================== */
+
+/* Vertical stack of category sections replacing the old flat grid. */
+.category-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 1200px;
+}
+
+.category-section {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--surface) 55%, var(--bg-light));
+    overflow: hidden;
+}
+
+.category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.category-header:hover {
+    background: color-mix(in srgb, var(--primary-color) 5%, transparent);
+}
+
+.category-section .device-caret {
+    transition: transform 0.25s ease;
+}
+
+.category-section.open .device-caret {
+    transform: rotate(90deg);
+}
+
+.category-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+.category-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.category-title {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.category-count {
+    font-size: 0.75rem;
+    background: var(--bg-light);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 1px 8px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+/* Collapsible body - mirrors the .device-details animation. */
+.category-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease;
+}
+
+.category-section.open .category-body {
+    grid-template-rows: 1fr;
+}
+
+.category-body-inner {
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* Keep collapsed content unclickable (0fr still renders at height 0). */
+.category-section:not(.open) .category-body-inner {
+    visibility: hidden;
+}
+
+.category-body .devices-grid {
+    padding: 4px 14px 14px;
+}
+
+/* Placeholder inside an empty section - also a valid drop target. */
+.section-empty {
+    grid-column: 1 / -1;
+    border: 1.5px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 18px 10px;
+}
+
+/* Drag handles on cards and section headers. touch-action: none is what
+   lets a touch drag start instead of scrolling the page. */
+.drag-grip {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: grab;
+    padding: 2px;
+    margin-left: -4px;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    touch-action: none;
+    opacity: 0.55;
+}
+
+.drag-grip:hover {
+    opacity: 1;
+    color: var(--primary-color);
+}
+
+.drag-grip svg {
+    width: 16px;
+    height: 16px;
+}
+
+body.is-dragging,
+body.is-dragging * {
+    cursor: grabbing !important;
+    user-select: none;
+}
+
+/* Floating clone that follows the pointer. pointer-events: none keeps
+   elementFromPoint() hitting the real page underneath it. */
+.drag-ghost {
+    position: fixed;
+    z-index: 2000;
+    pointer-events: none;
+    opacity: 0.9;
+    transform: rotate(1.5deg);
+    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-lg);
+}
+
+/* The element being dragged stays in place, dimmed. */
+.device-card.drag-source,
+.category-section.drag-source {
+    opacity: 0.35;
+}
+
+/* Drop feedback: outlined target grid, insertion bar before a hovered card,
+   top/bottom bars between category sections. */
+.devices-grid.drop-active {
+    outline: 2px dashed color-mix(in srgb, var(--primary-color) 60%, transparent);
+    outline-offset: 4px;
+    border-radius: var(--radius-sm);
+}
+
+.device-card.drop-hover {
+    box-shadow: -3px 0 0 0 var(--primary-color), var(--shadow-md);
+}
+
+.category-section.drop-before {
+    box-shadow: 0 -3px 0 0 var(--primary-color);
+}
+
+.category-section.drop-after {
+    box-shadow: 0 3px 0 0 var(--primary-color);
+}
+
+/* Compact modal for creating / renaming a category. */
+.modal-small {
+    max-width: min(420px, 100%);
+}
+
 .fetch-table tbody tr:last-child td {
     border-bottom: none;
 }

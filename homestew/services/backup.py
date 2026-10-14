@@ -121,11 +121,19 @@ async def create_backup(include_manuals: bool = True) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     async with get_db_context() as db:
+        cat_cur = await db.execute(
+            """
+            SELECT id, name, icon, sort_order, created_at
+            FROM categories ORDER BY id
+            """
+        )
+        categories = [dict(r) for r in await cat_cur.fetchall()]
+
         dev_cur = await db.execute(
             """
             SELECT id, name, brand, model, description, serial_number,
                    product_number, purchase_date, warranty_length, warranty_unit,
-                   warranty_end, icon, created_at, updated_at
+                   warranty_end, icon, category_id, sort_order, created_at, updated_at
             FROM devices ORDER BY id
             """
         )
@@ -193,6 +201,7 @@ async def create_backup(include_manuals: bool = True) -> dict:
 
     data = BackupData(
         devices=devices,
+        categories=categories,
         device_attributes=attributes,
         manuals=manuals_json,
         calendar_events=events,
@@ -204,6 +213,7 @@ async def create_backup(include_manuals: bool = True) -> dict:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "counts": {
             "devices": len(devices),
+            "categories": len(categories),
             "manuals": len(manuals_json),
             "calendar_events": len(events),
         },
@@ -337,6 +347,12 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
     async with get_db_context() as db:
         await db.execute("PRAGMA foreign_keys = ON")
 
+        # Existing category name -> id (merge dedupe). Read once up front.
+        existing_categories: dict[str, int] = {}
+        cur = await db.execute("SELECT id, name FROM categories")
+        for r in await cur.fetchall():
+            existing_categories.setdefault((r["name"] or "").strip().lower(), r["id"])
+
         # Existing device identity -> id (merge dedupe). Read once up front.
         existing_devices = {}
         if mode == "merge":
@@ -357,11 +373,38 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
                 "manuals",
                 "device_attributes",
                 "devices",
+                "categories",
             ):
                 await db.execute(f"DELETE FROM {table}")
             # A whole-table DELETE is valid on an FTS5 vtab (only DELETE with
             # WHERE is not); this also clears rows orphaned by earlier deletes.
             await db.execute("DELETE FROM pdf_index")
+            existing_categories = {}
+
+        # --- categories ----------------------------------------------------
+        # Inserted before devices so their ids exist for the FK remap below.
+        # merge dedupes by (case-insensitive) name: an archived "Kitchen"
+        # joins the live "Kitchen" instead of creating a twin. cat_map maps
+        # backup id -> live id; a device whose category is neither restored
+        # nor merged lands in Uncategorized (NULL), never a dangling id.
+        cat_map: dict[int, int] = {}
+        categories_created = 0
+        for c in data.categories:
+            name_key = (c.name or "").strip().lower()
+            if name_key in existing_categories:
+                cat_map[c.id] = existing_categories[name_key]
+                continue
+            cur = await db.execute(
+                """
+                INSERT INTO categories (name, icon, sort_order, created_at)
+                VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+                """,
+                (c.name, c.icon, int(c.sort_order or 0), c.created_at),
+            )
+            new_cat_id = cur.lastrowid
+            cat_map[c.id] = new_cat_id
+            existing_categories.setdefault(name_key, new_cat_id)
+            categories_created += 1
 
         # --- devices -------------------------------------------------------
         device_map: dict[int, int] = {}  # backup id -> live id
@@ -378,8 +421,8 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
                 """
                 INSERT INTO devices (name, brand, model, description, serial_number,
                     product_number, purchase_date, warranty_length, warranty_unit,
-                    warranty_end, icon, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    warranty_end, icon, category_id, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
                 """,
                 (
@@ -388,6 +431,9 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
                     # Pre-Lucide backups carry curated keys ('fridge') that
                     # no longer render: restore them as NULL (default glyph).
                     d.icon if is_valid_icon_key(d.icon or "") else None,
+                    # Old backups have no category at all -> Uncategorized.
+                    cat_map.get(d.category_id) if d.category_id is not None else None,
+                    int(d.sort_order or 0),
                     d.created_at, d.updated_at,
                 ),
             )
@@ -558,6 +604,7 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
         "mode": mode,
         "devices_created": devices_created,
         "devices_merged": devices_merged,
+        "categories_created": categories_created,
         "manuals_restored": manuals_restored,
         "events_restored": events_restored,
         "skipped": skipped,

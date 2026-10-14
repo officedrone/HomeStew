@@ -462,3 +462,90 @@ def test_search_icons_action_no_match_points_at_simpler_words(db_env):
 def test_search_icons_action_empty_query_asks_for_words(db_env):
     r = run({"action": "search_icons"})
     assert r.startswith("Pass a 'query'")
+
+
+# --- categories (read + file devices by name) ------------------------------
+
+async def _mk_category(name):
+    async with get_db_context() as db:
+        cur = await db.execute(
+            "INSERT INTO categories (name, sort_order) VALUES (?, "
+            "(SELECT COALESCE(MAX(sort_order), -1) + 1 FROM categories))",
+            (name,),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+def mk_category(name):
+    return asyncio.run(_mk_category(name))
+
+
+def test_create_with_category_by_name(db_env):
+    mk_category("Kitchen")
+    report = run({"action": "create", "name": "Fridge", "brand": "LG",
+                  "model": "GML18", "category": "kitchen"})  # case-insensitive
+    assert report.startswith("Created device id=1:")
+    assert 'category="Kitchen"' in report
+    assert fetch(1)["category_id"] == 1
+
+
+def test_create_rejects_unknown_category_with_list(db_env):
+    mk_category("Kitchen")
+    mk_category("Tools")
+    r = run({"action": "create", "name": "Drill", "brand": "Bosch",
+             "model": "GSR", "category": "Garden"})
+    assert r.startswith("Error") and "no category named 'Garden'" in r
+    # The error teaches the model the real names instead of a silent no-op.
+    assert '"Kitchen"' in r and '"Tools"' in r
+
+
+def test_update_moves_device_between_categories(db_env):
+    kitchen = mk_category("Kitchen")
+    tools = mk_category("Tools")
+    run({"action": "create", "name": "Drill", "brand": "Bosch", "model": "GSR",
+         "category": "Kitchen"})
+    report = run({"action": "update", "device_id": 1, "category": "Tools"})
+    assert report.startswith("Updated device id=1")
+    assert 'category="Tools"' in report
+    assert fetch(1)["category_id"] == tools
+    # The old bucket is untouched; the moved device re-sorted into its new one.
+    assert kitchen != tools
+
+    # Empty string moves it to Uncategorized.
+    run({"action": "update", "device_id": 1, "category": ""})
+    assert fetch(1)["category_id"] is None
+
+
+def test_update_unknown_category_errors(db_env):
+    run({"action": "create", "name": "TV", "brand": "Sony", "model": "X1"})
+    r = run({"action": "update", "device_id": 1, "category": "Nope"})
+    assert r.startswith("Error") and "no category named 'Nope'" in r
+    # Nothing changed.
+    assert fetch(1)["category_id"] is None
+
+
+def test_list_categories_reports_names_and_counts(db_env):
+    mk_category("Kitchen")
+    mk_category("Tools")
+    run({"action": "create", "name": "Fridge", "brand": "LG", "model": "GML",
+         "category": "Kitchen"})
+    report = run({"action": "list_categories"})
+    assert 'category "Kitchen": 1 device(s)' in report
+    assert 'category "Tools": 0 device(s)' in report
+    assert "Uncategorized: 0 device(s)" in report
+    # The model is told it cannot create categories itself.
+    assert "cannot create" in report
+
+
+def test_list_categories_empty_registry(db_env):
+    report = run({"action": "list_categories"})
+    assert "No categories exist yet" in report
+
+
+def test_list_devices_reports_category_name(db_env):
+    mk_category("Vehicles")
+    run({"action": "create", "name": "Bike", "brand": "Trek", "model": "FX2",
+         "category": "Vehicles"})
+    report = run({"action": "list"})
+    assert 'category="Vehicles"' in report

@@ -12,6 +12,22 @@ const expandedDeviceIds = new Set();
 // because the card template reads it at render time.
 const gridExpandedIds = new Set();
 
+// Keys ('<category id>' or 'uncategorized') of collapsed Devices-page
+// sections. Mirrors gridExpandedIds for cards: a Set that survives
+// re-renders, persisted to localStorage so the layout is stable across
+// reloads. Sections default to EXPANDED; only collapsed keys are stored.
+const collapsedCategoryIds = new Set(_loadCollapsedCategories());
+
+function _loadCollapsedCategories() {
+    try { return JSON.parse(localStorage.getItem('collapsedCategories') || '[]'); }
+    catch (e) { return []; /* private mode / corrupt value */ }
+}
+
+function saveCollapsedCategories() {
+    try { localStorage.setItem('collapsedCategories', JSON.stringify([...collapsedCategoryIds])); }
+    catch (e) { /* private mode */ }
+}
+
 // The "Expanded" checkbox in the Devices toolbar is the user's global
 // preference: '1' = all cards start expanded, anything else = collapsed.
 // Applied to the checkbox once per page load (first grid render).
@@ -27,9 +43,23 @@ function saveDevicesGridExpanded(expanded) {
 
 let _devicesGridPrefApplied = false;
 
+// Fetch the category list (Devices-page sections). Kept separate from
+// loadDevices() so drag-and-drop can refresh counts without re-fetching
+// every device; loadDevices() awaits it first so a first paint already has
+// the section structure.
+async function loadCategories() {
+    try {
+        const response = await fetch('/api/categories');
+        categories = await response.json();
+    } catch (error) {
+        console.error('Failed to load categories:', error);
+        // Keep the previous list; a failed refresh must not blank the page.
+    }
+}
+
 async function loadDevices() {
     try {
-        const response = await fetch('/api/devices');
+        const [response] = await Promise.all([fetch('/api/devices'), loadCategories()]);
         devices = await response.json();
         
         renderDeviceList();
@@ -403,12 +433,12 @@ function setDeviceIcon(prefix, key) {
     renderLucideIcons();
 }
 
-// Devices tab: card grid. Cards are collapsed by default to just the icon +
-// name (+ caret and Edit/Delete buttons); clicking a collapsed card expands
-// it with the same animated panel as the sidebar "Recent Devices" accordion,
-// and clicking the expanded body opens the Edit dialog. The "Expanded"
-// checkbox in the toolbar expands/collapses every card at once and is
-// persisted; individually collapsing one card unchecks it (see sync).
+// Devices tab: category sections, each holding a card grid. Sections are
+// collapsible exactly like the device cards (caret + animated panel); one
+// "Uncategorized" section always trails the real categories so every device
+// is visible. Cards behave as before: collapsed to icon + name, click to
+// expand, click the body to edit. Drag handles (see drag.js) move cards
+// between sections and reorder both cards and sections.
 function renderDevicesGrid() {
     const container = document.getElementById('devices-grid');
     if (!container) return;
@@ -424,16 +454,76 @@ function renderDevicesGrid() {
         devices.forEach(device => gridExpandedIds.add(device.id));
     }
 
-    if (devices.length === 0) {
+    if (devices.length === 0 && categories.length === 0) {
         container.innerHTML = '<div class="empty-state">No devices yet. Add your first device!</div>';
         return;
     }
 
-    container.innerHTML = devices.map(device => {
-        const open = gridExpandedIds.has(device.id);
-        return `
+    // Real categories in sort order, then Uncategorized last. A device whose
+    // category vanished (deleted elsewhere) counts as uncategorized.
+    const knownIds = new Set(categories.map(c => c.id));
+    const sections = categories.map(cat => ({
+        key: String(cat.id),
+        categoryId: cat.id,
+        title: cat.name,
+        icon: cat.icon,
+        items: devices.filter(d => d.category_id === cat.id),
+    }));
+    sections.push({
+        key: 'uncategorized',
+        categoryId: null,
+        title: 'Uncategorized',
+        icon: null,
+        items: devices.filter(d => d.category_id == null || !knownIds.has(d.category_id)),
+    });
+
+    container.innerHTML = sections.map(categorySectionHtml).join('');
+    renderLucideIcons();
+    syncDevicesExpandedCheckbox();
+}
+
+// One collapsible section: header (grip, caret, icon, name, count, edit /
+// delete) over a grid of device cards. The collapse reuses the same
+// grid-template-rows 0fr -> 1fr animation as .device-details.
+function categorySectionHtml(section) {
+    const open = !collapsedCategoryIds.has(section.key);
+    const glyph = section.icon ? deviceIconSvg(section.icon) : CATEGORY_GLYPH;
+    const isUncategorized = section.categoryId === null;
+    return `
+    <section class="category-section${open ? ' open' : ''}" data-category-key="${section.key}"
+             data-category-id="${isUncategorized ? '' : section.categoryId}">
+        <div class="category-header" onclick="onCategoryHeaderClick(event, '${section.key}')">
+            ${isUncategorized ? '' : `<button type="button" class="drag-grip" title="Drag to reorder sections" aria-label="Drag to reorder sections"><i data-lucide="grip-vertical"></i></button>`}
+            <span class="device-caret">\u203a</span>
+            <span class="category-icon">${glyph}</span>
+            <h3 class="category-title">${escapeHtml(section.title)}</h3>
+            <span class="category-count">${section.items.length}</span>
+            ${isUncategorized ? '' : `
+            <div class="card-actions">
+                <button type="button" class="card-icon-btn" title="Rename category" aria-label="Rename category" data-dedupe onclick="event.stopPropagation(); openCategoryModal(${section.categoryId})">${CARD_ACTION_ICONS.edit}</button>
+                <button type="button" class="card-icon-btn card-icon-danger" title="Delete category" aria-label="Delete category" data-dedupe onclick="event.stopPropagation(); deleteCategory(${section.categoryId}, ${section.items.length})">${CARD_ACTION_ICONS.trash}</button>
+            </div>`}
+        </div>
+        <div class="category-body">
+            <div class="category-body-inner">
+                <div class="devices-grid" data-drop-category="${isUncategorized ? '' : section.categoryId}">
+                    ${section.items.map(deviceCardHtml).join('')}
+                    ${section.items.length === 0 ? '<div class="section-empty">Drag devices here</div>' : ''}
+                </div>
+            </div>
+        </div>
+    </section>`;
+}
+
+// One device card (was inlined in renderDevicesGrid; extracted so the section
+// renderer stays readable). The grip button starts a pointer drag (drag.js);
+// everything else behaves exactly as before.
+function deviceCardHtml(device) {
+    const open = gridExpandedIds.has(device.id);
+    return `
         <div class="device-card${open ? ' open' : ''}" data-id="${device.id}" onclick="onDeviceCardClick(event, ${device.id})">
             <div class="device-card-header">
+                <button type="button" class="drag-grip" title="Drag to another category" aria-label="Drag device to another category"><i data-lucide="grip-vertical"></i></button>
                 <span class="device-caret">\u203a</span>
                 <button type="button" class="device-icon" title="Change icon" aria-label="Change icon" data-dedupe onclick="event.stopPropagation(); openIconPicker(null, ${device.id}, true)">${deviceIconSvg(device.icon)}</button>
                 <div class="device-name">${escapeHtml(device.name)}</div>
@@ -452,9 +542,23 @@ function renderDevicesGrid() {
                 </div>
             </div>
         </div>`;
-    }).join('');
-    renderLucideIcons();
-    syncDevicesExpandedCheckbox();
+}
+
+// Generic tag glyph for sections without their own icon (v1: categories have
+// no icon picker yet; the schema column is ready for one).
+const CATEGORY_GLYPH = '<i data-lucide="tag"></i>';
+
+// Header click toggles the section open/closed - same interaction model as
+// the device cards. Buttons (grip / rename / delete) keep their own actions.
+function onCategoryHeaderClick(event, key) {
+    if (event.target.closest('button')) return;
+    const section = document.querySelector(`.category-section[data-category-key="${key}"]`);
+    if (!section) return;
+    const open = !section.classList.contains('open');
+    section.classList.toggle('open', open);
+    if (open) collapsedCategoryIds.delete(key);
+    else collapsedCategoryIds.add(key);
+    saveCollapsedCategories();
 }
 
 // Expand / collapse one grid card and keep the toolbar checkbox in sync.
@@ -739,6 +843,7 @@ function openAddDeviceModal() {
     document.getElementById('add-device-form').reset();
     resetWarrantyAutoCalc('device');
     setDeviceIcon('device', '');
+    populateCategorySelect('device', null);
     updateAddDeviceManualNames();
     _addDeviceAttributes = [];
     _addDeviceCreatedId = null;
@@ -774,6 +879,7 @@ async function fetchManualsForNewDevice() {
         serial_number: document.getElementById('device-serial-number').value || null,
         product_number: document.getElementById('device-product-number').value || null,
         icon: document.getElementById('device-icon').value || null,
+        category_id: readCategorySelect('device'),
         ...readWarrantyFields('device')
     });
 
@@ -872,6 +978,7 @@ async function handleAddDevice(e) {
         serial_number: document.getElementById('device-serial-number').value || null,
         product_number: document.getElementById('device-product-number').value || null,
         icon: document.getElementById('device-icon').value || null,
+        category_id: readCategorySelect('device'),
         ...readWarrantyFields('device')
     };
     
@@ -991,6 +1098,7 @@ async function editDevice(deviceId) {
     document.getElementById('edit-device-serial-number').value = device.serial_number || '';
     document.getElementById('edit-device-product-number').value = device.product_number || '';
     setDeviceIcon('edit-device', device.icon || '');
+    populateCategorySelect('edit-device', device.category_id);
     fillWarrantyFields('edit-device', device);
     resetWarrantyAutoCalc('edit-device');
     fillDeviceTimestamps(device);
@@ -1017,6 +1125,7 @@ async function handleEditDevice(e) {
         serial_number: document.getElementById('edit-device-serial-number').value || null,
         product_number: document.getElementById('edit-device-product-number').value || null,
         icon: document.getElementById('edit-device-icon').value || null,
+        category_id: readCategorySelect('edit-device'),
         ...readWarrantyFields('edit-device')
     };
     
@@ -1600,6 +1709,99 @@ async function deleteDevice(deviceId) {
 }
 
 // ---------------------------------------------------------------------------
+// Categories: CRUD modal + selects shared by the Add/Edit device forms.
+// ---------------------------------------------------------------------------
+
+// Fill "${prefix}-category" with every category plus an explicit
+// "Uncategorized" default (value ''). New devices start uncategorized unless
+// the user picks a section here.
+function populateCategorySelect(prefix, selectedId) {
+    const select = document.getElementById(`${prefix}-category`);
+    if (!select) return;
+    select.innerHTML = '<option value="">Uncategorized</option>' +
+        categories.map(cat =>
+            `<option value="${cat.id}">${escapeHtml(cat.name)}</option>`
+        ).join('');
+    select.value = selectedId == null ? '' : String(selectedId);
+}
+
+// Read a category select: '' (Uncategorized) -> null for the API.
+function readCategorySelect(prefix) {
+    const select = document.getElementById(`${prefix}-category`);
+    if (!select || select.value === '') return null;
+    return parseInt(select.value, 10);
+}
+
+// Open the category modal: create (no id) or rename (with id).
+function openCategoryModal(categoryId) {
+    const form = document.getElementById('category-form');
+    form.reset();
+    document.getElementById('category-id').value = categoryId || '';
+    document.getElementById('category-modal-title').textContent =
+        categoryId ? 'Rename Category' : 'New Category';
+    if (categoryId) {
+        const cat = categories.find(c => c.id === categoryId);
+        if (cat) document.getElementById('category-name').value = cat.name;
+    }
+    document.getElementById('category-modal').style.display = 'flex';
+    setTimeout(() => document.getElementById('category-name').focus(), 50);
+}
+
+function closeCategoryModal() {
+    document.getElementById('category-modal').style.display = 'none';
+}
+
+async function handleSaveCategory(e) {
+    e.preventDefault();
+    const id = document.getElementById('category-id').value;
+    const name = document.getElementById('category-name').value.trim();
+    if (!name) {
+        showToast('Category name is required', 'error');
+        return;
+    }
+    if (!beginOp('save-category')) return;
+    try {
+        const response = await fetch(id ? `/api/categories/${id}` : '/api/categories', {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to save category'));
+        showToast(id ? 'Category renamed' : 'Category created', 'success');
+        closeCategoryModal();
+        await loadCategories();
+        renderDevicesGrid();
+    } catch (error) {
+        console.error('Failed to save category:', error);
+        showToast(error.message || 'Failed to save category', 'error');
+    } finally {
+        endOp('save-category');
+    }
+}
+
+// Delete a category. Devices are never deleted - they move to Uncategorized,
+// so the confirm dialog says exactly how many will move.
+async function deleteCategory(categoryId, deviceCount) {
+    const warning = deviceCount > 0
+        ? `Delete this category? ${deviceCount} device${deviceCount !== 1 ? 's' : ''} will move to Uncategorized.`
+        : 'Delete this empty category?';
+    if (!confirm(warning)) return;
+    if (!beginOp(`delete-category-${categoryId}`)) return;
+    try {
+        const response = await fetch(`/api/categories/${categoryId}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Failed to delete category');
+        showToast('Category deleted', 'success');
+        await loadCategories();
+        renderDevicesGrid();
+    } catch (error) {
+        console.error('Failed to delete category:', error);
+        showToast('Failed to delete category', 'error');
+    } finally {
+        endOp(`delete-category-${categoryId}`);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Devices wiring (was part of setupEventListeners in the single-file app).
 // ---------------------------------------------------------------------------
 
@@ -1610,6 +1812,11 @@ function wireDevicesEvents() {
     document.getElementById('add-device-btn').addEventListener('click', startNewDeviceFlow);
     document.getElementById('add-device-btn-devices').addEventListener('click', startNewDeviceFlow);
     document.getElementById('add-device-form').addEventListener('submit', handleAddDevice);
+
+    // Categories: toolbar button opens the create dialog; the modal form
+    // handles both create and rename (see openCategoryModal).
+    document.getElementById('add-category-btn').addEventListener('click', () => openCategoryModal(null));
+    document.getElementById('category-form').addEventListener('submit', handleSaveCategory);
 
     // "Expanded" checkbox: expand or collapse every grid card at once and
     // persist the choice for the next page load.
