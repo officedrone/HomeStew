@@ -30,8 +30,8 @@ WORKDIR /app
 # uninstall` cannot work anyway (and --ignore-installed upgrades leave the
 # old tree on disk alongside the new one).
 RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
-    /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
-    /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
+  /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
+  /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
 
 # Copy installed packages from builder (the builder's --user site never
 # contains pip — `pip install --user` skips it — so nothing stale is copied)
