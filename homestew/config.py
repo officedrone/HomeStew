@@ -86,6 +86,11 @@ EDITABLE_SETTINGS = (
     # indexer at run time, and whether uploads/fetches index immediately.
     "INDEX_MAX_CHUNK_SIZE",
     "INDEX_AUTO_ON_UPLOAD",
+    # In-app notification checks (Settings > Advanced): per-check overrides
+    # {check_key: {"enabled": bool, "interval_minutes": int}}. The registry
+    # in services/ui_notifications.py supplies the defaults and the valid
+    # keys; anything unknown in settings.json is dropped at load.
+    "UI_NOTIFICATIONS",
 )
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
@@ -223,6 +228,14 @@ class Settings(BaseSettings):
     # Off means new manuals stay unsearchable until Re-index is pressed in
     # Settings > Search - useful only to defer CPU work on weak hosts.
     INDEX_AUTO_ON_UPLOAD: bool = True
+
+    # In-app notification checks (Settings > Advanced "Health Notifications").
+    # Per-check overrides of the registry defaults, e.g.
+    # {"unindexed_manuals": {"enabled": true, "interval_minutes": 1440}}.
+    # Only the keys the user changed need to appear; the service merges the
+    # rest from its registry. Dismissal state itself lives in the
+    # ui_notification_state table, not here.
+    UI_NOTIFICATIONS: dict = {}
     
     # Manual fetching (services/manual_finder.py + manual_downloader.py).
     # Env-only knobs (not UI-editable): MANUAL_SEARCH_BACKENDS is a comma-list
@@ -318,6 +331,9 @@ def load_settings_overrides() -> None:
     # ignored rather than crashing the load of every other setting.
     if "SETUP_STEPS" in data:
         data["SETUP_STEPS"] = normalize_setup_steps(data["SETUP_STEPS"])
+    # Same defensive coercion for the nested notification-check overrides.
+    if "UI_NOTIFICATIONS" in data:
+        data["UI_NOTIFICATIONS"] = normalize_ui_notifications(data["UI_NOTIFICATIONS"])
     unreadable: list[str] = []
     migrate = False  # plaintext secrets found while a key is available
     for key in EDITABLE_SETTINGS:
@@ -424,6 +440,45 @@ def normalize_setup_steps(value) -> dict:
         for k, v in value.items()
         if isinstance(k, str) and v in ("skipped", "saved")
     }
+
+
+# Bounds for a notification check's interval (minutes). 5 min keeps the
+# poll honest without hammering the DB; 10080 = one week.
+UI_NOTIFICATION_INTERVAL_MIN = 5
+UI_NOTIFICATION_INTERVAL_MAX = 10080
+
+
+def normalize_ui_notifications(value) -> dict:
+    """Coerce a stored UI_NOTIFICATIONS value to a clean per-check map.
+
+    Shape: ``{check_key: {"enabled": bool, "interval_minutes": int}}``. Keys
+    must be plain strings; each entry keeps only valid fields - booleans for
+    enabled, ints clamped into [UI_NOTIFICATION_INTERVAL_MIN,
+    UI_NOTIFICATION_INTERVAL_MAX] for the interval - so a hand-edited or
+    corrupted settings.json can never smuggle junk into the check loop.
+    Unknown check keys survive here (the service ignores what its registry
+    does not know); the merge with registry defaults happens in
+    services/ui_notifications.py to avoid a circular import.
+    """
+    if not isinstance(value, dict):
+        return {}
+    out: dict = {}
+    for key, entry in value.items():
+        if not isinstance(key, str) or not isinstance(entry, dict):
+            continue
+        clean: dict = {}
+        if isinstance(entry.get("enabled"), bool):
+            clean["enabled"] = entry["enabled"]
+        interval = entry.get("interval_minutes")
+        # bool is an int subclass - exclude it explicitly (True would store 1).
+        if isinstance(interval, int) and not isinstance(interval, bool):
+            clean["interval_minutes"] = min(
+                max(interval, UI_NOTIFICATION_INTERVAL_MIN),
+                UI_NOTIFICATION_INTERVAL_MAX,
+            )
+        if clean:
+            out[key] = clean
+    return out
 
 
 def resolve_setup_step(step: str, resolution: str) -> dict:

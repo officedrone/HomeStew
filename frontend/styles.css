@@ -2299,6 +2299,55 @@ body.no-vision .chat-input-wrap textarea {
     width: min(360px, calc(100vw - 40px));
 }
 
+/* Warning toasts (the notification framework's condition alerts): solid amber
+   so white text stays legible in both themes. Fixed width like .toast.info so
+   the action row and long messages wrap inside the card. */
+.toast.warn {
+    background: #b45309;
+    color: white;
+    position: relative;
+    width: min(360px, calc(100vw - 40px));
+}
+
+/* Action button row for notification cards (Go To / Dismiss). Sits under the
+   message; the ✕ close button stays absolute top-right above it. */
+.toast-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.toast-btn {
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.toast-btn.primary {
+    background: white;
+    color: #334155;
+    border-color: white;
+}
+
+.toast-btn.primary:hover {
+    background: rgba(255, 255, 255, 0.85);
+}
+
+.toast-btn.ghost {
+    background: transparent;
+    color: white;
+}
+
+.toast-btn.ghost:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
 .toast-message {
     padding-right: 35px;
     word-wrap: break-word;

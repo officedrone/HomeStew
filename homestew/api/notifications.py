@@ -1,4 +1,4 @@
-"""Notification API endpoints (webhook test sends)."""
+"""Notification API endpoints: webhook test sends and the in-app toast feed."""
 import logging
 
 import requests
@@ -6,13 +6,69 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
 from homestew.config import settings
-from homestew.models.schemas import WebhookTestRequest
+from homestew.models.schemas import (
+    UINotificationActionResponse,
+    UINotificationListResponse,
+    WebhookTestRequest,
+)
+from homestew.services import ui_notifications
 from homestew.services.notifier import build_test_payload
 from homestew.services.notify_channels import send_test_webhook
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+
+# ---------------------------------------------------------------------------
+# In-app notifications (toast framework). The frontend polls /ui; Dismiss
+# silences the current occurrence of a condition, /check forces one immediate
+# re-evaluation (used by Settings > Advanced "Check now" and handy for tests).
+# ---------------------------------------------------------------------------
+
+@router.get("/ui", response_model=UINotificationListResponse)
+async def get_ui_notifications():
+    """Active in-app notifications, evaluating any check whose interval elapsed.
+
+    Cheap by design: a check only re-runs its condition query once its own
+    configured interval has passed, so the per-minute poll costs almost
+    nothing the rest of the time.
+    """
+    return UINotificationListResponse(**await ui_notifications.collect())
+
+
+@router.post("/ui/{key}/dismiss", response_model=UINotificationActionResponse)
+async def dismiss_ui_notification(key: str):
+    """Dismiss the current occurrence of one notification.
+
+    Server-side and permanent for that occurrence: the item never returns
+    while the condition keeps holding, and comes back only if the problem is
+    resolved and later recurs. Unknown key -> 404; nothing active to dismiss
+    -> ok:false (a benign race with another tab closing the episode).
+    """
+    if key not in ui_notifications.CHECKS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown notification: {key}",
+        )
+    return UINotificationActionResponse(ok=await ui_notifications.dismiss(key))
+
+
+@router.post("/ui/{key}/check", response_model=UINotificationListResponse)
+async def check_ui_notification(key: str):
+    """Force one immediate evaluation of a single check, ignoring its interval.
+
+    Returns the full active list (same shape as GET /ui) so the caller can
+    repaint without another request. Unknown key -> 404.
+    """
+    if key not in ui_notifications.CHECKS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown notification: {key}",
+        )
+    return UINotificationListResponse(
+        **await ui_notifications.collect(force_key=key)
+    )
 
 
 @router.post("/test")

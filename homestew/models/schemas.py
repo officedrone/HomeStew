@@ -240,6 +240,70 @@ class IndexStatusResponse(BaseModel):
     )
 
 
+class UINotificationItem(BaseModel):
+    """One active in-app notification (a condition check currently firing).
+
+    Rendered by the frontend as a persistent toast with a Go To button
+    (goto_tab / goto_section) and a Dismiss button. Dismissal is episode-
+    scoped: once dismissed the item disappears until the underlying
+    condition goes false and later becomes true again (a new occurrence).
+    """
+    key: str = Field(..., description="Check key - stable id used for dismissal")
+    severity: Literal["info", "warn", "error"] = Field(
+        "warn", description="Toast styling: info | warn | error"
+    )
+    message: str = Field(..., description="One-line text shown in the toast")
+    count: Optional[int] = Field(
+        None, description="How many items triggered the condition, when meaningful"
+    )
+    goto_tab: str = Field(
+        ..., description="App tab the Go To button switches to (see TAB_NAMES)"
+    )
+    goto_section: Optional[str] = Field(
+        None,
+        description="Settings sub-section to activate once on the settings tab "
+        "(e.g. 'search'); omitted when goto_tab is not 'settings'",
+    )
+    action_label: str = Field(
+        ..., description="Label for the Go To button (e.g. 'Go to Search settings')"
+    )
+    episode_started_at: Optional[str] = Field(
+        None, description="ISO-8601 UTC when this continuous occurrence began"
+    )
+
+
+class UINotificationListResponse(BaseModel):
+    """Active UI notifications for the frontend poller."""
+    items: list[UINotificationItem] = []
+    checked_at: str = Field(
+        ..., description="ISO-8601 UTC timestamp of this poll (server clock)"
+    )
+
+
+class UINotificationActionResponse(BaseModel):
+    """Outcome of a dismiss / force-check action on one notification key."""
+    ok: bool = Field(..., description="Whether the action applied")
+
+
+class UINotificationSetting(BaseModel):
+    """Effective per-check configuration for Settings > Advanced."""
+    enabled: bool = Field(True, description="Whether this check runs at all")
+    interval_minutes: int = Field(
+        ..., ge=5, le=10080,
+        description="How often the condition is re-evaluated (minutes; "
+        "1440 = 24 hours)",
+    )
+    label: str = Field(
+        ..., description="Human-readable check name for the settings row"
+    )
+
+
+class UINotificationSettingUpdate(BaseModel):
+    """Partial per-check update; omitted fields keep their current value."""
+    enabled: Optional[bool] = None
+    interval_minutes: Optional[int] = Field(None, ge=5, le=10080)
+
+
 class ManualCandidate(BaseModel):
     """A found PDF manual offered to the user for approval (not downloaded)."""
     name: str = Field(..., description="PDF file name shown in the table")
@@ -490,6 +554,12 @@ class SettingsResponse(BaseModel):
         description="Index manuals for search immediately when they are "
         "uploaded or fetched; off until a manual Re-index otherwise",
     )
+    ui_notifications: dict[str, UINotificationSetting] = Field(
+        default_factory=dict,
+        description="In-app health notification checks (Settings > Advanced), "
+        "keyed by check id with the effective enabled/interval values merged "
+        "from the service registry.",
+    )
 
 
 class SecretsKeyActionResponse(BaseModel):
@@ -620,6 +690,12 @@ class SettingsUpdate(BaseModel):
         None,
         description="Index manuals on upload/fetch immediately (False defers "
         "until Re-index is pressed in Settings > Search)",
+    )
+    ui_notifications: Optional[dict[str, UINotificationSettingUpdate]] = Field(
+        None,
+        description="Per-check updates for the in-app health notifications "
+        "(Settings > Advanced). Unknown check keys are rejected with 422 by "
+        "the route; omitted fields inside an entry keep their current value.",
     )
 
 

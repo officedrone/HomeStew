@@ -17,6 +17,7 @@ from homestew.config import (
     settings,
 )
 from homestew.services import auth
+from homestew.services import ui_notifications
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
@@ -134,6 +135,10 @@ def _current_settings() -> SettingsResponse:
         auth_lockout_minutes=settings.AUTH_LOCKOUT_MINUTES,
         index_max_chunk_size=settings.INDEX_MAX_CHUNK_SIZE,
         index_auto_on_upload=settings.INDEX_AUTO_ON_UPLOAD,
+        # In-app health notification checks (Settings > Advanced): effective
+        # per-check values merged from the service registry, so the UI never
+        # hardcodes defaults or the list of checks.
+        ui_notifications=ui_notifications.settings_payload(),
     )
 
 
@@ -292,7 +297,22 @@ async def update_settings(update: SettingsUpdate):
     for name in update.clear_secrets or []:
         changes[_CLEARABLE_SECRETS[name]] = ""
 
-    if not changes:
+    # In-app notification checks: handled by the service (it validates keys
+    # against its registry and persists the merged dict itself), so it runs
+    # outside the plain `changes` map. An unknown check key is a client bug,
+    # not a server error -> 422.
+    if update.ui_notifications:
+        try:
+            ui_notifications.update_settings(
+                {k: dict(v or {}) for k, v in update.ui_notifications.items()}
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            )
+
+    if not changes and not update.ui_notifications:
         return _current_settings()
 
     # Apply to the live singleton so changes take effect immediately.

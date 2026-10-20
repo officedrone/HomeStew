@@ -63,6 +63,12 @@ async function errorDetailFrom(response, fallback) {
 // other call sites keep the auto-remove timer. options.id reuses an existing
 // toast with that id instead of stacking a new one - the progress monitor
 // updates its single toast in place via updateToast().
+//
+// options.actions: [{label, variant, onClick}] renders a button row under the
+// message (the notification framework's "Go To" / "Dismiss" pair; variant is
+// 'primary' or 'ghost'). options.onClose fires when the ✕ closes the toast -
+// the framework uses it to remember a session-local hide. Both are additive:
+// every pre-existing call site passes neither and behaves exactly as before.
 function showToast(message, type = 'success', detailedError = null, options = {}) {
     const container = document.getElementById('toast-container');
 
@@ -115,13 +121,32 @@ function showToast(message, type = 'success', detailedError = null, options = {}
         toast.appendChild(detailsDiv);
     }
 
+    // Action buttons (notification cards): a row under the message. Built
+    // before the close button so ✕ stays the last child, top-right.
+    if (Array.isArray(options.actions) && options.actions.length) {
+        const row = document.createElement('div');
+        row.className = 'toast-actions';
+        for (const action of options.actions) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `toast-btn ${action.variant === 'ghost' ? 'ghost' : 'primary'}`;
+            btn.textContent = action.label;
+            btn.addEventListener('click', () => action.onClick && action.onClick(toast));
+            row.appendChild(btn);
+        }
+        toast.appendChild(row);
+    }
+
     // Persistent toasts never time out; they get a close button instead.
     if (options.persistent) {
         const closeBtn = document.createElement('button');
         closeBtn.className = 'toast-close';
         closeBtn.innerHTML = '&times;';
-        closeBtn.setAttribute('aria-label', 'Dismiss');
-        closeBtn.addEventListener('click', () => toast.remove());
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.addEventListener('click', () => {
+            toast.remove();
+            if (options.onClose) options.onClose();
+        });
         toast.appendChild(closeBtn);
     }
 

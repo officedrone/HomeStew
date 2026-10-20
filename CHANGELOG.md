@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.4]
+
+- ADD: Unified toast notification framework that events can use to display notifications to users
+- ADD: Subscribe 'un-indexed manuals found' event to the new notification framework
+
 ## [0.2.3]
 
 - SECURITY: Bumped `pypdf` 6.16.2 → 6.19.0 — fixes CVE-2026-102993, CVE-2026-102994, CVE-2026-102995, CVE-2026-102996, CVE-2026-102997, CVE-2026-102998, CVE-2026-102999, CVE-2026-103000 (8.7 High).

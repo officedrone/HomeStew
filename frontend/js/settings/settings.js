@@ -328,8 +328,11 @@ async function loadSettingsPage() {
     document.getElementById('backup-hint').textContent = '';
     document.getElementById('restore-hint').textContent = '';
 
-    // Advanced: master-key status + create/delete buttons.
+    // Advanced: master-key status + create/delete buttons, then the Health
+    // Notifications rows (built from the server's check registry so new
+    // checks appear here without any frontend change).
     renderAdvancedKeyPanel(settings);
+    renderUINotificationSettings(settings);
 
     // Always land on the General tab with the prompt accordion collapsed -
     // unless a deep link (dashboard status strip) asked for another section.
@@ -1379,6 +1382,11 @@ async function handleSettingsSave(event) {
             clampInt(document.getElementById('settings-index-chunk-size').value, 200, 20000, 4000),
         index_auto_on_upload: document.getElementById('settings-index-auto-on-upload').checked,
     };
+    // Health Notifications (Settings > Advanced): per-check enabled/interval
+    // collected from the dynamically rendered rows. Omitted when the host is
+    // missing or empty so a broken render never wipes stored overrides.
+    const uiNotifSettings = collectUINotificationSettings();
+    if (uiNotifSettings) payload.ui_notifications = uiNotifSettings;
     // The webhook URL is write-only like the key: only a freshly typed value
     // is sent; blank keeps the stored one (removal goes through clear_secrets).
     const webhookUrl = document.getElementById('settings-notify-webhook-url').value.trim();

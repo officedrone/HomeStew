@@ -241,7 +241,26 @@ async def init_db():
                 FOREIGN KEY (event_id) REFERENCES calendar_events(id) ON DELETE CASCADE
             )
         """)
-        
+
+        # UI notification state - one row per in-app condition check (the
+        # registry in services/ui_notifications.py). This is what makes a
+        # Dismissed notification stay dismissed: an "occurrence" is one
+        # continuous episode where the condition holds, so dismissal lasts
+        # until the condition goes false and a later recurrence re-notifies.
+        # last_checked_at drives the per-check interval; details caches the
+        # evaluator's payload (e.g. {"count": 3}) between checks. Timestamps
+        # are ISO-8601 UTC strings. See services/ui_notifications.py.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS ui_notification_state (
+                check_key TEXT PRIMARY KEY,
+                last_checked_at TEXT,
+                condition_true INTEGER NOT NULL DEFAULT 0,
+                episode_started_at TEXT,
+                dismissed_at TEXT,
+                details TEXT NOT NULL DEFAULT '{}'
+            )
+        """)
+
         # Create FTS5 virtual table for PDF content search.
         #
         # The `trigram` tokenizer indexes every 3-character sequence, which

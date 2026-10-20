@@ -897,6 +897,24 @@
                                 </div>
                                 <p class="settings-hint" id="advanced-key-hint"></p>
                             </div>
+
+                            <!-- Health Notifications: one row per in-app notification
+                                 check (enabled + interval), rendered by
+                                 renderUINotificationSettings() from the server's
+                                 ui_notifications payload. Adding a check server-side
+                                 needs no markup here. Saved with the shared form. -->
+                            <h4 class="settings-subheading">Health Notifications
+                                <span class="info-wrap">
+                                    <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                    <span class="info-popover" role="tooltip"><p class="settings-hint">
+                                HomeStew periodically checks for problems (like manuals that
+                                are not in the search index) and shows a notification when one
+                                is found. Each check has its own interval; Dismiss silences an
+                                occurrence until the problem goes away and comes back.
+                            </p></span>
+                                </span>
+                            </h4>
+                            <div id="ui-notification-rows"></div>
                         </section>
                     </div>
 
@@ -1577,6 +1595,7 @@
     <script src="/static/js/chat/chat.js"></script>
     <script src="/static/js/search/search.js"></script>
     <script src="/static/js/settings/settings.js"></script>
+    <script src="/static/js/notifications/notifications.js"></script>
     <script src="/static/js/wizard/wizard.js"></script>
     <script src="/static/js/bootstrap.js"></script>
 </body>
