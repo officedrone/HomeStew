@@ -74,11 +74,13 @@ That's it — no other configuration is required to get started.
 ## First Run
 
 1. **Create a password.** The first page load asks you to create one account password. It protects the whole app and cannot be skipped.
-2. **Setup wizard.** A short, skippable wizard offers three one-time steps:
+2. **Setup wizard.** A short, skippable wizard starts with a choice — **New instance** or **Restore from backup** (import a HomeStew backup `.zip` with devices, manuals and calendar events; the device step is then skipped). On the new-instance path it offers three one-time steps:
    - Create an encryption key (protects your API keys and tokens at rest)
    - Connect your AI model (base URL + model name — or skip and do it later in Settings)
      > **Tip:** if your AI runs on the same machine (e.g. Ollama), use `http://host.docker.internal:11434/v1` as the base URL so the container can reach it.
    - Add your first device
+
+   The start choice only appears on an empty instance; once answered it never comes back.
 
 ---
 

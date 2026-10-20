@@ -803,6 +803,8 @@ async function runRestore() {
 // the request, refreshes the app on success, and records the summary the bar
 // shows when it finishes. Errors fail the bar directly. The op lock is released
 // here (it guards against a duplicate POST), independent of the bar's lifetime.
+// Returns whether the restore succeeded so the wizard's restore step can tell
+// success from failure (runRestore in this file ignores the value).
 async function postRestoreFile(file, mode) {
     try {
         const formData = new FormData();
@@ -823,10 +825,12 @@ async function postRestoreFile(file, mode) {
         if (document.getElementById('calendar-tab').classList.contains('active')) {
             loadCalendarEvents();
         }
+        return true;
     } catch (error) {
         console.error('Restore failed:', error);
         stopRestorePoll();
         failRestoreBar(error.message || 'Restore failed');
+        return false;
     } finally {
         restorePostDone = true;
         endOp('backup-restore');

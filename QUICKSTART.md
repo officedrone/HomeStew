@@ -72,10 +72,13 @@ gates every page and API call). It cannot be skipped; if it is ever forgotten:
 `docker exec -it homestew python -m homestew.auth_cli reset-password`. Change
 it later under Settings > Advanced.
 
-Once signed in, a **setup wizard** offers three one-time steps: create the
-secrets encryption key, connect your AI model and add your first device. Skip
-any of them - skipped/saved steps are remembered and never re-prompted, and
-everything stays editable later under Settings.
+Once signed in, a **setup wizard** first asks how to start: **New instance** or
+**Restore from backup** (a HomeStew backup `.zip` - devices, manuals and calendar
+events are imported and the "add your first device" step is skipped). The
+new-instance path offers three one-time steps: create the secrets encryption
+key, connect your AI model and add your first device. Skip any of them -
+skipped/saved steps are remembered and never re-prompted, and everything stays
+editable later under Settings. The start choice only shows on an empty instance.
 
 1. **Add your first device** (e.g., Samsung TV):
    - Name: "Living Room TV"

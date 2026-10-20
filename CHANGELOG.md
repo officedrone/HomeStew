@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+- ADD: The first-run setup wizard now opens with a **"How would you like to start?"** step: **New instance** or **Restore from backup**. Restoring imports a HomeStew backup `.zip` (devices, manuals, calendar events) with live progress in the bottom status bar, then continues with the remaining wizard steps — the "Add your first device" step is skipped automatically since the archive already brought devices. The choice step only appears on an empty instance and is remembered once answered, so existing installs never see it.
+
 ## [0.2.3]
 
 - ADD: Restore Backup now runs with a proper status bar instead of hint text in the Settings body. A fixed bottom bar follows the whole pipeline. A second restore started while one runs is rejected with 409.

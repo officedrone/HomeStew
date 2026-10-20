@@ -1270,6 +1270,59 @@
             <!-- Step progress dots, rebuilt by renderWizardProgress(). -->
             <div id="wizard-progress" class="wizard-progress" role="list"></div>
 
+            <!-- 0. Start choice: fresh instance vs restore from a backup.
+                 The two cards ARE the actions for this step, so the shared
+                 Skip/Save footer is hidden while it is visible (see
+                 showWizardStep in wizard.js). Choosing "Restore" swaps in the
+                 file-picker panel below; a successful restore reloads the page
+                 and the remaining steps continue from the reloaded queue. -->
+            <section class="wizard-step" id="wizard-step-start_choice">
+                <div id="wizard-choice-cards">
+                    <h3>How would you like to start?</h3>
+                    <p class="wizard-text">
+                        HomeStew can be set up from scratch, or seeded from a backup
+                        archive made by another HomeStew installation.
+                    </p>
+                    <div class="wizard-choice-grid">
+                        <button type="button" class="new-device-option" data-dedupe onclick="chooseWizardStartFresh()">
+                            <span class="new-device-option-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+                            </span>
+                            <span class="new-device-option-text">
+                                <strong>New instance</strong>
+                                <small>Set up this installation from scratch: encryption key, AI model and your first device.</small>
+                            </span>
+                        </button>
+                        <button type="button" class="new-device-option new-device-option-ai" data-dedupe onclick="chooseWizardRestore()">
+                            <span class="new-device-option-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            </span>
+                            <span class="new-device-option-text">
+                                <strong>Restore from backup</strong>
+                                <small>Import devices, manuals and calendar events from a HomeStew backup .zip file.</small>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+                <div id="wizard-restore-panel" hidden>
+                    <h3>Restore from backup</h3>
+                    <p class="wizard-text">
+                        Choose a HomeStew backup <code>.zip</code> archive. Its devices,
+                        manuals and calendar events are added to this instance; settings
+                        (AI model, notifications, password) are never part of a backup and
+                        stay configured on the next steps.
+                    </p>
+                    <div class="settings-field">
+                        <div class="model-row">
+                            <button type="button" class="btn btn-secondary" id="wizard-restore-pick-btn" data-dedupe>Choose Backup…</button>
+                            <button type="button" class="btn btn-primary" id="wizard-restore-run-btn" data-dedupe disabled>Restore</button>
+                        </div>
+                        <p class="settings-hint restore-file-name" id="wizard-restore-file-name"></p>
+                    </div>
+                    <button type="button" class="btn btn-secondary wizard-restore-back" id="wizard-restore-back-btn" onclick="backFromWizardRestore()">&larr; Back to choice</button>
+                </div>
+            </section>
+
             <!-- 1. Secrets master key -->
             <section class="wizard-step" id="wizard-step-secrets_key">
                 <h3>Encrypt stored credentials</h3>
@@ -1464,6 +1517,9 @@
     <input type="file" id="manual-upload-input" accept="application/pdf,.pdf" style="display: none;">
     <!-- Settings > General "Restore": single backup archive picker. -->
     <input type="file" id="restore-file-input" accept=".zip,application/zip" style="display: none;">
+    <!-- Setup wizard "Restore from backup": wizard-owned archive picker so it
+         never cross-triggers the Settings restore handler. -->
+    <input type="file" id="wizard-restore-file-input" accept=".zip,application/zip" style="display: none;">
 
     <!-- Chat image pickers: the attach button opens the file picker, the
          camera button asks for capture="environment" so phones open their

@@ -3045,6 +3045,39 @@ body.no-vision .chat-input-wrap textarea {
     color: var(--error);
 }
 
+/* Start-choice step: the two cards ARE its actions, so the shared footer is
+   hidden while it shows - .modal-actions sets display:flex, which would
+   otherwise beat the hidden attribute. */
+.wizard-actions[hidden] {
+    display: none;
+}
+
+/* Two large option cards, same look as the New Device chooser (the card
+   styling comes from the shared .new-device-option classes). */
+.wizard-choice-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 16px;
+}
+
+@media (max-width: 560px) {
+    .wizard-choice-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Cards are disabled while their choice is being persisted server-side. */
+.new-device-option:disabled {
+    opacity: .55;
+    cursor: default;
+    transform: none;
+}
+
+.wizard-restore-back {
+    margin-top: 4px;
+}
+
 /* Auth gate (login / create-account). Reuses .setup-wizard-content for the
    card size and .settings-field for its inputs; these cover what that combo
    does not provide on its own. */

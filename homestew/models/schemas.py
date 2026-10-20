@@ -646,7 +646,7 @@ class SetupStepResolveRequest(BaseModel):
     Persisted server-side so the step is not offered again on later page
     loads - skipping is a deliberate choice, not just a dismissal.
     """
-    step: Literal["secrets_key", "llm", "device"] = Field(
+    step: Literal["start_choice", "secrets_key", "llm", "device"] = Field(
         ..., description="The wizard step being resolved"
     )
     resolution: Literal["skipped", "saved"] = Field(
