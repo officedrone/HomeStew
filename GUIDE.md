@@ -197,8 +197,11 @@ data volume. The Settings UI is _write-only_ for them: their values never
 leave the server (the API reports only whether each is configured), so they
 cannot be read back through the browser.
 
-**One-time setup.** On first start HomeStew shows a short **setup wizard**:
-create an encryption key, connect your AI model and add your first device.
+**One-time setup.** On first start HomeStew shows a short **setup wizard**. It
+opens with a choice on an empty instance - start a **new instance** or **restore
+from a backup** `.zip` (after a restore the wizard continues with the remaining
+steps, minus the first-device step) - then offers: create an encryption key,
+connect your AI model and add your first device.
 The key step generates a random 32-byte master key at `/data/.secrets_key`
 (mode `0600`) inside the `homestew_data` volume. Creating it turns encryption
 on for good - the key survives rebuilds and container recreation, and the

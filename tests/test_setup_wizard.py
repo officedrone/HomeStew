@@ -31,6 +31,13 @@ class TestNormalizeSetupSteps:
             {"llm": "saved", "device": "skipped"}
         ) == {"llm": "saved", "device": "skipped"}
 
+    def test_start_choice_is_a_valid_step(self):
+        # The wizard's first step (new instance vs restore) resolves through
+        # the same key-agnostic bookkeeping as the classic steps.
+        assert cfg.normalize_setup_steps({"start_choice": "saved"}) == {
+            "start_choice": "saved"
+        }
+
     def test_drops_junk_values_and_keys(self):
         # A hand-edited/corrupted settings.json must not smuggle anything in.
         assert cfg.normalize_setup_steps(
@@ -124,3 +131,56 @@ class TestLlmLooksConfigured:
         self._reset_llm(monkeypatch)
         cfg.settings.LLM_MODEL = "qwen3.5:4b"
         assert cfg.llm_looks_configured() is True
+
+
+class TestResolveEndpointAcceptsStartChoice:
+    """POST /api/settings/setup-steps/resolve must accept the new step id.
+
+    The request schema whitelists step names, so a missing 'start_choice'
+    there would 422 the wizard's first step at runtime while every other
+    step kept working - exactly the kind of silent breakage this guards.
+    """
+
+    @pytest.fixture()
+    def api_client(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from homestew.main import app
+
+        saved = {k: getattr(cfg.settings, k) for k in cfg.EDITABLE_SETTINGS}
+        monkeypatch.setattr(cfg.settings, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(cfg.settings, "DEVICES_DIR", tmp_path / "devices")
+        monkeypatch.setattr(cfg.settings, "PASSWORD_HASH", "")
+        monkeypatch.setattr(cfg.settings, "SETUP_STEPS", {})
+        with TestClient(app) as c:
+            r = c.post("/api/auth/setup", json={
+                "password": "wizard-test-password",
+                "confirm_password": "wizard-test-password",
+            })
+            assert r.status_code == 201
+            yield c
+        for key, value in saved.items():
+            setattr(cfg.settings, key, value)
+
+    def test_start_choice_resolves_and_is_exposed(self, api_client):
+        r = api_client.post("/api/settings/setup-steps/resolve", json={
+            "step": "start_choice", "resolution": "skipped",
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["setup_steps"]["start_choice"] == "skipped"
+        # GET /api/settings feeds wizardPendingSteps() - the resolved choice
+        # must show up there so the step never comes back.
+        s = api_client.get("/api/settings").json()
+        assert s["setup_steps"]["start_choice"] == "skipped"
+
+    def test_saved_resolution_also_accepted(self, api_client):
+        r = api_client.post("/api/settings/setup-steps/resolve", json={
+            "step": "start_choice", "resolution": "saved",
+        })
+        assert r.status_code == 200, r.text
+
+    def test_unknown_step_still_rejected(self, api_client):
+        r = api_client.post("/api/settings/setup-steps/resolve", json={
+            "step": "not_a_step", "resolution": "saved",
+        })
+        assert r.status_code == 422

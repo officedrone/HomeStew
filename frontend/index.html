@@ -328,12 +328,16 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         <span>New Device</span>
                     </button>
+                    <button type="button" id="add-category-btn" class="btn btn-secondary btn-small" data-dedupe title="Create a category section (e.g. Kitchen, Vehicles)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
+                        <span>New Category</span>
+                    </button>
                     <label class="devices-collapse-toggle" title="Show every device card expanded with its details">
                         <input type="checkbox" id="devices-expanded-toggle">
-                        <span>Expanded</span>
+                        <span>Expanded Device Cards</span>
                     </label>
                 </div>
-                <div id="devices-grid" class="devices-grid"></div>
+                <div id="devices-grid" class="category-sections"></div>
             </div>
 
             <!-- Calendar Tab -->
@@ -414,7 +418,7 @@
                                     </span>
                                 </div>
                                 <select id="settings-llm-provider">
-                                    <option value="custom">Custom (OpenAI)</option>
+                                    <option value="custom">Custom (OpenAI-capable)</option>
                                     <option value="openai">Cloud - OpenAI</option>
                                 </select>
                             </div>
@@ -811,9 +815,11 @@
                             </div>
                             <div class="settings-field">
                                 <div class="model-row">
-                                    <span class="settings-hint webhook-test-label">Choose a HomeStew backup .zip to restore.</span>
+                                    <span class="settings-hint webhook-test-label">Choose a HomeStew backup .zip, then press Restore.</span>
                                     <button type="button" class="btn btn-secondary" id="restore-btn">Choose Backup…</button>
+                                    <button type="button" class="btn btn-primary" id="restore-run-btn" disabled>Restore</button>
                                 </div>
+                                <p class="settings-hint restore-file-name" id="restore-file-name"></p>
                                 <p class="settings-hint" id="restore-hint"></p>
                             </div>
                         </section>
@@ -954,6 +960,12 @@
                 <input type="text" id="device-name" placeholder="Device name (e.g., Living Room TV)" required>
                 <input type="text" id="device-brand" placeholder="Brand (e.g., Samsung)" required>
                 <input type="text" id="device-model" placeholder="Model (e.g., QN90A)" required>
+                <!-- Category: Devices-page section. New devices start
+                     Uncategorized unless one is picked here. -->
+                <div class="settings-field">
+                    <label for="device-category">Category</label>
+                    <select id="device-category"></select>
+                </div>
                 <textarea id="device-description" placeholder="Description (optional)" rows="2"></textarea>
                 <input type="text" id="device-serial-number" placeholder="Serial Number (optional)">
                 <input type="text" id="device-product-number" placeholder="Product Number (optional)">
@@ -1017,6 +1029,26 @@
         </div>
     </div>
 
+    <!-- Category modal: create (from the toolbar) or rename (from a section
+         header). Deleting is a confirm() on the trash button, not a dialog. -->
+    <div id="category-modal" class="modal">
+        <div class="modal-content modal-small">
+            <span class="modal-close" onclick="closeCategoryModal()">&times;</span>
+            <h2 id="category-modal-title">New Category</h2>
+            <form id="category-form" class="device-form modal-form">
+                <input type="hidden" id="category-id">
+                <div class="settings-field">
+                    <label for="category-name">Name</label>
+                    <input type="text" id="category-name" placeholder="e.g. Kitchen, Appliances, Vehicles" maxlength="100" required>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeCategoryModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-dedupe>Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Edit Device Modal -->
     <div id="edit-device-modal" class="modal">
         <div class="modal-content">
@@ -1046,6 +1078,10 @@
                 <div class="settings-field">
                     <label for="edit-device-model">Model</label>
                     <input type="text" id="edit-device-model" placeholder="Model" required>
+                </div>
+                <div class="settings-field">
+                    <label for="edit-device-category">Category</label>
+                    <select id="edit-device-category"></select>
                 </div>
                 <div class="settings-field">
                     <label for="edit-device-description">Description</label>
@@ -1234,6 +1270,59 @@
             <!-- Step progress dots, rebuilt by renderWizardProgress(). -->
             <div id="wizard-progress" class="wizard-progress" role="list"></div>
 
+            <!-- 0. Start choice: fresh instance vs restore from a backup.
+                 The two cards ARE the actions for this step, so the shared
+                 Skip/Save footer is hidden while it is visible (see
+                 showWizardStep in wizard.js). Choosing "Restore" swaps in the
+                 file-picker panel below; a successful restore reloads the page
+                 and the remaining steps continue from the reloaded queue. -->
+            <section class="wizard-step" id="wizard-step-start_choice">
+                <div id="wizard-choice-cards">
+                    <h3>How would you like to start?</h3>
+                    <p class="wizard-text">
+                        HomeStew can be set up from scratch, or seeded from a backup
+                        archive made by another HomeStew installation.
+                    </p>
+                    <div class="wizard-choice-grid">
+                        <button type="button" class="new-device-option" data-dedupe onclick="chooseWizardStartFresh()">
+                            <span class="new-device-option-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+                            </span>
+                            <span class="new-device-option-text">
+                                <strong>New instance</strong>
+                                <small>Set up this installation from scratch: encryption key, AI model and your first device.</small>
+                            </span>
+                        </button>
+                        <button type="button" class="new-device-option new-device-option-ai" data-dedupe onclick="chooseWizardRestore()">
+                            <span class="new-device-option-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            </span>
+                            <span class="new-device-option-text">
+                                <strong>Restore from backup</strong>
+                                <small>Import devices, manuals and calendar events from a HomeStew backup .zip file.</small>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+                <div id="wizard-restore-panel" hidden>
+                    <h3>Restore from backup</h3>
+                    <p class="wizard-text">
+                        Choose a HomeStew backup <code>.zip</code> archive. Its devices,
+                        manuals and calendar events are added to this instance; settings
+                        (AI model, notifications, password) are never part of a backup and
+                        stay configured on the next steps.
+                    </p>
+                    <div class="settings-field">
+                        <div class="model-row">
+                            <button type="button" class="btn btn-secondary" id="wizard-restore-pick-btn" data-dedupe>Choose Backup…</button>
+                            <button type="button" class="btn btn-primary" id="wizard-restore-run-btn" data-dedupe disabled>Restore</button>
+                        </div>
+                        <p class="settings-hint restore-file-name" id="wizard-restore-file-name"></p>
+                    </div>
+                    <button type="button" class="btn btn-secondary wizard-restore-back" id="wizard-restore-back-btn" onclick="backFromWizardRestore()">&larr; Back to choice</button>
+                </div>
+            </section>
+
             <!-- 1. Secrets master key -->
             <section class="wizard-step" id="wizard-step-secrets_key">
                 <h3>Encrypt stored credentials</h3>
@@ -1263,7 +1352,7 @@
                 <div class="settings-field">
                     <label for="wizard-llm-provider">Provider</label>
                     <select id="wizard-llm-provider">
-                        <option value="custom">Custom (OpenAI)</option>
+                        <option value="custom">Custom (OpenAI-capable)</option>
                         <option value="openai">Cloud - OpenAI</option>
                     </select>
                     <p class="settings-hint">Choose "Cloud - OpenAI" for api.openai.com - the URL is set for you and you only provide your API key. Choose "Custom" for Ollama, LM Studio, vLLM etc. and enter its Base URL.</p>
@@ -1428,6 +1517,9 @@
     <input type="file" id="manual-upload-input" accept="application/pdf,.pdf" style="display: none;">
     <!-- Settings > General "Restore": single backup archive picker. -->
     <input type="file" id="restore-file-input" accept=".zip,application/zip" style="display: none;">
+    <!-- Setup wizard "Restore from backup": wizard-owned archive picker so it
+         never cross-triggers the Settings restore handler. -->
+    <input type="file" id="wizard-restore-file-input" accept=".zip,application/zip" style="display: none;">
 
     <!-- Chat image pickers: the attach button opens the file picker, the
          camera button asks for capture="environment" so phones open their
@@ -1437,6 +1529,31 @@
 
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
+
+    <!-- Restore status bar: fixed to the bottom of the viewport so progress
+         stays visible on any tab (and after leaving Settings) while a restore
+         runs. Hidden until JS reveals it; the fill width + meta text are driven
+         by polling /api/backup/restore-progress. -->
+    <div id="restore-status-bar" class="status-bar" hidden role="status" aria-live="polite">
+        <div class="status-bar-inner">
+            <span class="status-bar-spinner" aria-hidden="true"></span>
+            <div class="status-bar-text">
+                <span class="status-bar-label" id="restore-status-label">Restoring backup…</span>
+                <span class="status-bar-detail" id="restore-status-detail"></span>
+            </div>
+            <div class="status-bar-meta">
+                <span class="status-bar-meta-item" id="restore-status-elapsed" title="Time elapsed">0:00</span>
+                <span class="status-bar-meta-item" id="restore-status-steps"></span>
+                <span class="status-bar-meta-item status-bar-pct" id="restore-status-pct">0%</span>
+            </div>
+            <button type="button" class="status-bar-close" id="restore-status-close"
+                aria-label="Dismiss">&times;</button>
+        </div>
+        <div class="status-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+            aria-valuenow="0" id="restore-status-track">
+            <div class="status-bar-fill" id="restore-status-fill"></div>
+        </div>
+    </div>
 
     <script src="/static/vendor/marked.min.js"></script>
     <script src="/static/vendor/purify.min.js"></script>
@@ -1454,6 +1571,7 @@
     <script src="/static/js/core/auth.js"></script>
     <script src="/static/js/core/chrome.js"></script>
     <script src="/static/js/devices/devices.js"></script>
+    <script src="/static/js/devices/drag.js"></script>
     <script src="/static/js/calendar/calendar.js"></script>
     <script src="/static/js/dashboard/dashboard.js"></script>
     <script src="/static/js/chat/chat.js"></script>

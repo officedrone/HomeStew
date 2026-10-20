@@ -3045,6 +3045,39 @@ body.no-vision .chat-input-wrap textarea {
     color: var(--error);
 }
 
+/* Start-choice step: the two cards ARE its actions, so the shared footer is
+   hidden while it shows - .modal-actions sets display:flex, which would
+   otherwise beat the hidden attribute. */
+.wizard-actions[hidden] {
+    display: none;
+}
+
+/* Two large option cards, same look as the New Device chooser (the card
+   styling comes from the shared .new-device-option classes). */
+.wizard-choice-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 16px;
+}
+
+@media (max-width: 560px) {
+    .wizard-choice-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Cards are disabled while their choice is being persisted server-side. */
+.new-device-option:disabled {
+    opacity: .55;
+    cursor: default;
+    transform: none;
+}
+
+.wizard-restore-back {
+    margin-top: 4px;
+}
+
 /* Auth gate (login / create-account). Reuses .setup-wizard-content for the
    card size and .settings-field for its inputs; these cover what that combo
    does not provide on its own. */
@@ -3106,6 +3139,17 @@ body.no-vision .chat-input-wrap textarea {
 .model-row .btn svg {
     vertical-align: -2px;
     margin-right: 6px;
+}
+
+/* Staged restore archive name under the Choose Backup / Restore row. Long
+   names ellipsize instead of wrapping the row; it only appears once a file is
+   picked, so the panel stays clean before that. */
+.restore-file-name:not(:empty) {
+    margin-top: 6px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* "Test Connection" button + inline result label under the LLM key field */
@@ -3535,6 +3579,184 @@ body.no-vision .chat-input-wrap textarea {
     color: var(--text-primary);
 }
 
+/* ---------------------------------------------------------------------------
+   Restore status bar - fixed to the bottom of the viewport so restore progress
+   (elapsed / steps remaining / percent) stays visible on any tab. Flat fills
+   only, matching the rest of the app; z-index sits above modals (2000) but
+   below toasts (3000). The [hidden] rule is explicit because a display value
+   here would otherwise beat the hidden attribute's default.
+   --------------------------------------------------------------------------- */
+.status-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2500;
+    background: var(--surface);
+    border-top: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+}
+
+.status-bar[hidden] {
+    display: none;
+}
+
+.status-bar-inner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 16px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+/* Spinner reuses the shared spin keyframes; small so it fits the compact bar. */
+.status-bar-spinner {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.status-bar-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+}
+
+.status-bar-label {
+    font-weight: 600;
+}
+
+.status-bar-detail {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Right-aligned meta column: elapsed, steps remaining, percent. Tabular figures
+   keep the numbers from jittering as they tick. */
+.status-bar-meta {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.status-bar-pct {
+    font-weight: 700;
+    color: var(--primary-color);
+    min-width: 3ch;
+    text-align: right;
+}
+
+.status-bar-close {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.status-bar-close:hover {
+    background: var(--bg-light);
+    color: var(--text-primary);
+}
+
+/* Progress track + fill along the very bottom edge. Fill width % is set from
+   JS; the .4s ease matches the toast progress bar. */
+.status-bar-track {
+    height: 4px;
+    background: var(--bg-light);
+    overflow: hidden;
+}
+
+.status-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--primary-color);
+    transition: width 0.4s ease;
+}
+
+/* Indeterminate phases (a step with no known total, e.g. an upload whose size
+   the browser didn't report): sweep a partial-width fill so the bar still reads
+   as alive rather than frozen at a fixed percentage. */
+.status-bar.is-indeterminate .status-bar-fill {
+    width: 40%;
+    transition: none;
+    animation: status-sweep 1.3s ease-in-out infinite;
+}
+
+@keyframes status-sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+}
+
+/* Terminal states: hide the spinner, show the dismiss button, tint the bar. */
+.status-bar.done .status-bar-spinner,
+.status-bar.failed .status-bar-spinner {
+    display: none;
+}
+
+.status-bar.done .status-bar-close,
+.status-bar.failed .status-bar-close {
+    display: flex;
+}
+
+.status-bar.done {
+    background: color-mix(in srgb, var(--success) 16%, var(--surface));
+}
+
+.status-bar.done .status-bar-fill {
+    background: var(--success);
+}
+
+.status-bar.failed {
+    background: color-mix(in srgb, var(--error) 14%, var(--surface));
+}
+
+.status-bar.failed .status-bar-fill {
+    background: var(--error);
+    width: 100%;
+}
+
+/* Keep the bar from covering the last settings row while it's up. */
+body.restore-active .main-content {
+    padding-bottom: 64px;
+}
+
+@media (max-width: 560px) {
+    .status-bar-inner {
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        padding: 8px 12px;
+    }
+    .status-bar-meta {
+        width: 100%;
+        margin-left: 28px;
+        justify-content: flex-start;
+        gap: 12px;
+    }
+}
+
 /* Fetch Manuals: searched-terms box + Change Search Terms / Search / Cancel.
    The input is readonly (not disabled - a disabled control cannot receive
    clicks) and greyed until the user opts into editing it. */
@@ -3593,6 +3815,182 @@ body.no-vision .chat-input-wrap textarea {
     color: var(--text-secondary);
     font-weight: 600;
     z-index: 1;
+}
+
+/* ==========================================================================
+   Device categories (Devices page sections) + drag-and-drop.
+   Sections collapse with the same grid-template-rows 0fr -> 1fr animation
+   as .device-details; drag uses Pointer Events (mouse + touch), so grips
+   set touch-action: none and everything else keeps normal scrolling.
+   ========================================================================== */
+
+/* Vertical stack of category sections replacing the old flat grid. */
+.category-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 1200px;
+}
+
+.category-section {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--surface) 55%, var(--bg-light));
+    overflow: hidden;
+}
+
+.category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.category-header:hover {
+    background: color-mix(in srgb, var(--primary-color) 5%, transparent);
+}
+
+.category-section .device-caret {
+    transition: transform 0.25s ease;
+}
+
+.category-section.open .device-caret {
+    transform: rotate(90deg);
+}
+
+.category-title {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.category-count {
+    font-size: 0.75rem;
+    background: var(--bg-light);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 1px 8px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+/* Collapsible body - mirrors the .device-details animation. */
+.category-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease;
+}
+
+.category-section.open .category-body {
+    grid-template-rows: 1fr;
+}
+
+.category-body-inner {
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* Keep collapsed content unclickable (0fr still renders at height 0). */
+.category-section:not(.open) .category-body-inner {
+    visibility: hidden;
+}
+
+.category-body .devices-grid {
+    padding: 4px 14px 14px;
+}
+
+/* Placeholder inside an empty section - also a valid drop target. */
+.section-empty {
+    grid-column: 1 / -1;
+    border: 1.5px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 18px 10px;
+}
+
+/* Drag handles on cards and section headers. touch-action: none is what
+   lets a touch drag start instead of scrolling the page. */
+.drag-grip {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: grab;
+    padding: 2px;
+    margin-left: -4px;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    touch-action: none;
+    opacity: 0.55;
+}
+
+.drag-grip:hover {
+    opacity: 1;
+    color: var(--primary-color);
+}
+
+.drag-grip svg {
+    width: 16px;
+    height: 16px;
+}
+
+body.is-dragging,
+body.is-dragging * {
+    cursor: grabbing !important;
+    user-select: none;
+}
+
+/* Floating clone that follows the pointer. pointer-events: none keeps
+   elementFromPoint() hitting the real page underneath it. */
+.drag-ghost {
+    position: fixed;
+    z-index: 2000;
+    pointer-events: none;
+    opacity: 0.9;
+    transform: rotate(1.5deg);
+    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-lg);
+}
+
+/* The element being dragged stays in place, dimmed. */
+.device-card.drag-source,
+.category-section.drag-source {
+    opacity: 0.35;
+}
+
+/* Drop feedback: outlined target grid, insertion bar before a hovered card,
+   top/bottom bars between category sections. */
+.devices-grid.drop-active {
+    outline: 2px dashed color-mix(in srgb, var(--primary-color) 60%, transparent);
+    outline-offset: 4px;
+    border-radius: var(--radius-sm);
+}
+
+.device-card.drop-hover {
+    box-shadow: -3px 0 0 0 var(--primary-color), var(--shadow-md);
+}
+
+.category-section.drop-before {
+    box-shadow: 0 -3px 0 0 var(--primary-color);
+}
+
+.category-section.drop-after {
+    box-shadow: 0 3px 0 0 var(--primary-color);
+}
+
+/* Compact modal for creating / renaming a category. */
+.modal-small {
+    max-width: min(420px, 100%);
 }
 
 .fetch-table tbody tr:last-child td {

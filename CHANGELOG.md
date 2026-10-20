@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.3]
+
+- SECURITY: Bumped `pypdf` 6.16.2 → 6.19.0 — fixes CVE-2026-102993, CVE-2026-102994, CVE-2026-102995, CVE-2026-102996, CVE-2026-102997, CVE-2026-102998, CVE-2026-102999, CVE-2026-103000 (8.7 High).
+- SECURITY: Removed `pip` from the runtime Docker image entirely — fixes CVE-2025-8869, CVE-2026-13346, CVE-2026-6357, CVE-2026-3219, CVE-2026-8643, CVE-2026-1703 (pip) and its vendored tree: urllib3 CVE-2026-97689 / CVE-2026-97687 / CVE-2026-97688, setuptools CVE-2025-47273 / CVE-2026-59890, msgpack CVE-2026-57585 / GHSA-6v7p-g79w-8964. The app no longer installs packages at runtime, so pip was irrelevant.
+- ADD: The first-run setup wizard now opens with a **"How would you like to start?"** step: **New instance** or **Restore from backup**. This allows the user to restore a backup to fresh instances.
+- ADD: Restore Backup now runs with a proper status bar instead of hint text in the Settings body. A fixed bottom bar follows the whole pipeline. A second restore started while one runs is rejected with 409.
+- ADD: Dedicated restore button in Settings > Backups
+
+## [0.2.2]
+
+- ADD: The assistant can now create and rename Devices-page categories via chat — `manage_devices` gained `create_category` and `rename_category` actions (deleting a section stays a UI action).
+- UPDATE: Category section headers no longer show the tag glyph.
+- ADD: Sections in Devices page; drag & drop support for sections.
+- ADD: Drop animation — after a drag-and-drop the displaced device cards and category sections
+
 ## [0.2.1]
 
 - ADD: Devices page cards are now collapsible.

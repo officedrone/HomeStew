@@ -119,6 +119,41 @@ async def init_db():
             WHERE updated_at IS NULL
             """
         )
+
+        # Categories: user-defined groupings for the Devices page (appliances,
+        # kitchen, vehicles...). A device with category_id NULL lives in the
+        # "Uncategorized" bucket. sort_order drives section order and is
+        # rewritten wholesale by PUT /api/categories/reorder.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                icon TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Category assignment + manual ordering inside a bucket. Runtime
+        # connections do not enable the foreign_keys pragma (see get_db), so
+        # delete_category nulls device rows explicitly instead of relying on
+        # ON DELETE SET NULL; the REFERENCES clause documents intent.
+        try:
+            await db.execute(
+                "ALTER TABLE devices ADD COLUMN category_id INTEGER"
+                " REFERENCES categories(id)"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            await db.execute(
+                "ALTER TABLE devices ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_devices_category ON devices(category_id)"
+        )
         
         # Create manuals table. source_url records where a stored PDF came
         # from: it powers the "already downloaded" highlight in the fetch

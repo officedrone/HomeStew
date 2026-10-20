@@ -55,6 +55,9 @@ async function initializeApp() {
     // A background index job may still be running from before a refresh (or
     // started in another tab): resume its progress toast if so.
     resumeIndexMonitorIfRunning();
+    // Same for a restore in flight: reattach the bottom status bar so its
+    // progress survives F5 or a second tab.
+    resumeRestoreMonitorIfRunning();
     // One-time setup wizard (encryption key / AI model / first device).
     // Runs after loadDevices() so the "first device" step can see whether
     // any devices exist yet; skipped/saved steps are persisted server-side.
@@ -95,7 +98,7 @@ function wireEscape() {
         // The icon picker comes first: Escape closes it before the editor
         // dialog it is stacked on top of (closeIconPicker also clears the
         // picker state so a stale query never survives a dismissal).
-        for (const id of ['icon-picker-modal', 'new-device-choice-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
+        for (const id of ['icon-picker-modal', 'new-device-choice-modal', 'category-modal', 'add-device-modal', 'edit-device-modal', 'event-modal']) {
             const modal = document.getElementById(id);
             if (modal.style.display === 'flex') {
                 if (id === 'icon-picker-modal') closeIconPicker();

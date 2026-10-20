@@ -26,6 +26,10 @@ class DeviceBase(BaseModel):
         pattern="^[a-z0-9_-]+$",
         description="Lucide icon name in kebab-case (e.g. 'washing-machine'); null = default plug icon",
     )
+    category_id: Optional[int] = Field(
+        None,
+        description="Category this device belongs to (Devices page section); null = Uncategorized",
+    )
 
 
 class DeviceCreate(DeviceBase):
@@ -65,6 +69,56 @@ class DeviceIconOption(BaseModel):
     label: str = Field(..., description="Human-readable label shown in the picker")
 
 
+class CategoryBase(BaseModel):
+    """Base category model."""
+    name: str = Field(..., min_length=1, max_length=100)
+    icon: Optional[str] = Field(
+        None,
+        max_length=50,
+        pattern="^[a-z0-9_-]+$",
+        description="Optional Lucide icon name for the section header; null = generic tag glyph",
+    )
+
+
+class CategoryCreate(CategoryBase):
+    """Model for creating a new category."""
+    pass
+
+
+class CategoryUpdate(BaseModel):
+    """Partial update: rename and/or change the icon of a category."""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    icon: Optional[str] = Field(None, max_length=50, pattern="^[a-z0-9_-]+$")
+
+
+class CategoryResponse(CategoryBase):
+    """Category with its ordering position and device count."""
+    id: int
+    sort_order: int = 0
+    device_count: int = 0
+
+
+class CategoryReorderRequest(BaseModel):
+    """Ordered category ids for PUT /api/categories/reorder."""
+    category_ids: list[int]
+
+
+class DeviceReorderRequest(BaseModel):
+    """Ordered device ids for one bucket (category id, null = Uncategorized).
+
+    The server applies ``category_id`` to every listed device, so a drag from
+    one section to another is a single call: the target bucket's full id list
+    includes the moved device. The source bucket keeps its relative order.
+    """
+    category_id: Optional[int] = None
+    device_ids: list[int]
+
+
+class DeviceCategoryUpdate(BaseModel):
+    """Move one device to a category; null = Uncategorized."""
+    category_id: Optional[int] = None
+
+
 class DeviceResponse(BaseModel):
     """Device response with additional metadata."""
     id: int
@@ -79,6 +133,8 @@ class DeviceResponse(BaseModel):
     warranty_unit: Optional[str] = None
     warranty_end: Optional[date] = None
     icon: Optional[str] = Field(None, description="Lucide icon name (kebab-case); null = default plug icon")
+    category_id: Optional[int] = Field(None, description="Category id; null = Uncategorized")
+    category_name: Optional[str] = Field(None, description="Name of the device's category; null = Uncategorized")
     created_at: datetime = Field(..., description="When the device was added (read-only)")
     updated_at: datetime = Field(..., description="When the device was last modified (read-only)")
     manual_count: int = 0
@@ -590,7 +646,7 @@ class SetupStepResolveRequest(BaseModel):
     Persisted server-side so the step is not offered again on later page
     loads - skipping is a deliberate choice, not just a dismissal.
     """
-    step: Literal["secrets_key", "llm", "device"] = Field(
+    step: Literal["start_choice", "secrets_key", "llm", "device"] = Field(
         ..., description="The wizard step being resolved"
     )
     resolution: Literal["skipped", "saved"] = Field(
@@ -777,8 +833,20 @@ class BackupDevice(BaseModel):
     # Pre-Lucide backups may hold curated keys ('fridge') — restore nulls
     # anything that is not a renderable Lucide name.
     icon: Optional[str] = None
+    # Categories postdate old backups: null restores into Uncategorized.
+    category_id: Optional[int] = None
+    sort_order: int = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class BackupCategory(BaseModel):
+    """A category row exactly as stored."""
+    id: int
+    name: str
+    icon: Optional[str] = None
+    sort_order: int = 0
+    created_at: Optional[str] = None
 
 
 class BackupAttribute(BaseModel):
@@ -832,6 +900,7 @@ class BackupNotification(BaseModel):
 class BackupData(BaseModel):
     """Everything captured in a backup's data.json member."""
     devices: list[BackupDevice] = []
+    categories: list[BackupCategory] = []
     device_attributes: list[BackupAttribute] = []
     manuals: list[BackupManual] = []
     calendar_events: list[BackupCalendarEvent] = []
@@ -867,3 +936,24 @@ class RestoreIndexStatus(BaseModel):
     running: bool
     done: int
     total: int
+
+
+class RestoreProgressResponse(BaseModel):
+    """Live progress of a restore, polled by the status bar during/after one.
+
+    ``phase`` is one of upload/read_archive/prepare/rows/files/index while
+    running, then "done" (or stays at the failed phase with ``error`` set).
+    ``percent`` weights the phases by typical wall-clock share; ``elapsed`` is
+    seconds since the restore started (frozen once it ends).
+    """
+    running: bool = False
+    mode: str = ""
+    phase: str = ""
+    phase_index: int = -1
+    phase_count: int = 6
+    steps_remaining: int = 0
+    step_done: int = 0
+    step_total: int = 0
+    percent: int = 0
+    elapsed: float = 0.0
+    error: str = ""

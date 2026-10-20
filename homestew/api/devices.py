@@ -11,8 +11,10 @@ from homestew.db import get_db_context
 from homestew.models.schemas import (
     Device,
     DeviceAttribute,
+    DeviceCategoryUpdate,
     DeviceCreate,
     DeviceIconOption,
+    DeviceReorderRequest,
     DeviceResponse,
     Manual,
 )
@@ -32,9 +34,28 @@ MAX_UPLOAD_SIZE = 100 * 1024 * 1024
 DEVICE_COLUMNS = (
     "d.id, d.name, d.brand, d.model, d.description, d.serial_number, "
     "d.product_number, d.purchase_date, d.warranty_length, d.warranty_unit, "
-    "d.warranty_end, d.icon, d.created_at, d.updated_at"
+    "d.warranty_end, d.icon, d.category_id, d.sort_order, d.created_at, d.updated_at"
 )
 DEVICE_COLUMNS_PLAIN = DEVICE_COLUMNS.replace("d.", "")
+
+# Joined onto every device SELECT so responses carry the category name too.
+CATEGORY_JOIN = "LEFT JOIN categories c ON d.category_id = c.id"
+
+
+async def _next_sort_order(db, category_id) -> int:
+    """Sort position for a device entering ``category_id``: first in its bucket.
+
+    New / re-categorised devices appear at the TOP of their section (matching
+    the previous newest-first grid), while drag-and-drop assigns explicit
+    0..n-1 positions via PUT /devices/reorder.
+    """
+    cursor = await db.execute(
+        "SELECT COALESCE(MIN(sort_order), 1) - 1 AS s FROM devices "
+        "WHERE (? IS NULL AND category_id IS NULL OR category_id = ?)",
+        (category_id, category_id),
+    )
+    row = await cursor.fetchone()
+    return row["s"]
 
 
 def _warranty_fields(device: DeviceCreate) -> tuple:
@@ -54,7 +75,12 @@ def _warranty_fields(device: DeviceCreate) -> tuple:
 
 
 def _row_to_response(row, manual_count: int, attributes=None) -> DeviceResponse:
-    """Build a DeviceResponse from a device row (with optional attributes)."""
+    """Build a DeviceResponse from a device row (with optional attributes).
+
+    ``category_name`` is only present when the SELECT joined ``categories``;
+    plain RETURNING rows (create/update) leave it null and the frontend
+    resolves the name from its cached category list.
+    """
     return DeviceResponse(
         id=row['id'],
         name=row['name'],
@@ -68,6 +94,8 @@ def _row_to_response(row, manual_count: int, attributes=None) -> DeviceResponse:
         warranty_unit=row['warranty_unit'],
         warranty_end=row['warranty_end'],
         icon=row['icon'],
+        category_id=row['category_id'],
+        category_name=row['category_name'] if 'category_name' in row.keys() else None,
         created_at=row['created_at'],
         updated_at=row['updated_at'],
         manual_count=manual_count or 0,
@@ -80,11 +108,13 @@ async def create_device(device: DeviceCreate):
     """Add a new device to HomeStew."""
     purchase_date, warranty_length, warranty_unit, warranty_end = _warranty_fields(device)
     async with get_db_context() as db:
+        sort_order = await _next_sort_order(db, device.category_id)
         cursor = await db.execute(
             f"""
             INSERT INTO devices (name, brand, model, description, serial_number,
-                product_number, purchase_date, warranty_length, warranty_unit, warranty_end, icon)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                product_number, purchase_date, warranty_length, warranty_unit, warranty_end, icon,
+                category_id, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING {DEVICE_COLUMNS_PLAIN}
             """,
             (
@@ -99,13 +129,23 @@ async def create_device(device: DeviceCreate):
                 warranty_unit,
                 warranty_end,
                 device.icon,
+                device.category_id,
+                sort_order,
             )
         )
         
         row = await cursor.fetchone()
         await db.commit()
-        
-        return _row_to_response(row, 0)
+
+        resp = _row_to_response(row, 0)
+        # RETURNING has no join, so fetch the category name for the response.
+        if device.category_id is not None:
+            cat_cur = await db.execute(
+                "SELECT name FROM categories WHERE id = ?", (device.category_id,)
+            )
+            cat_row = await cat_cur.fetchone()
+            resp.category_name = cat_row["name"] if cat_row else None
+        return resp
 
 
 @router.get("", response_model=List[DeviceResponse])
@@ -116,11 +156,13 @@ async def list_devices():
             f"""
             SELECT 
                 {DEVICE_COLUMNS},
+                c.name AS category_name,
                 COUNT(m.id) as manual_count
             FROM devices d
             LEFT JOIN manuals m ON d.id = m.device_id
+            {CATEGORY_JOIN}
             GROUP BY d.id
-            ORDER BY d.created_at DESC
+            ORDER BY d.sort_order ASC, d.created_at DESC
             """
         )
         
@@ -165,6 +207,71 @@ async def list_device_icons(q: str = ""):
     ]
 
 
+@router.put("/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reorder_devices(payload: DeviceReorderRequest):
+    """Persist one bucket's order (and membership) after a drag-and-drop.
+
+    Every listed device is moved into ``category_id`` (null = Uncategorized)
+    and gets sort_order = its position in the list, so moving a card between
+    sections is a single call with the target bucket's full id list. The
+    source bucket keeps its relative order untouched. Registered before
+    ``/{device_id}`` so the literal path wins over the int-typed route.
+    """
+    async with get_db_context() as db:
+        if payload.device_ids:
+            placeholders = ",".join("?" * len(payload.device_ids))
+            cursor = await db.execute(
+                f"SELECT id FROM devices WHERE id IN ({placeholders})",
+                list(payload.device_ids),
+            )
+            found = {row["id"] for row in await cursor.fetchall()}
+            missing = [did for did in payload.device_ids if did not in found]
+            if missing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unknown device ids: {missing}",
+                )
+        for position, device_id in enumerate(payload.device_ids):
+            await db.execute(
+                "UPDATE devices SET category_id = ?, sort_order = ? WHERE id = ?",
+                (payload.category_id, position, device_id),
+            )
+        await db.commit()
+
+
+@router.put("/{device_id}/category", status_code=status.HTTP_204_NO_CONTENT)
+async def move_device_category(device_id: int, payload: DeviceCategoryUpdate):
+    """Move one device to a category (null = Uncategorized), first in its list.
+
+    Narrow counterpart to the full-replace PUT /{device_id}: drag-and-drop
+    uses /reorder, this serves simple single-device moves (and clients that
+    don't know the bucket's full order).
+    """
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT id, category_id FROM devices WHERE id = ?", (device_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device {device_id} not found",
+            )
+        if row["category_id"] != payload.category_id:
+            sort_order = await _next_sort_order(db, payload.category_id)
+            await db.execute(
+                "UPDATE devices SET category_id = ?, sort_order = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (payload.category_id, sort_order, device_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE devices SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (device_id,),
+            )
+        await db.commit()
+
+
 @router.get("/{device_id}", response_model=DeviceResponse)
 async def get_device(device_id: int):
     """Get a specific device with details."""
@@ -173,9 +280,11 @@ async def get_device(device_id: int):
             f"""
             SELECT 
                 {DEVICE_COLUMNS},
+                c.name AS category_name,
                 COUNT(m.id) as manual_count
             FROM devices d
             LEFT JOIN manuals m ON d.id = m.device_id
+            {CATEGORY_JOIN}
             WHERE d.id = ?
             GROUP BY d.id
             """,
@@ -214,9 +323,13 @@ async def get_device(device_id: int):
 async def update_device(device_id: int, device: DeviceCreate):
     """Update an existing device."""
     async with get_db_context() as db:
-        # Check if device exists
-        cursor = await db.execute("SELECT id FROM devices WHERE id = ?", (device_id,))
-        if not await cursor.fetchone():
+        # Check if device exists (and whether its category is changing — a
+        # moved device jumps to the top of its new bucket).
+        cursor = await db.execute(
+            "SELECT id, category_id FROM devices WHERE id = ?", (device_id,)
+        )
+        existing = await cursor.fetchone()
+        if not existing:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Device {device_id} not found"
@@ -224,30 +337,64 @@ async def update_device(device_id: int, device: DeviceCreate):
         
         # Update device (warranty_end auto-computed from purchase date + length)
         purchase_date, warranty_length, warranty_unit, warranty_end = _warranty_fields(device)
-        cursor = await db.execute(
-            f"""
-            UPDATE devices 
-            SET name = ?, brand = ?, model = ?, description = ?, serial_number = ?, product_number = ?,
-                purchase_date = ?, warranty_length = ?, warranty_unit = ?, warranty_end = ?, icon = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            RETURNING {DEVICE_COLUMNS_PLAIN}
-            """,
-            (
-                device.name, 
-                device.brand, 
-                device.model, 
-                device.description or "",
-                device.serial_number,
-                device.product_number,
-                purchase_date,
-                warranty_length,
-                warranty_unit,
-                warranty_end,
-                device.icon,
-                device_id
-            )
+        sort_order = (
+            await _next_sort_order(db, device.category_id)
+            if existing["category_id"] != device.category_id
+            else None
         )
+        if sort_order is None:
+            cursor = await db.execute(
+                f"""
+                UPDATE devices 
+                SET name = ?, brand = ?, model = ?, description = ?, serial_number = ?, product_number = ?,
+                    purchase_date = ?, warranty_length = ?, warranty_unit = ?, warranty_end = ?, icon = ?,
+                    category_id = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                RETURNING {DEVICE_COLUMNS_PLAIN}
+                """,
+                (
+                    device.name, 
+                    device.brand, 
+                    device.model, 
+                    device.description or "",
+                    device.serial_number,
+                    device.product_number,
+                    purchase_date,
+                    warranty_length,
+                    warranty_unit,
+                    warranty_end,
+                    device.icon,
+                    device.category_id,
+                    device_id
+                )
+            )
+        else:
+            cursor = await db.execute(
+                f"""
+                UPDATE devices 
+                SET name = ?, brand = ?, model = ?, description = ?, serial_number = ?, product_number = ?,
+                    purchase_date = ?, warranty_length = ?, warranty_unit = ?, warranty_end = ?, icon = ?,
+                    category_id = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                RETURNING {DEVICE_COLUMNS_PLAIN}
+                """,
+                (
+                    device.name, 
+                    device.brand, 
+                    device.model, 
+                    device.description or "",
+                    device.serial_number,
+                    device.product_number,
+                    purchase_date,
+                    warranty_length,
+                    warranty_unit,
+                    warranty_end,
+                    device.icon,
+                    device.category_id,
+                    sort_order,
+                    device_id
+                )
+            )
         
         row = await cursor.fetchone()
         await db.commit()
@@ -275,7 +422,15 @@ async def update_device(device_id: int, device: DeviceCreate):
             for attr in attrs
         ]
         
-        return _row_to_response(row, count_row['count'], attributes)
+        resp = _row_to_response(row, count_row['count'], attributes)
+        # RETURNING has no join, so fetch the category name for the response.
+        if device.category_id is not None:
+            cat_cur = await db.execute(
+                "SELECT name FROM categories WHERE id = ?", (device.category_id,)
+            )
+            cat_row = await cat_cur.fetchone()
+            resp.category_name = cat_row["name"] if cat_row else None
+        return resp
 
 
 @router.post("/{device_id}/attributes", response_model=DeviceAttribute)

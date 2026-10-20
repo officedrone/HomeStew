@@ -25,6 +25,7 @@ failed" message instead of something the model can explain or retry from.
 import json
 import logging
 import re
+import sqlite3
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -44,6 +45,9 @@ _ACTIONS = (
     "create",
     "update",
     "list",
+    "list_categories",
+    "create_category",
+    "rename_category",
     "add_attribute",
     "remove_attribute",
     "delete",
@@ -75,7 +79,8 @@ _CLEARABLE = ("description", "serial_number", "product_number")
 # shape. Kept local on purpose: services must not import from homestew.api.
 _DEVICE_COLUMNS = (
     "id, name, brand, model, description, serial_number, product_number, "
-    "purchase_date, warranty_length, warranty_unit, warranty_end, icon"
+    "purchase_date, warranty_length, warranty_unit, warranty_end, icon, "
+    "category_id"
 )
 # Same columns qualified for the devices/manuals join in _list (GROUP BY d.id
 # requires unambiguous names there).
@@ -202,6 +207,8 @@ def _warranty_phrase(row: Dict[str, Any]) -> str:
 def _device_line(row: Dict[str, Any], manual_count: Optional[int] = None) -> str:
     """One-line summary of a device with everything the model needs."""
     bits = [f'"{row["name"]}" ({row["brand"]} {row["model"]})']
+    if row.get("category_name"):
+        bits.append(f'category="{row["category_name"]}"')
     if row.get("serial_number"):
         bits.append(f"serial={row['serial_number']}")
     if manual_count is not None:
@@ -215,11 +222,45 @@ def _device_line(row: Dict[str, Any], manual_count: Optional[int] = None) -> str
 
 
 async def _get_device_row(db, device_id: int) -> Optional[Dict[str, Any]]:
+    # The categories join is many-to-one, so the row stays one-per-device and
+    # reports can name the section a device sits in.
     cursor = await db.execute(
-        f"SELECT {_DEVICE_COLUMNS} FROM devices WHERE id = ?", (device_id,)
+        f"SELECT {_DEVICE_COLUMNS_D}, c.name AS category_name "
+        "FROM devices d LEFT JOIN categories c ON d.category_id = c.id "
+        "WHERE d.id = ?",
+        (device_id,),
     )
     row = await cursor.fetchone()
     return dict(row) if row else None
+
+
+async def _resolve_category(db, raw: Any) -> Tuple[Optional[int], str]:
+    """(category_id, error) for a category NAME (case-insensitive).
+
+    The model addresses categories by the name the user sees in the Devices
+    page, never by numeric id - ids invite hallucination while names are what
+    conversations actually contain. None/'' means Uncategorized; an unknown
+    name fails with the current list so the model can correct itself.
+    """
+    name = _clean_text(raw, 100)
+    if not name:
+        return None, ""
+    cursor = await db.execute(
+        "SELECT id FROM categories WHERE lower(name) = lower(?)", (name,)
+    )
+    row = await cursor.fetchone()
+    if row:
+        return row["id"], ""
+    cursor = await db.execute("SELECT name FROM categories ORDER BY sort_order, id")
+    names = [r["name"] for r in await cursor.fetchall()]
+    listed = ", ".join(f'"{n}"' for n in names) if names else "(none yet)"
+    return None, (
+        f"Error: no category named '{name}'. Existing categories: {listed}. "
+        "Pass one of those names exactly, use an empty string for "
+        "Uncategorized, or call action='list_categories' to see them. Do NOT "
+        "invent a category name here - if the user explicitly asked for a "
+        "new section, create it first with action='create_category'."
+    )
 
 
 async def _get_attributes(db, device_id: int) -> list:
@@ -229,6 +270,22 @@ async def _get_attributes(db, device_id: int) -> list:
         (device_id,),
     )
     return [dict(a) for a in await cursor.fetchall()]
+
+
+async def _next_sort_order(db, category_id: Optional[int]) -> int:
+    """Sort position for a device entering ``category_id``: first in its bucket.
+
+    Mirrors homestew/api/devices.py (services must not import from api): new
+    devices appear at the TOP of their section while drag-and-drop assigns
+    explicit 0..n-1 positions via PUT /api/devices/reorder.
+    """
+    cursor = await db.execute(
+        "SELECT COALESCE(MIN(sort_order), 1) - 1 AS s FROM devices "
+        "WHERE (? IS NULL AND category_id IS NULL OR category_id = ?)",
+        (category_id, category_id),
+    )
+    row = await cursor.fetchone()
+    return row["s"]
 
 
 async def _load_scoped_device(
@@ -306,6 +363,11 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
         return _icon_error(icon)
 
     async with get_db_context() as db:
+        # Resolve the requested category name to an id before the twin-guard
+        # so a bad name fails fast with the list of real categories.
+        category_id, cat_err = await _resolve_category(db, args.get("category"))
+        if cat_err:
+            return cat_err
         # Cheap twin-guard: small models happily re-create a device they just
         # created when asked to "add it again". Point them at the original.
         cursor = await db.execute(
@@ -326,8 +388,8 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
             """
             INSERT INTO devices (name, brand, model, description, serial_number,
                 product_number, purchase_date, warranty_length, warranty_unit,
-                warranty_end, icon)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                warranty_end, icon, category_id, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -341,6 +403,10 @@ async def _create(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
                 unit,
                 end.isoformat() if end else None,
                 icon,
+                category_id,
+                # New devices appear at the top of their bucket, same rule as
+                # POST /api/devices (see _next_sort_order there).
+                await _next_sort_order(db, category_id),
             ),
         )
         await db.commit()
@@ -445,6 +511,17 @@ async def _update(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
                     return _icon_error(text)
                 fields["icon"] = text
 
+        if args.get("category") is not None:
+            # Category addressed by NAME; empty string moves the device to
+            # Uncategorized. A real change also re-sorts so it lands at the
+            # top of its new section, like POST /api/devices does.
+            cat_id, cat_err = await _resolve_category(db, args["category"])
+            if cat_err:
+                return cat_err
+            fields["category_id"] = cat_id
+            if cat_id != row.get("category_id"):
+                fields["sort_order"] = await _next_sort_order(db, cat_id)
+
         # Keep the API's rule: warranty_end follows purchase/length/unit
         # unless the caller pinned it explicitly. Merge current row values so
         # a partial update still recomputes correctly.
@@ -463,7 +540,7 @@ async def _update(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
                 "Nothing to change: pass at least one field to update (name, "
                 "brand, model, description, serial_number, product_number, "
                 "purchase_date, warranty_length, warranty_unit, warranty_end, "
-                "icon). An empty string clears an optional field."
+                "icon, category). An empty string clears an optional field."
             )
 
         updates = ", ".join(f"{key} = ?" for key in fields)
@@ -859,9 +936,11 @@ async def _list(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
         params = (filter_device,) if filter_device is not None else ()
         cursor = await db.execute(
             f"""
-            SELECT {_DEVICE_COLUMNS_D}, COUNT(m.id) AS manual_count
+            SELECT {_DEVICE_COLUMNS_D}, c.name AS category_name,
+                   COUNT(m.id) AS manual_count
             FROM devices d
             LEFT JOIN manuals m ON d.id = m.device_id
+            LEFT JOIN categories c ON d.category_id = c.id
             {where}
             GROUP BY d.id
             ORDER BY d.id
@@ -901,6 +980,161 @@ async def _list(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
     return "\n".join([header] + lines)
 
 
+async def _list_categories(
+    args: Dict[str, Any], chat_device_id: Optional[int]
+) -> str:
+    """List the Devices-page categories with their device counts.
+
+    Read-only: creating/renaming/deleting sections stays a UI action (the
+    user's shelf layout), while the model can read the list and file devices
+    into an existing category via create/update 'category'.
+    """
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            """
+            SELECT c.id, c.name, COUNT(d.id) AS device_count
+            FROM categories c
+            LEFT JOIN devices d ON d.category_id = c.id
+            GROUP BY c.id
+            ORDER BY c.sort_order, c.id
+            """
+        )
+        rows = [dict(r) for r in await cursor.fetchall()]
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS n FROM devices "
+            "WHERE category_id IS NULL OR category_id NOT IN "
+            "(SELECT id FROM categories)"
+        )
+        uncategorized = (await cursor.fetchone())["n"]
+
+    if not rows:
+        return (
+            "No categories exist yet - every device sits in Uncategorized. "
+            "The user creates sections in the Devices page ('+ Category' "
+            "button); you can move a device with action='update' once one "
+            "exists."
+        )
+    lines = [f'- category "{r["name"]}": {r["device_count"]} device(s)' for r in rows]
+    lines.append(f'- Uncategorized: {uncategorized} device(s)')
+    return (
+        f"{len(rows)} category(ies), in the order shown on the Devices page. "
+        "Pass a name exactly as listed as 'category' to create/update to "
+        "file a device there (empty string = Uncategorized). Use "
+        "action='create_category' / 'rename_category' to manage the sections "
+        "themselves when the user asks; deleting a category stays a Devices-"
+        "page action:\n" + "\n".join(lines)
+    )
+
+
+async def _category_names(db) -> str:
+    """Comma-joined quoted list of current category names for error reports."""
+    cursor = await db.execute("SELECT name FROM categories ORDER BY sort_order, id")
+    names = [r["name"] for r in await cursor.fetchall()]
+    return ", ".join(f'"{n}"' for n in names) if names else "(none yet)"
+
+
+async def _create_category(args: Dict[str, Any]) -> str:
+    """Create a new Devices-page section (action='create_category').
+
+    Mirrors POST /api/categories: trimmed name, appended at the end of the
+    display order, unique (case-sensitive) against existing names. Only on an
+    explicit user request - never silently while filing a device, so a typo
+    cannot sprout a near-duplicate section. The new name arrives in
+    'category' (not 'name', which is the device-name parameter).
+    """
+    name = _clean_text(args.get("category"), 100)
+    if not name:
+        return (
+            "Error: 'category' is required to create a section, e.g. "
+            "category='Kitchen'. Ask the user how the section should be called."
+        )
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT MAX(sort_order) AS m FROM categories"
+        )
+        row = await cursor.fetchone()
+        next_order = (row["m"] if row and row["m"] is not None else -1) + 1
+        try:
+            await db.execute(
+                "INSERT INTO categories (name, sort_order) VALUES (?, ?)",
+                (name, next_order),
+            )
+            await db.commit()
+        except sqlite3.IntegrityError:
+            listed = await _category_names(db)
+            return (
+                f"Nothing created: a category named '{name}' already exists. "
+                f"Current categories: {listed}. If the user wants to change "
+                "its name, use action='rename_category' instead."
+            )
+    return (
+        f'Created category "{name}" - it appears as a new section at the '
+        "bottom of the Devices page. Tell the user it was created; devices "
+        "are filed into it with action='create'/'update' and its exact name."
+    )
+
+
+async def _rename_category(args: Dict[str, Any]) -> str:
+    """Rename a Devices-page section (action='rename_category').
+
+    The section is addressed by its CURRENT name (case-insensitive), same
+    rule as filing devices - the model never needs numeric ids. Devices keep
+    their assignment automatically; only the label changes.
+    """
+    old_name = _clean_text(args.get("category"), 100)
+    new_name = _clean_text(args.get("new_name"), 100)
+    if not old_name:
+        return (
+            "Error: 'category' must name the existing section to rename, "
+            "e.g. category='Kitchen'. Call action='list_categories' to see "
+            "the real names."
+        )
+    if not new_name:
+        return (
+            "Error: 'new_name' is required - pass the name the section "
+            "should get, e.g. new_name='Workshop'."
+        )
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT id, name FROM categories WHERE lower(name) = lower(?)",
+            (old_name,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            listed = await _category_names(db)
+            return (
+                f"Error: no category named '{old_name}'. Current categories: "
+                f"{listed}. Call action='list_categories' to see them - never "
+                "invent a name to rename."
+            )
+        if row["name"] == new_name:
+            return (
+                f'Nothing to change: the category is already named "{new_name}".'
+            )
+        try:
+            await db.execute(
+                "UPDATE categories SET name = ? WHERE id = ?",
+                (new_name, row["id"]),
+            )
+            await db.commit()
+        except sqlite3.IntegrityError:
+            listed = await _category_names(db)
+            return (
+                f"Nothing renamed: a category named '{new_name}' already "
+                f"exists. Current categories: {listed}."
+            )
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS n FROM devices WHERE category_id = ?",
+            (row["id"],),
+        )
+        count = (await cursor.fetchone())["n"]
+    return (
+        f'Renamed category "{row["name"]}" to "{new_name}". Its '
+        f"{count} device(s) stayed in the section, which now shows the new "
+        "name on the Devices page. Use the new name when filing devices here."
+    )
+
+
 async def execute_device_tool(
     args: Dict[str, Any], chat_device_id: Optional[int]
 ) -> str:
@@ -933,6 +1167,15 @@ async def execute_device_tool(
             return await _add_attribute(args, chat_device_id)
         if action == "remove_attribute":
             return await _remove_attribute(args, chat_device_id)
+        if action == "list_categories":
+            # Read-only catalog lookup - no device scope applies.
+            return await _list_categories(args, chat_device_id)
+        if action == "create_category":
+            # Sections are global layout, not device records: like
+            # list_categories, the chat's device filter does not restrict them.
+            return await _create_category(args)
+        if action == "rename_category":
+            return await _rename_category(args)
         return await _list(args, chat_device_id)
     except Exception as exc:  # noqa: BLE001 - report to the model, not a crash
         logger.error("Device tool call failed: %s", exc)

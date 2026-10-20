@@ -1,8 +1,9 @@
-// HomeStew - First-run setup wizard (encryption key -> AI/LLM -> first device).
+// HomeStew - First-run setup wizard (start choice -> encryption key -> AI/LLM -> first device).
 
 
 // ---------------------------------------------------------------------------
-// First-run setup wizard (encryption key -> AI/LLM -> first device)
+// First-run setup wizard (start choice -> encryption key -> AI/LLM -> first
+// device)
 // ---------------------------------------------------------------------------
 
 // The steps in offer order. A step is shown only while its condition still
@@ -10,6 +11,7 @@
 // records the outcome on the server (setup_steps), so resolved steps never
 // come back - even after a container restart.
 const WIZARD_STEPS = [
+    { id: 'start_choice', title: 'Choose how to start', saveLabel: 'Continue' },
     { id: 'secrets_key', title: 'Encrypt stored credentials', saveLabel: 'Create Key' },
     { id: 'llm', title: 'Connect your AI model', saveLabel: 'Save & Continue' },
     { id: 'device', title: 'Add your first device', saveLabel: 'Add Device' },
@@ -25,6 +27,10 @@ function wizardPendingSteps(s) {
     const resolved = s.setup_steps || {};
     return WIZARD_STEPS.filter((step) => {
         if (resolved[step.id]) return false;
+        // The start choice belongs to a genuinely empty instance only: an
+        // existing install (any device present) must never be asked "New
+        // instance vs Restore" when it upgrades.
+        if (step.id === 'start_choice') return devices.length === 0;
         if (step.id === 'secrets_key') return s.secrets_key_source === 'none';
         if (step.id === 'llm') return !s.llm_configured;
         if (step.id === 'device') return devices.length === 0;
@@ -90,6 +96,15 @@ function showWizardStep() {
     const meta = WIZARD_STEPS.find((step) => step.id === id);
     for (const step of WIZARD_STEPS) {
         document.getElementById(`wizard-step-${step.id}`).hidden = step.id !== id;
+    }
+    // The choice step's two cards ARE its actions, so there is no ambiguous
+    // Skip/Save footer on it; every other step keeps the shared footer.
+    document.querySelector('#setup-wizard-modal .wizard-actions').hidden =
+        id === 'start_choice';
+    if (id === 'start_choice') {
+        // Always land on the cards, never on a stale restore panel.
+        document.getElementById('wizard-choice-cards').hidden = false;
+        document.getElementById('wizard-restore-panel').hidden = true;
     }
     document.getElementById('wizard-save-btn').textContent = meta.saveLabel;
     renderWizardProgress();
@@ -184,6 +199,124 @@ async function handleWizardSave() {
         wizardInFlight = false;
         setWizardButtonsDisabled(false);
     }
+}
+
+// --- Step 0: start choice (new instance vs restore from backup) --------------
+
+// The archive staged through the wizard's OWN picker. Settings > Backups has
+// its own input/handler pair; sharing one file input would cross-trigger both
+// flows, so the wizard keeps this separate staging global.
+let pendingWizardRestoreFile = null;
+
+// "New instance": nothing to restore - resolve the choice and continue with
+// the classic key -> AI -> device steps.
+async function chooseWizardStartFresh() {
+    if (wizardInFlight) return;
+    wizardInFlight = true;
+    setWizardChoiceCardsDisabled(true);
+    try {
+        await resolveWizardStep('start_choice', 'skipped');
+        advanceWizard();
+    } catch (error) {
+        // The step stays open; worst case it is offered again next load.
+        setWizardError(`Could not record the choice: ${error.message}`);
+    } finally {
+        wizardInFlight = false;
+        setWizardChoiceCardsDisabled(false);
+    }
+}
+
+function chooseWizardRestore() {
+    if (wizardInFlight) return;
+    document.getElementById('wizard-choice-cards').hidden = true;
+    document.getElementById('wizard-restore-panel').hidden = false;
+    setWizardError('');
+}
+
+function backFromWizardRestore() {
+    if (wizardInFlight) return;
+    pendingWizardRestoreFile = null;
+    document.getElementById('wizard-restore-file-input').value = '';
+    document.getElementById('wizard-restore-file-name').textContent = '';
+    document.getElementById('wizard-restore-panel').hidden = true;
+    document.getElementById('wizard-choice-cards').hidden = false;
+    setWizardError('');
+}
+
+function triggerWizardRestorePick() {
+    const input = document.getElementById('wizard-restore-file-input');
+    input.value = ''; // allow re-selecting the same file after a cancel
+    input.click();
+}
+
+// Picker result: stage the archive (no restore until the button is pressed),
+// show its name/size - same formatting as the Settings restore flow.
+function handleWizardRestoreFileSelected(event) {
+    const file = event.target.files[0];
+    if (!file) return; // picker cancelled - keep any previously staged file
+    pendingWizardRestoreFile = file;
+    const mb = file.size / (1024 * 1024);
+    const size = mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    document.getElementById('wizard-restore-file-name').textContent =
+        `Selected: "${file.name}" (${size})`;
+    updateWizardRestoreRunButton();
+}
+
+function updateWizardRestoreRunButton() {
+    const runBtn = document.getElementById('wizard-restore-run-btn');
+    if (runBtn) runBtn.disabled = !pendingWizardRestoreFile || wizardInFlight;
+}
+
+function setWizardChoiceCardsDisabled(disabled) {
+    document.querySelectorAll('#wizard-choice-cards .new-device-option')
+        .forEach((btn) => { btn.disabled = disabled; });
+}
+
+function setWizardRestoreControlsDisabled(disabled) {
+    document.getElementById('wizard-restore-pick-btn').disabled = disabled;
+    document.getElementById('wizard-restore-back-btn').disabled = disabled;
+    updateWizardRestoreRunButton();
+}
+
+// Run the staged restore. Merge mode always: a first-run instance is empty,
+// so merge and replace are equivalent - no destructive choice to offer here
+// (Settings > Backups keeps both modes). The shared bottom status bar follows
+// /api/backup/restore-progress through upload -> rows -> files -> index.
+async function wizardRunRestore() {
+    if (wizardInFlight) return;
+    const file = pendingWizardRestoreFile;
+    if (!file) return;
+    if (!beginOp('backup-restore')) {
+        setWizardError('A restore is already running.');
+        return;
+    }
+    wizardInFlight = true;
+    setWizardRestoreControlsDisabled(true);
+    setWizardError('');
+
+    showRestoreBar(file.name, 'merge');
+    startRestorePoll();
+    const ok = await postRestoreFile(file, 'merge');
+    if (!ok) {
+        // The bar already shows the failure; keep the wizard open so the user
+        // can pick another archive or go back and start fresh.
+        wizardInFlight = false;
+        setWizardRestoreControlsDisabled(false);
+        setWizardError('The restore failed - see the status bar for the reason. Choose another archive, or go back and start fresh.');
+        return;
+    }
+
+    // Restored: resolve the choice, and the device step too - its whole point
+    // ("add your FIRST device") is moot after a restore, even if the archive
+    // happened to contain no devices. Then reload so every tab shows the
+    // restored data; the status bar reattaches on the fresh page
+    // (resumeRestoreMonitorIfRunning) while the background index continues.
+    pendingWizardRestoreFile = null;
+    try {
+        await resolveWizardStep('start_choice', 'saved');
+        await resolveWizardStep('device', 'skipped');
+    } catch (e) { /* worst case: the choice is offered again next load */ }
+    window.location.reload();
 }
 
 // --- Step 1: encryption key -------------------------------------------------
@@ -351,6 +484,9 @@ async function wizardCreateDevice() {
 function wireWizardEvents() {
     document.getElementById('wizard-skip-btn').addEventListener('click', handleWizardSkip);
     document.getElementById('wizard-save-btn').addEventListener('click', handleWizardSave);
+    document.getElementById('wizard-restore-pick-btn').addEventListener('click', triggerWizardRestorePick);
+    document.getElementById('wizard-restore-run-btn').addEventListener('click', wizardRunRestore);
+    document.getElementById('wizard-restore-file-input').addEventListener('change', handleWizardRestoreFileSelected);
     document.getElementById('wizard-fetch-models-btn').addEventListener('click', fetchWizardLlmModels);
     document.getElementById('wizard-test-connection-btn').addEventListener('click', () => testLlmConnection({
         urlId: 'wizard-llm-base-url', keyId: 'wizard-llm-api-key',

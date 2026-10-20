@@ -3,6 +3,9 @@
 
 
 let devices = [];
+// Device categories (Devices page sections) from GET /api/categories, in
+// display order. Devices with category_id null render under "Uncategorized".
+let categories = [];
 let currentDeviceFilter = null;
 // Calendar tab state: device filter, date-range filter and loaded events.
 // The range is a day horizon ('all', 7, 31, 182 or 365) sent as within_days.
