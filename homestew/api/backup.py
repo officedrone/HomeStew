@@ -18,6 +18,7 @@ from homestew.config import settings
 from homestew.models.schemas import (
     BackupCreateResponse,
     RestoreIndexStatus,
+    RestoreProgressResponse,
     RestoreResponse,
 )
 from homestew.services import backup as backup_service
@@ -104,8 +105,17 @@ async def restore_backup(
 
     ``mode`` is 'merge' (add what's missing, idempotent) or 'replace' (wipe the
     four tables first). Search re-indexing of restored PDFs runs in the
-    background; poll /restore-status for progress.
+    background; poll /restore-progress for live phase/percent/elapsed while any
+    of that is happening.
     """
+    # get_restore_progress() folds the index-phase transition in, so a finished
+    # earlier restore can't leave a stale flag blocking this one.
+    if backup_service.get_restore_progress()["running"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A restore is already running.",
+        )
+
     if mode not in ("merge", "replace"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -123,12 +133,22 @@ async def restore_backup(
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = out_dir / f".restore-{int(time.time() * 1000)}.zip"
 
+    # Claim the progress slot before the upload so the status bar covers even
+    # the transfer itself.
+    backup_service.begin_restore(mode)
+
     # Stream the upload to disk (never fully buffered), then restore.
     try:
+        total_bytes = file.size or 0
+        backup_service.set_restore_phase("upload", 0, total_bytes)
+
         def _save():
+            written = 0
             with open(tmp_path, "wb") as out:
                 while chunk := file.file.read(1024 * 1024):
                     out.write(chunk)
+                    written += len(chunk)
+                    backup_service.bump_restore(len(chunk))
 
         await run_in_threadpool(_save)
         if tmp_path.stat().st_size == 0:
@@ -139,7 +159,11 @@ async def restore_backup(
 
         result = await backup_service.restore_backup(tmp_path, mode)
     except ValueError as exc:  # malformed / unsafe archive
+        # restore_backup already recorded the error; re-map to a 400.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except BaseException as exc:  # upload failure / client disconnect
+        backup_service.finish_restore(error=str(exc) or "Restore failed.")
+        raise
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -164,3 +188,14 @@ async def restore_status():
     return RestoreIndexStatus(
         running=state["running"], done=state["done"], total=state["total"]
     )
+
+
+@router.get("/restore-progress", response_model=RestoreProgressResponse)
+async def restore_progress():
+    """Live progress of the current/last restore for the status bar.
+
+    Reports the phase, per-phase counters, weighted percentage, steps
+    remaining and elapsed seconds. The index phase's counters are folded in
+    from the shared indexer state, so one poll covers the whole pipeline.
+    """
+    return RestoreProgressResponse(**backup_service.get_restore_progress())

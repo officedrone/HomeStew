@@ -753,11 +753,36 @@ function triggerRestoreFilePick() {
     input.click();
 }
 
-// Restore an archive chosen via the hidden input. Replace mode is destructive,
-// so it asks for confirmation first; afterwards the sidebar/devices/calendar
-// are refreshed and background search re-indexing is polled into the hint.
-async function handleRestoreFileSelected(event) {
+// The archive chosen through the hidden input, waiting for the Restore button.
+// Picking a file no longer starts the restore - it only stages the file and
+// enables the button, so the destructive step is always an explicit click.
+let pendingRestoreFile = null;
+
+// File picker result: stage the archive, show its name/size, enable Restore.
+function handleRestoreFileSelected(event) {
     const file = event.target.files[0];
+    if (!file) return; // picker cancelled - keep any previously staged file
+
+    pendingRestoreFile = file;
+    const mb = file.size / (1024 * 1024);
+    const size = mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    document.getElementById('restore-file-name').textContent =
+        `Selected: "${file.name}" (${size})`;
+    updateRestoreRunButton();
+}
+
+// Restore is enabled only with a staged file and no restore already running.
+function updateRestoreRunButton() {
+    const runBtn = document.getElementById('restore-run-btn');
+    if (runBtn) runBtn.disabled = !pendingRestoreFile || _opsInFlight.has('backup-restore');
+}
+
+// Run the staged restore. Replace mode is destructive, so it asks for
+// confirmation first. Progress is shown in the fixed bottom status bar (not
+// the panel body): a poller reads /api/backup/restore-progress while the POST
+// runs and while the background re-index continues after it.
+async function runRestore() {
+    const file = pendingRestoreFile;
     if (!file) return;
 
     const mode = document.querySelector('input[name="restore-mode"]:checked')?.value || 'merge';
@@ -768,10 +793,17 @@ async function handleRestoreFileSelected(event) {
     }
     if (!beginOp('backup-restore')) return;
 
-    const btn = document.getElementById('restore-btn');
-    const hint = document.getElementById('restore-hint');
-    btn.disabled = true;
-    hint.textContent = `Restoring "${file.name}" (${mode})...`;
+    updateRestoreRunButton(); // disabled while the op lock is held
+    showRestoreBar(file.name, mode);
+    startRestorePoll();
+    await postRestoreFile(file, mode);
+}
+
+// POST the archive. The status bar is already up and polling; this only sends
+// the request, refreshes the app on success, and records the summary the bar
+// shows when it finishes. Errors fail the bar directly. The op lock is released
+// here (it guards against a duplicate POST), independent of the bar's lifetime.
+async function postRestoreFile(file, mode) {
     try {
         const formData = new FormData();
         formData.append('file', file);
@@ -781,33 +813,234 @@ async function handleRestoreFileSelected(event) {
         if (!response.ok) throw new Error(await errorDetailFrom(response, 'Restore failed'));
 
         const result = await response.json();
-        hint.textContent = `Restored ${result.devices_created} device(s), ` +
+        restoreSummaryText = `Restored ${result.devices_created} device(s), ` +
             `${result.manuals_restored} manual(s), ${result.events_restored} event(s)` +
             (result.skipped ? ` (${result.skipped} already present, skipped)` : '') + '.';
-        showToast('Backup restored', 'success');
 
-        // Refresh everything the restore may have changed.
+        // Refresh everything the restore may have changed. The bar keeps
+        // following the background re-index until the server reports done.
         await loadDevices();
         if (document.getElementById('calendar-tab').classList.contains('active')) {
             loadCalendarEvents();
         }
-
-        if (result.index_total > 0) {
-            // The shared persistent toast follows the restore's background
-            // re-index just like a manual Re-index from Settings > Search.
-            hint.textContent = 'Restored - re-indexing the search index in the ' +
-                'background (see the notification).';
-            monitorIndexJob();
-        }
     } catch (error) {
         console.error('Restore failed:', error);
-        hint.textContent = '';
-        showToast(error.message || 'Restore failed', 'error');
+        stopRestorePoll();
+        failRestoreBar(error.message || 'Restore failed');
     } finally {
-        btn.disabled = false;
+        restorePostDone = true;
         endOp('backup-restore');
     }
 }
+
+// ---------------------------------------------------------------------------
+// Restore status bar (fixed bottom overlay) + progress poller
+// ---------------------------------------------------------------------------
+//
+// The bar is driven entirely by GET /api/backup/restore-progress, whose phase
+// counters are folded from the shared indexer state server-side. Polling uses
+// the same non-overlapping recursive setTimeout pattern as monitorIndexJob():
+// one request in flight at a time, and it stops by simply not scheduling again.
+
+const RESTORE_POLL_MS = 800;
+let restorePollTimer = null;
+let restorePostDone = false;      // POST settled (success or handled error)
+let restoreServerConfirmed = false; // saw running=true at least once
+let restoreSummaryText = '';      // summary shown when the bar finishes
+
+// Human label + count noun for each server phase.
+const RESTORE_PHASE_LABELS = {
+    upload: ['Uploading archive\u2026', 'MB'],
+    read_archive: ['Reading archive\u2026', ''],
+    prepare: ['Preparing database\u2026', ''],
+    rows: ['Restoring data\u2026', 'rows'],
+    files: ['Writing manual files\u2026', 'files'],
+    index: ['Re-indexing manuals\u2026', 'manuals'],
+};
+
+function formatElapsed(sec) {
+    const s = Math.max(0, Math.floor(sec || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    const ss = String(r).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// Enable/disable the restore/backup buttons and mode radios as a group so a
+// running restore can't be double-triggered from the panel. The Restore button
+// additionally needs a staged file, so it re-arms itself after each run.
+function setRestoreControls(disabled) {
+    const restoreBtn = document.getElementById('restore-btn');
+    const backupBtn = document.getElementById('backup-create-btn');
+    if (restoreBtn) restoreBtn.disabled = disabled;
+    if (backupBtn) backupBtn.disabled = disabled;
+    document.querySelectorAll('input[name="restore-mode"]').forEach((r) => { r.disabled = disabled; });
+    updateRestoreRunButton();
+}
+
+// Reveal the bar in its running look. filename/mode are known from the picker;
+// on a page-load resume they're blank, so fall back to a generic label.
+function showRestoreBar(filename, mode) {
+    const bar = document.getElementById('restore-status-bar');
+    if (!bar) return;
+    bar.hidden = false;
+    bar.classList.remove('done', 'failed', 'is-indeterminate');
+    document.body.classList.add('restore-active');
+    setRestoreControls(true);
+
+    restorePostDone = false;
+    restoreServerConfirmed = false;
+    restoreSummaryText = '';
+
+    const label = filename
+        ? `Restoring "${filename}" (${mode})\u2026`
+        : 'Restoring backup\u2026';
+    document.getElementById('restore-status-label').textContent = label;
+    document.getElementById('restore-status-detail').textContent = '';
+    document.getElementById('restore-status-elapsed').textContent = '0:00';
+    document.getElementById('restore-status-steps').textContent = '';
+    setRestoreFill(0);
+}
+
+function setRestoreFill(percent) {
+    const fill = document.getElementById('restore-status-fill');
+    const track = document.getElementById('restore-status-track');
+    if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    if (track) track.setAttribute('aria-valuenow', String(percent));
+}
+
+// Paint one poll snapshot: label/detail text, meta column, fill width, and the
+// indeterminate sweep when a phase has no known total.
+function renderRestoreProgress(p) {
+    const bar = document.getElementById('restore-status-bar');
+    if (!bar || bar.hidden) return;
+
+    const [label] = RESTORE_PHASE_LABELS[p.phase] || ['Restoring\u2026', ''];
+    document.getElementById('restore-status-label').textContent = label;
+
+    const detail = p.step_total > 0 ? `${p.step_done} / ${p.step_total}` : '';
+    document.getElementById('restore-status-detail').textContent = detail;
+
+    document.getElementById('restore-status-elapsed').textContent = formatElapsed(p.elapsed);
+    document.getElementById('restore-status-steps').textContent =
+        p.steps_remaining > 0 ? `${p.steps_remaining} step${p.steps_remaining === 1 ? '' : 's'} remaining` : '';
+    document.getElementById('restore-status-pct').textContent = `${p.percent}%`;
+
+    bar.classList.toggle('is-indeterminate', p.step_total === 0);
+    setRestoreFill(p.percent);
+}
+
+// Poll while the restore runs. A transient fetch failure retries without
+// killing the bar. Finalization waits until we know the server actually started
+// (saw running=true) or the POST settled, so a leftover "done" state from a
+// previous restore can't finish this one prematurely.
+function startRestorePoll() {
+    if (restorePollTimer) return;
+
+    const tick = async () => {
+        restorePollTimer = null;
+        let p;
+        try {
+            const response = await fetch('/api/backup/restore-progress');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            p = await response.json();
+        } catch (e) {
+            restorePollTimer = setTimeout(tick, 2000);
+            return;
+        }
+
+        if (p.running) {
+            restoreServerConfirmed = true;
+            renderRestoreProgress(p);
+            restorePollTimer = setTimeout(tick, RESTORE_POLL_MS);
+            return;
+        }
+
+        // Not running: finalize only once the run is confirmed to have started
+        // or the POST has settled; otherwise keep waiting for the server.
+        if (restoreServerConfirmed || restorePostDone) {
+            if (p.error) failRestoreBar(p.error);
+            else finishRestoreBar(restoreSummaryText);
+        } else {
+            restorePollTimer = setTimeout(tick, RESTORE_POLL_MS);
+        }
+    };
+    tick();
+}
+
+function stopRestorePoll() {
+    if (restorePollTimer) {
+        clearTimeout(restorePollTimer);
+        restorePollTimer = null;
+    }
+}
+
+// Success: 100%, green, summary line, then auto-hide. Controls re-enabled here
+// (not in the POST finally) so they stay locked through the background index.
+function finishRestoreBar(summary) {
+    stopRestorePoll();
+    const bar = document.getElementById('restore-status-bar');
+    if (!bar) return;
+    bar.classList.remove('is-indeterminate');
+    bar.classList.add('done');
+    setRestoreFill(100);
+    document.getElementById('restore-status-label').textContent = 'Restore complete';
+    document.getElementById('restore-status-detail').textContent = summary || '';
+    document.getElementById('restore-status-pct').textContent = '100%';
+    document.getElementById('restore-status-steps').textContent = '';
+
+    const hint = document.getElementById('restore-hint');
+    if (hint) hint.textContent = summary || 'Restore complete.';
+    setRestoreControls(false);
+
+    setTimeout(hideRestoreBar, 6000);
+}
+
+// Failure: red, message visible, stays until dismissed. Controls re-enabled so
+// the user can try again.
+function failRestoreBar(message) {
+    stopRestorePoll();
+    const bar = document.getElementById('restore-status-bar');
+    if (!bar) return;
+    bar.classList.remove('is-indeterminate');
+    bar.classList.add('failed');
+    setRestoreFill(100);
+    document.getElementById('restore-status-label').textContent = 'Restore failed';
+    document.getElementById('restore-status-detail').textContent = message || '';
+    document.getElementById('restore-status-steps').textContent = '';
+
+    const hint = document.getElementById('restore-hint');
+    if (hint) hint.textContent = '';
+    showToast(message || 'Restore failed', 'error');
+    setRestoreControls(false);
+}
+
+// Dismiss the bar (only reachable via ✕ in a terminal state). Does not cancel
+// any server work - it only clears the overlay.
+function hideRestoreBar() {
+    stopRestorePoll();
+    const bar = document.getElementById('restore-status-bar');
+    if (bar) bar.hidden = true;
+    document.body.classList.remove('restore-active');
+}
+
+// Page load / second tab while a restore is still running server-side: reattach
+// the bar so progress never vanishes until the job actually ends. Silent when
+// nothing is running (a finished restore's summary is not re-shown on load).
+async function resumeRestoreMonitorIfRunning() {
+    try {
+        const response = await fetch('/api/backup/restore-progress');
+        if (!response.ok) return;
+        const p = await response.json();
+        if (p.running) {
+            showRestoreBar(null, '');
+            startRestorePoll();
+        }
+    } catch (e) { /* offline or no session yet - nothing to resume */ }
+}
+
 
 // ---------------------------------------------------------------------------
 // Search index progress monitor (Settings > Search, restore re-index)
@@ -1355,10 +1588,15 @@ function wireSettingsEvents() {
     document.getElementById('test-webhook-btn').addEventListener('click', () => sendTestNotification());
 
     // Backup & Restore (Settings > General). Buttons are type="button" so the
-    // surrounding settings form never submits when they're clicked.
+    // surrounding settings form never submits when they're clicked. Choosing a
+    // file only stages it; the dedicated Restore button starts the restore.
     document.getElementById('backup-create-btn').addEventListener('click', createBackup);
     document.getElementById('restore-btn').addEventListener('click', triggerRestoreFilePick);
+    document.getElementById('restore-run-btn').addEventListener('click', runRestore);
     document.getElementById('restore-file-input').addEventListener('change', handleRestoreFileSelected);
+    // The status bar's ✕ only dismisses the finished/failed overlay; it never
+    // cancels server work (there is no cancel endpoint).
+    document.getElementById('restore-status-close').addEventListener('click', hideRestoreBar);
 
     // Search index (Settings > Search). Re-index fires straight away; Rebuild
     // arms a confirm row first because it drops the FTS table. Progress for

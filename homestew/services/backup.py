@@ -22,6 +22,7 @@ downloadable archive must never contain them.
 import logging
 import re
 import shutil
+import time
 import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -52,6 +53,164 @@ _MEMBER_RE = re.compile(r"^manuals/\d+\.pdf$")
 # Cap on how large a single restored PDF may be, mirroring the upload limit so
 # a hand-edited archive can't smuggle an oversized file onto disk.
 MAX_MEMBER_BYTES = 100 * 1024 * 1024
+
+
+# ---------------------------------------------------------------------------
+# Restore progress reporting
+# ---------------------------------------------------------------------------
+#
+# A restore runs through a fixed sequence of phases; each reports how many items
+# it has finished out of a known total so the UI can show a real percentage,
+# steps remaining and elapsed time. Like indexer._INDEX_STATE this is a plain
+# module-global (single-process uvicorn) mutated from the event loop; only the
+# file phase bumps from a worker thread, where an int += is atomic under the GIL
+# and always read as a snapshot.
+
+RESTORE_PHASES = ("upload", "read_archive", "prepare", "rows", "files", "index")
+
+# Rough share of total wall-clock each phase owns; sums to 100 so the running
+# percentage lands on 100 exactly when the index phase completes. Manual-heavy
+# archives spend most time in files/index, so those weights dominate.
+_PHASE_WEIGHTS = {
+    "upload": 10,
+    "read_archive": 5,
+    "prepare": 5,
+    "rows": 35,
+    "files": 25,
+    "index": 20,
+}
+
+# Terminal phase reported once everything (including the background index) is
+# done; deliberately outside RESTORE_PHASES so steps_remaining bottoms out at 0.
+_RESTORE_DONE = "done"
+
+
+def _restore_blank(mode: str = "") -> dict:
+    return {
+        "running": False,
+        "mode": mode,
+        "phase": "",
+        "step_done": 0,
+        "step_total": 0,
+        "error": "",
+        "_started": None,
+        "_elapsed": None,
+    }
+
+
+_RESTORE_STATE = _restore_blank()
+
+
+def begin_restore(mode: str) -> None:
+    """Claim the restore slot and start the upload phase (called by the API)."""
+    _RESTORE_STATE.update(_restore_blank(mode))
+    _RESTORE_STATE["running"] = True
+    _RESTORE_STATE["_started"] = time.monotonic()
+    set_restore_phase("upload")
+
+
+def set_restore_phase(phase: str, done: int = 0, total: int = 0) -> None:
+    """Move the running restore to ``phase`` with a fresh item counter."""
+    _RESTORE_STATE["phase"] = phase
+    _RESTORE_STATE["step_done"] = done
+    _RESTORE_STATE["step_total"] = total
+
+
+def bump_restore(n: int = 1) -> None:
+    """Advance the current phase's completed-item count by ``n``."""
+    _RESTORE_STATE["step_done"] += n
+
+
+def finish_restore(error: str = "") -> None:
+    """Mark the restore over, keeping the last phase/counters for a late poll."""
+    _RESTORE_STATE["running"] = False
+    if _RESTORE_STATE["_started"] is not None:
+        # Freeze the duration so later polls of the finished summary don't keep
+        # counting up.
+        _RESTORE_STATE["_elapsed"] = round(
+            time.monotonic() - _RESTORE_STATE["_started"], 1
+        )
+        _RESTORE_STATE["_started"] = None
+    if error:
+        _RESTORE_STATE["error"] = error
+        return
+    _RESTORE_STATE["phase"] = _RESTORE_DONE
+    _RESTORE_STATE["step_done"] = max(
+        _RESTORE_STATE["step_total"], _RESTORE_STATE["step_done"]
+    )
+
+
+def get_restore_progress() -> dict:
+    """Snapshot of the current/last restore with derived percent/steps/elapsed.
+
+    The index phase's real progress lives in the shared indexer state, so it is
+    folded in here; once that job is no longer running the restore is treated as
+    complete (a derived transition - no extra task, and race-free because the
+    indexer clears its running flag in a finally block).
+    """
+    state = dict(_RESTORE_STATE)
+    phase = state["phase"]
+
+    # Fold the background index job into the index phase.
+    if phase == "index":
+        idx = get_index_status()
+        if not idx["running"]:
+            phase = _RESTORE_DONE
+            state["phase"] = phase
+            state["running"] = False
+            _RESTORE_STATE["running"] = False
+            _RESTORE_STATE["phase"] = _RESTORE_DONE
+            # Freeze elapsed at the moment of detection (idempotent: the next
+            # read finds _started already cleared).
+            if _RESTORE_STATE["_started"] is not None:
+                _RESTORE_STATE["_elapsed"] = round(
+                    time.monotonic() - _RESTORE_STATE["_started"], 1
+                )
+                _RESTORE_STATE["_started"] = None
+                state["_elapsed"] = _RESTORE_STATE["_elapsed"]
+        else:
+            state["step_done"] = idx["done"]
+            state["step_total"] = idx["total"] or state["step_total"]
+
+    running = state["running"]
+    started = state.get("_started")
+    if state.get("_elapsed") is not None:
+        elapsed = state["_elapsed"]
+    else:
+        elapsed = round(time.monotonic() - started, 1) if started is not None else 0.0
+
+    if phase == _RESTORE_DONE:
+        percent = 100
+        phase_index = len(RESTORE_PHASES)
+        steps_remaining = 0
+    elif phase in RESTORE_PHASES:
+        phase_index = RESTORE_PHASES.index(phase)
+        base = sum(_PHASE_WEIGHTS[p] for p in RESTORE_PHASES[:phase_index])
+        weight = _PHASE_WEIGHTS[phase]
+        frac = (state["step_done"] / state["step_total"]) if state["step_total"] else 0.0
+        percent = base + weight * frac
+        if running:
+            percent = min(percent, 99)  # never claim done while still running
+        percent = round(max(0, min(100, percent)))
+        steps_remaining = len(RESTORE_PHASES) - phase_index - 1
+    else:  # idle / never started
+        phase_index = -1
+        percent = 0
+        steps_remaining = 0
+
+    return {
+        "running": running,
+        "mode": state["mode"],
+        "phase": phase,
+        "phase_index": phase_index,
+        "phase_count": len(RESTORE_PHASES),
+        "steps_remaining": steps_remaining,
+        "step_done": state["step_done"],
+        "step_total": state["step_total"],
+        "percent": percent,
+        "elapsed": elapsed,
+        "error": state["error"],
+    }
 
 
 def backup_dir() -> Path:
@@ -328,6 +487,20 @@ def _parse_date(value: Optional[str]) -> Optional[date]:
 
 
 async def restore_backup(zip_path: Path, mode: str) -> dict:
+    """Run :func:`_restore_backup_inner`, never leaving the progress slot stuck.
+
+    Any failure - including a client disconnect cancelling the request task -
+    records the error in ``_RESTORE_STATE`` and clears ``running`` so the UI's
+    status bar can show it and a later restore isn't blocked by a stale 409.
+    """
+    try:
+        return await _restore_backup_inner(zip_path, mode)
+    except BaseException as exc:  # noqa: BLE001 - re-raised; CancelledError too
+        finish_restore(error=str(exc) or exc.__class__.__name__)
+        raise
+
+
+async def _restore_backup_inner(zip_path: Path, mode: str) -> dict:
     """Restore a backup archive in ``merge`` or ``replace`` mode.
 
     merge   - keep existing rows; add what's missing (deduped by device
@@ -342,8 +515,10 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
     kicked off afterwards by :func:`start_reindex`. Returns a summary dict plus
     the list of manuals to re-index.
     """
+    set_restore_phase("read_archive")
     _manifest, data = await read_backup(zip_path)
 
+    set_restore_phase("prepare")
     async with get_db_context() as db:
         await db.execute("PRAGMA foreign_keys = ON")
 
@@ -381,6 +556,16 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
             await db.execute("DELETE FROM pdf_index")
             existing_categories = {}
 
+        # Every archived row counts toward the rows phase, whether it ends up
+        # inserted, merged or skipped - so the counter always reaches total.
+        set_restore_phase(
+            "rows",
+            0,
+            len(data.categories) + len(data.devices)
+            + len(data.device_attributes) + len(data.manuals)
+            + len(data.calendar_events) + len(data.notification_log),
+        )
+
         # --- categories ----------------------------------------------------
         # Inserted before devices so their ids exist for the FK remap below.
         # merge dedupes by (case-insensitive) name: an archived "Kitchen"
@@ -390,6 +575,7 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
         cat_map: dict[int, int] = {}
         categories_created = 0
         for c in data.categories:
+            bump_restore()
             name_key = (c.name or "").strip().lower()
             if name_key in existing_categories:
                 cat_map[c.id] = existing_categories[name_key]
@@ -410,6 +596,7 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
         device_map: dict[int, int] = {}  # backup id -> live id
         devices_created = devices_merged = 0
         for d in data.devices:
+            bump_restore()
             key = _identity_key(d.name, d.brand, d.model)
             if mode == "merge" and key in existing_devices:
                 device_map[d.id] = existing_devices[key]
@@ -453,6 +640,7 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
 
         skipped = 0
         for a in data.device_attributes:
+            bump_restore()
             target = device_map.get(a.device_id)
             if target is None:
                 continue  # its device wasn't restored (shouldn't happen)
@@ -494,6 +682,7 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
         planned_names: dict[int, set] = {}  # device id -> names claimed this restore
         manuals_restored = 0
         for m in data.manuals:
+            bump_restore()
             target = device_map.get(m.device_id)
             if target is None:
                 continue
@@ -552,6 +741,7 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
 
         events_restored = 0
         for e in data.calendar_events:
+            bump_restore()
             target_device = device_map.get(e.device_id) if e.device_id is not None else None
             sig = (target_device, e.title.strip().lower(), str(e.start_date),
                    e.recurrence_type, int(e.interval))
@@ -584,6 +774,7 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
         # INSERT OR IGNORE: the UNIQUE(event_id, due_date, kind) key makes a
         # re-restore of an already-alerted occurrence a no-op.
         for n in data.notification_log:
+            bump_restore()
             live_event = event_map.get(n.event_id)
             if live_event is None:
                 continue  # its event wasn't restored/merged
@@ -597,8 +788,19 @@ async def restore_backup(zip_path: Path, mode: str) -> dict:
 
         await db.commit()
 
-    # Rows are committed; now move files on disk off the event loop.
-    await run_in_threadpool(_apply_files, zip_path, files_to_write, files_to_delete)
+    # Rows are committed; now move files on disk off the event loop. Both the
+    # orphan deletes and the streamed writes count toward the files phase.
+    set_restore_phase("files", 0, len(files_to_write) + len(files_to_delete))
+    await run_in_threadpool(
+        _apply_files, zip_path, files_to_write, files_to_delete, bump_restore
+    )
+
+    if pending_index:
+        # Stay running: get_restore_progress() folds the indexer's own counters
+        # into this phase until start_reindex()'s background job completes.
+        set_restore_phase("index", 0, len(pending_index))
+    else:
+        finish_restore()
 
     return {
         "mode": mode,
@@ -657,11 +859,14 @@ async def _find_event_id(db, device_id, e) -> Optional[int]:
     return row["id"] if row else None
 
 
-def _apply_files(zip_path: Path, writes, deletes) -> None:
+def _apply_files(zip_path: Path, writes, deletes, progress_cb=None) -> None:
     """Blocking file pass run on a worker thread after the DB commit.
 
     Removes replaced-mode orphan PDFs and streams each restored manual from the
-    archive straight to its destination (never fully buffered).
+    archive straight to its destination (never fully buffered). ``progress_cb``
+    (when given) is called once per handled file so the restore status bar can
+    count the files phase; a plain int bump is GIL-atomic, so calling it from
+    this worker thread is safe.
     """
     for path in deletes:
         try:
@@ -670,6 +875,8 @@ def _apply_files(zip_path: Path, writes, deletes) -> None:
                 p.unlink()
         except OSError as exc:
             logger.warning("Could not delete replaced manual %s: %s", path, exc)
+        if progress_cb:
+            progress_cb()
 
     if not writes:
         return
@@ -677,20 +884,26 @@ def _apply_files(zip_path: Path, writes, deletes) -> None:
     with zipfile.ZipFile(zip_path, "r") as zf:
         names = set(zf.namelist())
         for archive_name, dest in writes:
-            if archive_name not in names:
-                logger.warning("Archive is missing member %s", archive_name)
-                continue
-            info = zf.getinfo(archive_name)
-            if info.file_size > MAX_MEMBER_BYTES:
-                logger.error(
-                    "Refusing to restore oversized member %s (%d bytes)",
-                    archive_name, info.file_size,
-                )
-                continue
-            dest_path = Path(dest)
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(archive_name) as src, open(dest_path, "wb") as out:
-                shutil.copyfileobj(src, out, length=1024 * 1024)
+            try:
+                if archive_name not in names:
+                    logger.warning("Archive is missing member %s", archive_name)
+                    continue
+                info = zf.getinfo(archive_name)
+                if info.file_size > MAX_MEMBER_BYTES:
+                    logger.error(
+                        "Refusing to restore oversized member %s (%d bytes)",
+                        archive_name, info.file_size,
+                    )
+                    continue
+                dest_path = Path(dest)
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(archive_name) as src, open(dest_path, "wb") as out:
+                    shutil.copyfileobj(src, out, length=1024 * 1024)
+            finally:
+                # Runs on every iteration (including the skips above) so the
+                # files-phase counter always reaches its total.
+                if progress_cb:
+                    progress_cb()
 
 
 # ---------------------------------------------------------------------------

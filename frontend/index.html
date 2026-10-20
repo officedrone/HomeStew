@@ -418,7 +418,7 @@
                                     </span>
                                 </div>
                                 <select id="settings-llm-provider">
-                                    <option value="custom">Custom (OpenAI)</option>
+                                    <option value="custom">Custom (OpenAI-capable)</option>
                                     <option value="openai">Cloud - OpenAI</option>
                                 </select>
                             </div>
@@ -815,9 +815,11 @@
                             </div>
                             <div class="settings-field">
                                 <div class="model-row">
-                                    <span class="settings-hint webhook-test-label">Choose a HomeStew backup .zip to restore.</span>
+                                    <span class="settings-hint webhook-test-label">Choose a HomeStew backup .zip, then press Restore.</span>
                                     <button type="button" class="btn btn-secondary" id="restore-btn">Choose Backup…</button>
+                                    <button type="button" class="btn btn-primary" id="restore-run-btn" disabled>Restore</button>
                                 </div>
+                                <p class="settings-hint restore-file-name" id="restore-file-name"></p>
                                 <p class="settings-hint" id="restore-hint"></p>
                             </div>
                         </section>
@@ -1297,7 +1299,7 @@
                 <div class="settings-field">
                     <label for="wizard-llm-provider">Provider</label>
                     <select id="wizard-llm-provider">
-                        <option value="custom">Custom (OpenAI)</option>
+                        <option value="custom">Custom (OpenAI-capable)</option>
                         <option value="openai">Cloud - OpenAI</option>
                     </select>
                     <p class="settings-hint">Choose "Cloud - OpenAI" for api.openai.com - the URL is set for you and you only provide your API key. Choose "Custom" for Ollama, LM Studio, vLLM etc. and enter its Base URL.</p>
@@ -1471,6 +1473,31 @@
 
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
+
+    <!-- Restore status bar: fixed to the bottom of the viewport so progress
+         stays visible on any tab (and after leaving Settings) while a restore
+         runs. Hidden until JS reveals it; the fill width + meta text are driven
+         by polling /api/backup/restore-progress. -->
+    <div id="restore-status-bar" class="status-bar" hidden role="status" aria-live="polite">
+        <div class="status-bar-inner">
+            <span class="status-bar-spinner" aria-hidden="true"></span>
+            <div class="status-bar-text">
+                <span class="status-bar-label" id="restore-status-label">Restoring backup…</span>
+                <span class="status-bar-detail" id="restore-status-detail"></span>
+            </div>
+            <div class="status-bar-meta">
+                <span class="status-bar-meta-item" id="restore-status-elapsed" title="Time elapsed">0:00</span>
+                <span class="status-bar-meta-item" id="restore-status-steps"></span>
+                <span class="status-bar-meta-item status-bar-pct" id="restore-status-pct">0%</span>
+            </div>
+            <button type="button" class="status-bar-close" id="restore-status-close"
+                aria-label="Dismiss">&times;</button>
+        </div>
+        <div class="status-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+            aria-valuenow="0" id="restore-status-track">
+            <div class="status-bar-fill" id="restore-status-fill"></div>
+        </div>
+    </div>
 
     <script src="/static/vendor/marked.min.js"></script>
     <script src="/static/vendor/purify.min.js"></script>

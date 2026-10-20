@@ -936,3 +936,24 @@ class RestoreIndexStatus(BaseModel):
     running: bool
     done: int
     total: int
+
+
+class RestoreProgressResponse(BaseModel):
+    """Live progress of a restore, polled by the status bar during/after one.
+
+    ``phase`` is one of upload/read_archive/prepare/rows/files/index while
+    running, then "done" (or stays at the failed phase with ``error`` set).
+    ``percent`` weights the phases by typical wall-clock share; ``elapsed`` is
+    seconds since the restore started (frozen once it ends).
+    """
+    running: bool = False
+    mode: str = ""
+    phase: str = ""
+    phase_index: int = -1
+    phase_count: int = 6
+    steps_remaining: int = 0
+    step_done: int = 0
+    step_total: int = 0
+    percent: int = 0
+    elapsed: float = 0.0
+    error: str = ""

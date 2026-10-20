@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.3]
+
+- ADD: Restore Backup now runs with a proper status bar instead of hint text in the Settings body. A fixed bottom bar follows the whole pipeline. A second restore started while one runs is rejected with 409.
+- ADD: Dedicated restore button in Settings > Backups
+
 ## [0.2.2]
 
 - ADD: The assistant can now create and rename Devices-page categories via chat — `manage_devices` gained `create_category` and `rename_category` actions (deleting a section stays a UI action).
