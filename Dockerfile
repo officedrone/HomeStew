@@ -18,7 +18,23 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy installed packages from builder
+# Delete pip from the runtime image entirely — the app never installs
+# packages at runtime (deps are baked in via COPY below), and every pip
+# release drags its vendored tree into scan reports: pip itself
+# (CVE-2025-8869, CVE-2026-13346, CVE-2026-6357, CVE-2026-3219,
+# CVE-2026-8643, CVE-2026-1703) plus its vendored urllib3/setuptools/msgpack
+# (CVE-2026-97689, CVE-2026-97687, CVE-2026-97688, CVE-2025-47273,
+# CVE-2026-59890, CVE-2026-57585, GHSA-6v7p-g79w-8964). Upgrading pip is
+# whack-a-mole: pip 26.2 still vendors urllib3 2.7.0 (< 2.8.0 fix). rm -rf
+# because the base image ships pip without RECORD metadata, so `pip
+# uninstall` cannot work anyway (and --ignore-installed upgrades leave the
+# old tree on disk alongside the new one).
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
+    /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
+    /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
+
+# Copy installed packages from builder (the builder's --user site never
+# contains pip — `pip install --user` skips it — so nothing stale is copied)
 COPY --from=builder /root/.local /root/.local
 
 # Set PATH to include user-installed packages
