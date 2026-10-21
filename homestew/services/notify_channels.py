@@ -45,11 +45,6 @@ def _verify_ssl() -> bool:
     return bool(settings.NOTIFY_WEBHOOK_VERIFY_SSL)
 
 
-#: Supported webhook request shapes (kept in sync with the Settings dropdown
-#: and the schemas' Literal). ``none`` = no webhook delivery at all.
-WEBHOOK_TYPES = ("none", "generic", "synology")
-
-
 def _format_synology_text(payload: Dict[str, Any]) -> str:
     """Render a generic notification payload as Synology Chat message text."""
     kind = "overdue" if payload.get("type") == "calendar_overdue" else "due soon"

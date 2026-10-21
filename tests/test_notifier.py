@@ -99,7 +99,7 @@ def _ledger_rows():
 
 # --- run_tick ordering (issue #9) ------------------------------------------
 
-# v0.2.5: run_tick resolves the calendar event's SUBSCRIBED channels (via
+# run_tick resolves the calendar event's SUBSCRIBED channels (via
 # services/dispatch.py, which looks instances up on notify_channels.CHANNELS
 # at call time), so tests patch that registry plus settings.NOTIFY_SUBSCRIPTIONS
 # directly - update_subscriptions() validates names against CHANNEL_DEFS and

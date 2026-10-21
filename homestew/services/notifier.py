@@ -26,7 +26,7 @@ re-sending to channels that already succeeded.
 The idle-CPU guarantee (issue #9) survives the fan-out: a tick resolves the
 subscribed-and-available channels BEFORE touching the database, so an install
 that only subscribes events to in-app toasts does zero calendar work per tick
-(the frontend poll remains the sole driver, as before v0.2.5).
+(the frontend poll remains the sole driver).
 
 All settings are read from the live singleton every tick, so changes made in
 Settings > Notifications apply without restarting the container.
@@ -42,18 +42,6 @@ from homestew.services import calendar_service, dispatch, ui_notifications
 from homestew.services.dispatch import CALENDAR_EVENT_KEY, UI_CHANNEL
 
 logger = logging.getLogger(__name__)
-
-# Re-exported for existing callers/tests; the implementations moved to
-# dispatch.py so ui_notifications can apply the same lead window when it
-# renders calendar items into the in-app feed (without importing notifier).
-lead_timedelta = dispatch.lead_timedelta
-_due_datetime = dispatch.due_datetime
-
-
-# Payload builders moved to services/dispatch.py (shared with the health-
-# check side). Re-exported so existing imports keep working.
-build_payload = dispatch.build_calendar_payload
-build_test_payload = dispatch.build_calendar_test_payload
 
 
 async def _already_sent() -> Set[Tuple[int, str, str, str]]:
@@ -102,7 +90,7 @@ async def run_tick(now: Optional[datetime] = None) -> int:
         return 0
 
     now = now or datetime.now()
-    lead = lead_timedelta()
+    lead = dispatch.lead_timedelta()
 
     # list_notify_candidates keeps overdue + due-on-or-before today+N (and,
     # unlike the calendar tab's view, also missed one-time events - they are
@@ -114,7 +102,7 @@ async def run_tick(now: Optional[datetime] = None) -> int:
     sent = await _already_sent()
     fired = 0
     for event in events:
-        due_dt = _due_datetime(event)
+        due_dt = dispatch.due_datetime(event)
         if due_dt is None:
             continue
 
@@ -127,7 +115,7 @@ async def run_tick(now: Optional[datetime] = None) -> int:
         if not todo:
             continue  # every subscribed channel already delivered this occurrence
 
-        payload = build_payload(event, kind, now)
+        payload = dispatch.build_calendar_payload(event, kind, now)
         results = await dispatch.deliver(payload, todo)
 
         newly = False

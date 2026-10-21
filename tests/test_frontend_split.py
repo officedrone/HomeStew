@@ -145,7 +145,7 @@ def test_wire_all_calls_existing_functions():
     assert not unknown, f"wireAll() calls undeclared functions: {unknown}"
 
 
-# The unified toast service (v0.2.5): every call site must go through the
+# The unified toast service: every call site must go through the
 # notify*/notifyEvent wrappers in core/utils.js, which own the one rendering
 # primitive (_renderToast). A stray showToast( call means someone bypassed
 # the API and will break the next time the primitive's signature changes.

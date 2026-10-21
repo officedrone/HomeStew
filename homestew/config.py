@@ -86,13 +86,10 @@ EDITABLE_SETTINGS = (
     # overrides {event_key: {"interval_minutes": int,
     # "notify_before_due_hours": int, "channels": [str]}}. An event is
     # enabled exactly when its channel list is non-empty - ticking a
-    # "Notify via" checkbox IS the enablement (the older per-event
-    # "enabled": false flag migrates to an empty channel list on load).
-    # The registry in services/ui_notifications.py supplies the defaults and
-    # the valid event keys; services/dispatch.py owns the valid channel
-    # names. Anything unknown in settings.json is dropped at load. Replaces
-    # the older UI_NOTIFICATIONS map (migrated on load - see
-    # load_settings_overrides).
+    # "Notify via" checkbox IS the enablement. The registry in
+    # services/ui_notifications.py supplies the defaults and the valid event
+    # keys; services/dispatch.py owns the valid channel names. Anything
+    # unknown in settings.json is dropped at load.
     "NOTIFY_SUBSCRIPTIONS",
 )
 
@@ -329,11 +326,6 @@ def load_settings_overrides() -> None:
     if "SETUP_STEPS" in data:
         data["SETUP_STEPS"] = normalize_setup_steps(data["SETUP_STEPS"])
     # Same defensive coercion for the nested notification-subscription map.
-    # One-time migration: installs that only have the older UI_NOTIFICATIONS
-    # map (enabled/interval per check) carry it over as the new subscriptions,
-    # so existing per-check choices survive the rename to event subscriptions.
-    if "NOTIFY_SUBSCRIPTIONS" not in data and "UI_NOTIFICATIONS" in data:
-        data["NOTIFY_SUBSCRIPTIONS"] = data["UI_NOTIFICATIONS"]
     if "NOTIFY_SUBSCRIPTIONS" in data:
         data["NOTIFY_SUBSCRIPTIONS"] = normalize_notify_subscriptions(
             data["NOTIFY_SUBSCRIPTIONS"]
@@ -470,12 +462,8 @@ def normalize_notify_subscriptions(value) -> dict:
     Unknown event keys survive here (the service ignores what its registry
     does not know) and unknown channel names are dropped only against the
     static channel-name list, to avoid importing the services layer from
-    config.
-
-    Enablement migration: an event is enabled exactly when its channel list
-    is non-empty, so the older per-event ``"enabled": false`` flag migrates
-    to an explicit empty channel list (a stored ``true`` simply drops the
-    flag - the channels already say everything).
+    config. An event is enabled exactly when its channel list is non-empty;
+    there is no stored enable flag.
     """
     if not isinstance(value, dict):
         return {}
@@ -503,11 +491,7 @@ def normalize_notify_subscriptions(value) -> dict:
             for name in channels:
                 if isinstance(name, str) and name.strip() and name not in seen:
                     seen.append(name)
-        if entry.get("enabled") is False:
-            # Legacy per-event disable flag: carry the intent over as "no
-            # channels" (the new way an event is off). True just drops it.
-            clean["channels"] = []
-        elif isinstance(channels, list):
+        if isinstance(channels, list):
             clean["channels"] = seen
         if clean:
             out[key] = clean

@@ -179,7 +179,7 @@ function updateToast(toast, message, percent = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Unified notification API (v0.2.5) - the ONLY toast entry points for call
+// Unified notification API - the ONLY toast entry points for call
 // sites. _renderToast above stays private to this file so every toast in the
 // app flows through one place; tests/test_frontend_split.py guards that no
 // showToast(/_renderToast( call appears anywhere else.

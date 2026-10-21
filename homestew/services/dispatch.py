@@ -1,4 +1,4 @@
-"""Unified event -> channel notification dispatch (v0.2.5).
+"""Unified event -> channel notification dispatch.
 
 One notification *event* (e.g. ``unindexed_manuals``, ``calendar_reminders``)
 can be *subscribed* to any number of delivery *channels* (in-app toast,
@@ -384,25 +384,6 @@ def update_subscriptions(updates: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     save_settings_overrides({"NOTIFY_SUBSCRIPTIONS": merged})
     settings.NOTIFY_SUBSCRIPTIONS = merged
     return subscriptions_payload()
-
-
-def has_live_external_subscriber(event_key: Optional[str] = None) -> bool:
-    """Whether any enabled event subscribes a real (non-UI) channel that is
-    itself currently available.
-
-    The notifier loop uses this to keep the idle-CPU guarantee: with only
-    toast subscriptions configured, a tick does zero calendar/DB work - the
-    frontend poll remains the sole driver, exactly as before v0.2.5.
-    """
-    defs = all_event_defs()
-    keys = [event_key] if event_key else list(defs)
-    for key in keys:
-        if key not in defs or not effective_subscription(key)["enabled"]:
-            continue
-        for name in effective_subscription(key)["channels"]:
-            if name != UI_CHANNEL and channel_available(name):
-                return True
-    return False
 
 
 # ---------------------------------------------------------------------------

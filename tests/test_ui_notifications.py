@@ -32,7 +32,7 @@ from fastapi.testclient import TestClient
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services import auth, indexer, ui_notifications
+from homestew.services import auth, dispatch, indexer, ui_notifications
 
 
 @pytest.fixture(autouse=True)
@@ -125,7 +125,7 @@ def _keys(payload):
 
 
 def run_eval():
-    """Simulate one background-loop pass (collect() is read-only since v0.2.5)."""
+    """Simulate one background-loop pass (collect() itself is read-only)."""
     return asyncio.run(ui_notifications.run_due_checks())
 
 
@@ -196,7 +196,7 @@ def test_check_reruns_only_after_its_interval_elapsed(client, monkeypatch):
     assert calls["n"] == 1
 
     # A short interval makes the next pass evaluate again.
-    ui_notifications.update_settings(
+    dispatch.update_subscriptions(
         {"unindexed_manuals": {"interval_minutes": 5}}
     )
     asyncio.run(_backdate("unindexed_manuals", minutes_ago=30))
@@ -456,18 +456,6 @@ def test_normalize_drops_junk_and_clamps():
     assert "bogus" not in out and 7 not in out
     assert "partial" not in out
     assert cfg.normalize_notify_subscriptions(None) == {}
-
-
-def test_normalize_migrates_legacy_enabled_false():
-    # An old install's {"enabled": false} becomes an explicit empty channel
-    # list (the new way an event is off); a stored true simply drops the flag.
-    out = cfg.normalize_notify_subscriptions({
-        "unindexed_manuals": {"enabled": False, "channels": ["ui", "webhook"]},
-        "calendar_reminders": {"enabled": True, "channels": ["ui"]},
-    })
-    assert out["unindexed_manuals"]["channels"] == []
-    assert "enabled" not in out["unindexed_manuals"]
-    assert out["calendar_reminders"]["channels"] == ["ui"]
 
 
 def test_normalize_clamps_lead_hours():

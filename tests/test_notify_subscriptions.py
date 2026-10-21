@@ -1,12 +1,10 @@
-"""Unified subscription + fan-out tests (v0.2.5 dispatch core).
+"""Unified subscription + fan-out tests (dispatch core).
 
 Covers services/dispatch.py and the delivery side of ui_notifications/notifier:
 
 * deliver() semantics: the UI pseudo-channel is a no-op success, an
   unavailable channel reports False without an attempt, results are
   independent per channel;
-* has_live_external_subscriber(): toast-only installs keep the idle-CPU
-  guarantee (the notifier tick does zero calendar work);
 * effective_subscription() clamps stored intervals into the configured bounds;
 * a health episode fires its webhook exactly once per NEW episode (the frozen
   done-list), enabling a channel mid-episode waits for the next episode, and
@@ -218,33 +216,6 @@ def test_deliver_failures_are_independent_per_channel(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# has_live_external_subscriber (idle-CPU guarantee, issue #9)
-# ---------------------------------------------------------------------------
-
-def test_has_live_external_subscriber(client, monkeypatch):
-    monkeypatch.setattr(cfg.settings, "NOTIFY_SUBSCRIPTIONS", {
-        "calendar_reminders": {"enabled": True, "channels": ["ui"]},
-        "unindexed_manuals": {"enabled": True, "channels": ["ui"]},
-    })
-    assert dispatch.has_live_external_subscriber() is False
-
-    # A real channel instance existing changes nothing while nobody subscribes.
-    monkeypatch.setattr(notify_channels, "CHANNELS", [RecordingChannel("webhook")])
-    assert dispatch.has_live_external_subscriber() is False
-
-    monkeypatch.setattr(cfg.settings, "NOTIFY_SUBSCRIPTIONS", {
-        "calendar_reminders": {"enabled": True, "channels": ["ui", "webhook"]},
-    })
-    assert dispatch.has_live_external_subscriber() is True
-
-    # A disabled event's subscription does not count.
-    monkeypatch.setattr(cfg.settings, "NOTIFY_SUBSCRIPTIONS", {
-        "calendar_reminders": {"enabled": False, "channels": ["ui", "webhook"]},
-    })
-    assert dispatch.has_live_external_subscriber() is False
-
-
-# ---------------------------------------------------------------------------
 # effective_subscription merge rules
 # ---------------------------------------------------------------------------
 
@@ -261,8 +232,7 @@ def test_effective_subscription_clamps_stored_intervals(env, monkeypatch):
 def test_rule_event_defaults(client):
     row = client.get("/api/settings").json()["notify_subscriptions"]["calendar_reminders"]
     assert row["kind"] == "rule"
-    # Rule events now carry their own scan cadence + lead window (moved out
-    # of the old global NOTIFY_CHECK_INTERVAL_MINUTES / NOTIFY_LEAD_*).
+    # Rule events carry their own scan cadence + lead window per row.
     assert row["interval_minutes"] == 15
     assert row["notify_before_due_hours"] == 24
     # Registry defaults: toast on, webhook off. Enabled is derived from the

@@ -1,8 +1,8 @@
-"""Calendar reminders rendered into the unified in-app feed (v0.2.5).
+"""Calendar reminders rendered into the unified in-app feed.
 
-Before v0.2.5 the calendar could only talk to a webhook; the toast feed knew
-nothing about due events. Now ``calendar_reminders`` is one subscribable event
-and ``collect()`` merges due/overdue occurrences into ``GET /api/notifications/ui``
+The calendar used to talk only to a webhook; the toast feed knew nothing
+about due events. Now ``calendar_reminders`` is one subscribable event and
+``collect()`` merges due/overdue occurrences into ``GET /api/notifications/ui``
 as ``kind="rule"`` items carrying a per-occurrence ``dedup_key``.
 
 Covered here:

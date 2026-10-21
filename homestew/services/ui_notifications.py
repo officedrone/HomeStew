@@ -16,9 +16,9 @@ Dismissal is therefore "never show *this occurrence* again": it survives page
 reloads and container restarts (state lives in ``ui_notification_state``) but
 never suppresses a genuinely new problem.
 
-v0.2.5 unified the delivery side: every check registers an EventDef with
+The delivery side is unified: every check registers an EventDef with
 services/dispatch.py, so Settings > Notifications shows one row per event
-with channel checkboxes (Toast / Webhook / future channels). Evaluation now
+with channel checkboxes (Toast / Webhook / future channels). Evaluation
 happens in ``run_due_checks()``, driven by the background notifier loop -
 webhook-subscribed health alerts therefore fire even with no browser open.
 The frontend poll (``collect()``) is a READ-ONLY snapshot of persisted state
@@ -213,29 +213,11 @@ def effective_setting(key: str) -> Dict[str, Any]:
     """``{enabled, interval_minutes}`` for one check, merged from overrides.
 
     Thin shim over ``dispatch.effective_subscription`` (the unified
-    NOTIFY_SUBSCRIPTIONS store since v0.2.5), kept because the evaluation
-    loop reads a check's own interval through it.
+    NOTIFY_SUBSCRIPTIONS store), kept because the evaluation loop reads a
+    check's own interval through it.
     """
     sub = dispatch.effective_subscription(key)
     return {"enabled": sub["enabled"], "interval_minutes": sub["interval_minutes"]}
-
-
-def settings_payload() -> Dict[str, Dict[str, Any]]:
-    """All subscribable events with effective settings (delegates to dispatch).
-
-    Kept as a compatibility alias - the Settings API now calls
-    ``dispatch.subscriptions_payload()`` directly, which includes both the
-    condition checks registered here and the rule events.
-    """
-    return dispatch.subscriptions_payload()
-
-
-def update_settings(updates: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """Compatibility alias for ``dispatch.update_subscriptions``.
-
-    Raises ValueError on an unknown event key or channel name (route -> 422).
-    """
-    return dispatch.update_subscriptions(updates)
 
 
 # ---------------------------------------------------------------------------
@@ -546,10 +528,10 @@ async def _calendar_inbox_items(now: datetime) -> List[Dict[str, Any]]:
 async def collect(now: Optional[datetime] = None) -> Dict[str, Any]:
     """The active in-app feed: persisted check state + calendar candidates.
 
-    Called by ``GET /api/notifications/ui``. Deliberately read-only since
-    v0.2.5 - evaluation moved to ``run_due_checks()`` (background loop /
-    force-check) - so the per-minute poll never runs condition queries and
-    cannot race with the loop. Items carry a ``dedup_key`` the frontend uses
+    Called by ``GET /api/notifications/ui``. Deliberately read-only -
+    evaluation lives in ``run_due_checks()`` (background loop / force-check)
+    - so the per-minute poll never runs condition queries and cannot race
+    with the loop. Items carry a ``dedup_key`` the frontend uses
     to reconcile cards and route Dismiss for both check episodes and calendar
     occurrences.
     """

@@ -15,7 +15,6 @@ from homestew.models.schemas import (
     WebhookTestRequest,
 )
 from homestew.services import dispatch, ui_notifications
-from homestew.services.notifier import build_test_payload
 from homestew.services.notify_channels import send_test_webhook
 
 logger = logging.getLogger(__name__)
@@ -33,8 +32,8 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 async def get_ui_notifications():
     """Active in-app notifications: health episodes + calendar due/overdue.
 
-    Read-only since v0.2.5 - evaluation happens in the background notifier
-    loop (services/ui_notifications.run_due_checks) - so the per-minute poll
+    Read-only - evaluation happens in the background notifier loop
+    (services/ui_notifications.run_due_checks) - so the per-minute poll
     never runs condition queries and costs two cheap SELECTs plus, for toast-
     subscribed calendar reminders, one candidate scan.
     """
@@ -157,7 +156,7 @@ async def test_webhook(test: WebhookTestRequest):
         )
 
     token = (test.webhook_token or "").strip() or settings.NOTIFY_WEBHOOK_TOKEN
-    payload = build_test_payload()
+    payload = dispatch.build_calendar_test_payload()
 
     try:
         await run_in_threadpool(

@@ -229,7 +229,7 @@ async def init_db():
         # already delivered. The background loop re-scans every tick, so this
         # is what makes a due/overdue alert fire exactly once PER CHANNEL;
         # recurring events re-alert on future occurrences because the due date
-        # differs. The channel column (v0.2.5) is what lets one occurrence be
+        # differs. The channel column is what lets one occurrence be
         # delivered to several channels independently: 'webhook' rows track
         # outbound posts, 'ui' rows back in-app toast delivery - a Dismissed
         # calendar toast writes a 'ui' row so the card never resurrects.
@@ -247,8 +247,8 @@ async def init_db():
             )
         """)
 
-        # v0.2.5 migration: pre-channel installs have the ledger keyed on
-        # (event_id, due_date, kind) only, which cannot hold one row per
+        # Upgrade migration (webhook-only releases): their ledger was keyed
+        # on (event_id, due_date, kind) only, which cannot hold one row per
         # channel. SQLite cannot alter a UNIQUE constraint, so rebuild the
         # table in place when the channel column is missing. Existing rows
         # keep their identity as 'webhook' deliveries (the only channel that
@@ -284,10 +284,11 @@ async def init_db():
         # until the condition goes false and a later recurrence re-notifies.
         # last_checked_at drives the per-check interval; details caches the
         # evaluator's payload (e.g. {"count": 3}) between checks. Timestamps
-        # are ISO-8601 UTC strings. notified_channels (v0.2.5) is a JSON list
-        # of the non-UI channels already delivered for the CURRENT episode,
-        # so a webhook-subscribed check alerts once per episode even though
-        # the condition keeps re-evaluating. See services/ui_notifications.py.
+        # are ISO-8601 UTC strings. notified_channels is a JSON object
+        # {"targets": [...], "done": [...]}: the current episode's frozen
+        # delivery targets and the channels already delivered, so a
+        # webhook-subscribed check alerts once per episode even though the
+        # condition keeps re-evaluating. See services/ui_notifications.py.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS ui_notification_state (
                 check_key TEXT PRIMARY KEY,
@@ -300,7 +301,7 @@ async def init_db():
             )
         """)
 
-        # v0.2.5 migration: add notified_channels to pre-existing installs.
+        # Upgrade migration: add notified_channels to pre-existing installs.
         try:
             await db.execute(
                 "ALTER TABLE ui_notification_state ADD COLUMN"
