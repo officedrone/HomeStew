@@ -119,17 +119,17 @@ async function handleChatImageSelected(event) {
     // The pickers are hidden while the model is not marked vision-capable, but
     // a stale file dialog can still deliver a drop - refuse it here too.
     if (!chatVisionEnabled) {
-        showToast('The model does not support images. Enable "Model supports Vision" in Settings > AI.', 'error');
+        notifyError('The model does not support images. Enable "Model supports Vision" in Settings > AI.');
         return;
     }
 
     for (const file of files) {
         if (!file.type.startsWith('image/')) {
-            showToast('Only image files can be attached', 'error');
+            notifyError('Only image files can be attached');
             continue;
         }
         if (pendingChatImages.length >= MAX_CHAT_IMAGES) {
-            showToast(`At most ${MAX_CHAT_IMAGES} images per message`, 'error');
+            notifyError(`At most ${MAX_CHAT_IMAGES} images per message`);
             break;
         }
         try {
@@ -137,7 +137,7 @@ async function handleChatImageSelected(event) {
             pendingChatImages.push(dataUrl);
         } catch (e) {
             console.error('Failed to read image:', e);
-            showToast('Could not read that image', 'error', String(e));
+            notifyError('Could not read that image', String(e));
         }
     }
     renderPendingChatPreviews();
@@ -225,14 +225,14 @@ async function sendChatMessage() {
     // Belt & braces: pending images cannot normally exist while vision is
     // off (the pickers are hidden), but never send them to a text-only model.
     if (pendingChatImages.length && !chatVisionEnabled) {
-        showToast('The model does not support images. Enable "Model supports Vision" in Settings > AI.', 'error');
+        notifyError('The model does not support images. Enable "Model supports Vision" in Settings > AI.');
         return;
     }
 
     // If the last model probe failed, don't waste a round-trip: keep the
     // warning banner visible and point the user at Settings instead.
     if (chatModelAvailable === false) {
-        showToast('No model is available - update the connection in Settings', 'error');
+        notifyError('No model is available - update the connection in Settings');
         return;
     }
     // One request at a time: a second click / Enter while streaming must not
@@ -337,7 +337,7 @@ async function sendChatMessage() {
                     // verbatim instead of the generic apology.
                     renderer.fail(event.message || 'Sorry, I encountered an error. Please try again.');
                     if (event.message && /image/i.test(event.message)) {
-                        showToast(event.message, 'error');
+                        notifyError(event.message);
                     }
                     finished = true;
                     break;
@@ -892,11 +892,11 @@ async function handleChatModelChange() {
             } catch (e) { /* non-JSON error body */ }
             throw new Error(detail);
         }
-        showToast(`Model switched to ${model}`);
+        notifySuccess(`Model switched to ${model}`);
         checkChatModelStatus();
     } catch (error) {
         console.error('Failed to switch model:', error);
-        showToast('Failed to switch model', 'error', error.message);
+        notifyError('Failed to switch model', error.message);
         // Restore the dropdown to what the server actually has saved.
         checkChatModelStatus();
     } finally {

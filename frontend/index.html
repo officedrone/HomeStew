@@ -583,46 +583,6 @@
 
                         <!-- Notifications -->
                         <section id="settings-panel-notifications" class="settings-panel" hidden>
-                            <div class="settings-field">
-                                <div class="label-row">
-                                    <label class="checkbox-option" for="settings-notify-enabled">
-                                        <input type="checkbox" id="settings-notify-enabled">
-                                        Enable notifications
-                                    </label>
-                                    <span class="info-wrap">
-                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
-                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Enable background notifications for maintenance tasks.</p></span>
-                                    </span>
-                                </div>
-                            </div>
-                            <h4 class="settings-subheading">Calendar Event Notifications</h4>
-                            <div class="settings-field">
-                                <div class="label-row">
-                                    <label for="settings-notify-interval">Check every (minutes)</label>
-                                    <span class="info-wrap">
-                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
-                                        <span class="info-popover" role="tooltip"><p class="settings-hint">How often the background check runs. Changes apply without a restart.</p></span>
-                                    </span>
-                                </div>
-                                <input type="number" id="settings-notify-interval" min="1" max="1440" step="1">
-                            </div>
-                            <div class="settings-field">
-                                <div class="label-row">
-                                    <label for="settings-notify-lead-value">Notify before due</label>
-                                    <span class="info-wrap">
-                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
-                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Send an alert this far ahead of the due date. Overdue tasks are also alerted once.</p></span>
-                                    </span>
-                                </div>
-                                <div class="model-row">
-                                    <input type="number" id="settings-notify-lead-value" min="1" max="365" step="1">
-                                    <select id="settings-notify-lead-unit">
-                                        <option value="hours">Hours</option>
-                                        <option value="days">Days</option>
-                                    </select>
-                                </div>
-                            </div>
-
                             <h4 class="settings-subheading">Webhook</h4>
                             <div class="settings-field">
                                 <label class="checkbox-option" for="settings-notify-webhook-enabled">
@@ -685,6 +645,29 @@
                                 </div>
                                 <p class="settings-hint" id="webhook-test-hint"></p>
                             </div>
+
+                            <!-- Notification Events: one table row per subscribable
+                                 event (status / interval / notify-before-due /
+                                 Notify-via channels / check-now / test), rendered by
+                                 renderUINotificationSettings() from the server's
+                                 notify_subscriptions + notification_channels
+                                 payloads. Enabling an event = ticking one of its
+                                 "Notify via" channels (no separate enable column).
+                                 Adding an event or channel server-side needs no
+                                 markup here. Saved with the shared form. -->
+                            <h4 class="settings-subheading">Notification Events
+                                <span class="info-wrap">
+                                    <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                    <span class="info-popover" role="tooltip"><p class="settings-hint">
+                                HomeStew watches for events (problems found by periodic
+                                checks, or calendar reminders) and delivers each one to the
+                                channels you tick here: an in-app toast, the webhook above,
+                                etc. Dismissing a notification silences that occurrence until
+                                the problem goes away and comes back.
+                            </p></span>
+                                </span>
+                            </h4>
+                            <div id="ui-notification-rows"></div>
                         </section>
 
                         <!-- Search index. Layout top-to-bottom: Indexing Options
@@ -897,24 +880,6 @@
                                 </div>
                                 <p class="settings-hint" id="advanced-key-hint"></p>
                             </div>
-
-                            <!-- Health Notifications: one row per in-app notification
-                                 check (enabled + interval), rendered by
-                                 renderUINotificationSettings() from the server's
-                                 ui_notifications payload. Adding a check server-side
-                                 needs no markup here. Saved with the shared form. -->
-                            <h4 class="settings-subheading">Health Notifications
-                                <span class="info-wrap">
-                                    <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
-                                    <span class="info-popover" role="tooltip"><p class="settings-hint">
-                                HomeStew periodically checks for problems (like manuals that
-                                are not in the search index) and shows a notification when one
-                                is found. Each check has its own interval; Dismiss silences an
-                                occurrence until the problem goes away and comes back.
-                            </p></span>
-                                </span>
-                            </h4>
-                            <div id="ui-notification-rows"></div>
                         </section>
                     </div>
 

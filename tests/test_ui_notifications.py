@@ -56,11 +56,11 @@ def env(tmp_path, monkeypatch):
     # PUT /api/settings applies changes to the live singleton globally, so
     # snapshot and restore the notification overrides - otherwise a later test
     # sees an earlier one's interval/disabled choices depending on order.
-    orig = dict(cfg.settings.UI_NOTIFICATIONS)
+    orig = dict(cfg.settings.NOTIFY_SUBSCRIPTIONS)
     auth._failures.clear()
     auth._pw_cache.update({"mtime": None, "hash": ""})
     yield tmp_path
-    cfg.settings.UI_NOTIFICATIONS = orig
+    cfg.settings.NOTIFY_SUBSCRIPTIONS = orig
     auth._failures.clear()
     auth._pw_cache.update({"mtime": None, "hash": ""})
 
@@ -124,6 +124,11 @@ def _keys(payload):
     return [i["key"] for i in payload["items"]]
 
 
+def run_eval():
+    """Simulate one background-loop pass (collect() is read-only since v0.2.5)."""
+    return asyncio.run(ui_notifications.run_due_checks())
+
+
 # ---------------------------------------------------------------------------
 # Fresh install: nothing to report
 # ---------------------------------------------------------------------------
@@ -140,6 +145,7 @@ def test_fresh_install_has_no_notifications(client):
 
 def test_unindexed_manual_triggers_notification(client):
     seed_manual()
+    run_eval()
     body = client.get("/api/notifications/ui").json()
     assert _keys(body) == ["unindexed_manuals"]
     item = body["items"][0]
@@ -159,6 +165,7 @@ def test_indexed_manual_produces_nothing(client):
 def test_count_tracks_number_of_unindexed_manuals(client):
     seed_manual("a.pdf")
     seed_manual("b.pdf")
+    run_eval()
     body = client.get("/api/notifications/ui").json()
     assert body["items"][0]["count"] == 2
     # Message pluralises on the count.
@@ -183,17 +190,17 @@ def test_check_reruns_only_after_its_interval_elapsed(client, monkeypatch):
          "unindexed_manuals": dataclasses.replace(real, evaluate=counting)},
     )
 
-    client.get("/api/notifications/ui")   # never checked -> evaluates
-    client.get("/api/notifications/ui")   # interval not elapsed -> cached
-    client.get("/api/notifications/ui")
+    run_eval()   # never checked -> evaluates
+    run_eval()   # interval not elapsed -> cached
+    run_eval()
     assert calls["n"] == 1
 
-    # A short interval makes the next poll evaluate again.
+    # A short interval makes the next pass evaluate again.
     ui_notifications.update_settings(
         {"unindexed_manuals": {"interval_minutes": 5}}
     )
     asyncio.run(_backdate("unindexed_manuals", minutes_ago=30))
-    client.get("/api/notifications/ui")
+    run_eval()
     assert calls["n"] == 2
 
 
@@ -217,6 +224,7 @@ async def _backdate(key, minutes_ago):
 
 def test_dismiss_silences_the_occurrence(client):
     seed_manual()
+    run_eval()
     assert _keys(client.get("/api/notifications/ui").json()) == ["unindexed_manuals"]
 
     r = client.post("/api/notifications/ui/unindexed_manuals/dismiss")
@@ -231,7 +239,7 @@ def test_dismiss_silences_the_occurrence(client):
 
 def test_new_occurrence_after_the_condition_resolves(client):
     mid = seed_manual()
-    client.get("/api/notifications/ui")
+    run_eval()
     assert client.post(
         "/api/notifications/ui/unindexed_manuals/dismiss"
     ).json()["ok"] is True
@@ -254,7 +262,7 @@ def test_new_occurrence_after_the_condition_resolves(client):
 def test_dismissal_survives_a_restart(client):
     """Dismissal is server state, so a new app instance stays silent."""
     seed_manual()
-    client.get("/api/notifications/ui")
+    run_eval()
     client.post("/api/notifications/ui/unindexed_manuals/dismiss")
 
     from homestew.main import app
@@ -274,11 +282,13 @@ def test_dismissal_survives_a_restart(client):
 def test_evaluation_suppressed_while_indexing(client):
     seed_manual()
     indexer._INDEX_STATE["running"] = True
+    run_eval()  # skipped mid-job, last_checked_at must NOT advance
     assert client.get("/api/notifications/ui").json()["items"] == []
 
     # Job finishes -> the check was left due (last_checked_at never advanced),
-    # so it evaluates and reports on the very next poll.
+    # so the next pass evaluates and the poll reports it.
     indexer._INDEX_STATE["running"] = False
+    run_eval()
     assert _keys(client.get("/api/notifications/ui").json()) == ["unindexed_manuals"]
 
 
@@ -289,6 +299,69 @@ def test_evaluation_suppressed_while_indexing(client):
 def test_unknown_notification_key_is_404(client):
     assert client.post("/api/notifications/ui/nope/dismiss").status_code == 404
     assert client.post("/api/notifications/ui/nope/check").status_code == 404
+    assert client.post("/api/notifications/ui/nope/test").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Per-check statuses (Settings > Advanced status labels)
+# ---------------------------------------------------------------------------
+
+def test_statuses_report_every_registered_check(client):
+    # A pass evaluates the (due) check, so every registered key has a status
+    # row and the empty DB reads as a clean result.
+    run_eval()
+    statuses = client.get("/api/notifications/ui").json()["statuses"]
+    assert set(statuses) == set(ui_notifications.CHECKS)
+    st = statuses["unindexed_manuals"]
+    assert st["condition_true"] is False  # evaluated, no manuals -> false
+    assert st["dismissed"] is False
+    assert st["last_checked_at"]  # evaluation stamps the time
+
+
+def test_status_tracks_problem_then_ok(client):
+    seed_manual()
+    run_eval()
+    statuses = client.get("/api/notifications/ui").json()["statuses"]
+    st = statuses["unindexed_manuals"]
+    assert st["condition_true"] is True
+    assert st["dismissed"] is False
+    assert st["last_checked_at"]  # set once evaluated
+
+    # Dismiss the episode -> still true, now flagged dismissed.
+    client.post("/api/notifications/ui/unindexed_manuals/dismiss")
+    st = client.get("/api/notifications/ui").json()["statuses"]["unindexed_manuals"]
+    assert st["condition_true"] is True and st["dismissed"] is True
+
+
+# ---------------------------------------------------------------------------
+# "Test" preview: a sample item even when the condition does NOT hold
+# ---------------------------------------------------------------------------
+
+def test_test_endpoint_returns_sample_when_all_clear(client):
+    # No manuals at all -> no active notification, but Test still previews one.
+    assert client.get("/api/notifications/ui").json()["items"] == []
+    body = client.post("/api/notifications/ui/unindexed_manuals/test").json()
+    item = body["item"]
+    assert item["key"] == "unindexed_manuals"
+    assert item["severity"] == "warn"
+    assert item["goto_tab"] == "settings" and item["goto_section"] == "search"
+    assert "search index" in item["message"]
+    # Only the toast channel is subscribed by default -> nothing dispatched.
+    assert body["deliveries"] == {}
+    # A preview never mutates state: still nothing active.
+    assert client.get("/api/notifications/ui").json()["items"] == []
+
+
+def test_test_endpoint_does_not_persist_state(client):
+    # Previewing must not create or alter a ui_notification_state row.
+    client.post("/api/notifications/ui/unindexed_manuals/test")
+
+    async def rows():
+        async with get_db_context() as db:
+            cur = await db.execute("SELECT COUNT(*) AS n FROM ui_notification_state")
+            return (await cur.fetchone())["n"]
+
+    assert asyncio.run(rows()) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -296,37 +369,40 @@ def test_unknown_notification_key_is_404(client):
 # ---------------------------------------------------------------------------
 
 def test_settings_expose_checks_with_labels(client):
-    checks = client.get("/api/settings").json()["ui_notifications"]
+    checks = client.get("/api/settings").json()["notify_subscriptions"]
     assert "unindexed_manuals" in checks
     row = checks["unindexed_manuals"]
     assert row["enabled"] is True
     assert row["interval_minutes"] == 1440
+    # Condition checks have no due date, so no lead window (UI shows a dash).
+    assert row["notify_before_due_hours"] is None
     assert row["label"]
 
 
 def test_settings_round_trip_and_persist(client, env):
+    # Disabling = an empty channel list (there is no separate enabled field).
     r = client.put("/api/settings", json={
-        "ui_notifications": {
-            "unindexed_manuals": {"enabled": False, "interval_minutes": 60}
+        "notify_subscriptions": {
+            "unindexed_manuals": {"channels": [], "interval_minutes": 60}
         }
     })
     assert r.status_code == 200
-    row = r.json()["ui_notifications"]["unindexed_manuals"]
+    row = r.json()["notify_subscriptions"]["unindexed_manuals"]
     assert row["enabled"] is False and row["interval_minutes"] == 60
 
     persisted = json.loads((env / "settings.json").read_text(encoding="utf-8-sig"))
-    assert persisted["UI_NOTIFICATIONS"]["unindexed_manuals"] == {
-        "enabled": False, "interval_minutes": 60,
+    assert persisted["NOTIFY_SUBSCRIPTIONS"]["unindexed_manuals"] == {
+        "channels": [], "interval_minutes": 60,
     }
 
 
 def test_disabled_check_never_fires(client):
     seed_manual()
     client.put("/api/settings", json={
-        "ui_notifications": {"unindexed_manuals": {"enabled": False}}
+        "notify_subscriptions": {"unindexed_manuals": {"channels": []}}
     })
     assert client.get("/api/notifications/ui").json()["items"] == []
-    # Even forcing is refused while the check is switched off.
+    # Even forcing is refused while the check has no channel subscribed.
     assert client.post(
         "/api/notifications/ui/unindexed_manuals/check"
     ).json()["items"] == []
@@ -334,46 +410,79 @@ def test_disabled_check_never_fires(client):
 
 def test_partial_update_keeps_the_other_field(client):
     client.put("/api/settings", json={
-        "ui_notifications": {"unindexed_manuals": {"interval_minutes": 120}}
+        "notify_subscriptions": {"unindexed_manuals": {"interval_minutes": 120}}
     })
-    row = client.get("/api/settings").json()["ui_notifications"]["unindexed_manuals"]
+    row = client.get("/api/settings").json()["notify_subscriptions"]["unindexed_manuals"]
     assert row["interval_minutes"] == 120 and row["enabled"] is True
 
 
 def test_out_of_range_interval_is_422(client):
     for bad in (1, 99999):
         r = client.put("/api/settings", json={
-            "ui_notifications": {"unindexed_manuals": {"interval_minutes": bad}}
+            "notify_subscriptions": {"unindexed_manuals": {"interval_minutes": bad}}
         })
         assert r.status_code == 422
 
 
 def test_unknown_check_key_in_settings_is_422(client):
     r = client.put("/api/settings", json={
-        "ui_notifications": {"made_up_check": {"enabled": True}}
+        "notify_subscriptions": {"made_up_check": {"enabled": True}}
+    })
+    assert r.status_code == 422
+
+
+def test_unknown_channel_in_settings_is_422(client):
+    r = client.put("/api/settings", json={
+        "notify_subscriptions": {"unindexed_manuals": {"channels": ["carrier-pigeon"]}}
     })
     assert r.status_code == 422
 
 
 # ---------------------------------------------------------------------------
-# settings.json hardening (normalize_ui_notifications)
+# settings.json hardening (normalize_notify_subscriptions)
 # ---------------------------------------------------------------------------
 
 def test_normalize_drops_junk_and_clamps():
-    out = cfg.normalize_ui_notifications({
-        "unindexed_manuals": {"enabled": True, "interval_minutes": 1},
+    out = cfg.normalize_notify_subscriptions({
+        "unindexed_manuals": {"channels": ["ui"], "interval_minutes": 1},
         "bogus": "not-a-dict",
-        7: {"enabled": True},
+        7: {"channels": ["ui"]},
         "partial": {"nonsense": 3},
     })
     assert out["unindexed_manuals"]["interval_minutes"] == cfg.UI_NOTIFICATION_INTERVAL_MIN
-    assert out["unindexed_manuals"]["enabled"] is True
+    assert out["unindexed_manuals"]["channels"] == ["ui"]
+    # The enabled flag is no longer a stored field (derived from channels).
+    assert "enabled" not in out["unindexed_manuals"]
     assert "bogus" not in out and 7 not in out
     assert "partial" not in out
-    assert cfg.normalize_ui_notifications(None) == {}
+    assert cfg.normalize_notify_subscriptions(None) == {}
+
+
+def test_normalize_migrates_legacy_enabled_false():
+    # An old install's {"enabled": false} becomes an explicit empty channel
+    # list (the new way an event is off); a stored true simply drops the flag.
+    out = cfg.normalize_notify_subscriptions({
+        "unindexed_manuals": {"enabled": False, "channels": ["ui", "webhook"]},
+        "calendar_reminders": {"enabled": True, "channels": ["ui"]},
+    })
+    assert out["unindexed_manuals"]["channels"] == []
+    assert "enabled" not in out["unindexed_manuals"]
+    assert out["calendar_reminders"]["channels"] == ["ui"]
+
+
+def test_normalize_clamps_lead_hours():
+    out = cfg.normalize_notify_subscriptions({
+        "calendar_reminders": {"notify_before_due_hours": 999999},
+    })
+    assert out["calendar_reminders"]["notify_before_due_hours"] == cfg.NOTIFY_LEAD_HOURS_MAX
+    out = cfg.normalize_notify_subscriptions({
+        "calendar_reminders": {"notify_before_due_hours": -5},
+    })
+    assert out["calendar_reminders"]["notify_before_due_hours"] == cfg.NOTIFY_LEAD_HOURS_MIN
 
 
 def test_normalize_rejects_bool_as_interval():
-    # bool is an int subclass; True must not become interval 1.
-    out = cfg.normalize_ui_notifications({"x": {"interval_minutes": True}})
+    # bool is an int subclass; True must not become interval 1 (and with no
+    # other valid field the whole entry drops away).
+    out = cfg.normalize_notify_subscriptions({"x": {"interval_minutes": True}})
     assert out == {}

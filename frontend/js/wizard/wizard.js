@@ -323,7 +323,7 @@ async function wizardRunRestore() {
 
 async function wizardCreateKey() {
     await postSecretsKeyAction('secrets-key/create');
-    showToast('Master key created \u2014 secrets are encrypted at rest', 'success');
+    notifySuccess('Master key created \u2014 secrets are encrypted at rest');
 }
 
 // --- Step 2: AI / LLM integration --------------------------------------------
@@ -444,7 +444,7 @@ async function wizardSaveLlm() {
         } catch (e) { /* non-JSON error body */ }
         throw new Error(detail);
     }
-    showToast('AI model saved', 'success');
+    notifySuccess('AI model saved');
     // A fixed configuration should clear the chat warning banner right away.
     if (document.getElementById('chat-tab').classList.contains('active')) {
         checkChatModelStatus();
@@ -471,7 +471,7 @@ async function wizardCreateDevice() {
         }),
     });
     if (!response.ok) throw new Error('Failed to add the device.');
-    showToast('Device added', 'success');
+    notifySuccess('Device added');
     await loadDevices();
 }
 

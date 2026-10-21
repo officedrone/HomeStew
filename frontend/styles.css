@@ -4599,3 +4599,211 @@ body.is-dragging * {
         grid-template-columns: 1fr;
     }
 }
+
+/* ---------------------------------------------------------------------------
+   Notification Events table (Settings > Notifications). One row per event:
+   Event | Status | Interval (min) | Notify before due (hrs) | Notify via |
+   Check Now | Test. No Enable column - ticking a "Notify via" checkbox is
+   what enables an event. Mirrors .manuals-index-table (same padding/borders/
+   header tint) so the two Settings tables read as one family. The status
+   badge reuses the dashboard colours (--success / --warn-text / secondary),
+   brightened in dark mode.
+   --------------------------------------------------------------------------- */
+/* Surface + frame around the table, exactly like .manuals-index-wrap. The
+   table itself is transparent, so without this the body cells show the page
+   background through and the header tint floats with no card behind it. */
+.ui-notify-wrap {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    /* Horizontal scroll on narrow screens: the table keeps a usable minimum
+       width (below) instead of squishing every column into unreadability. On
+       wide viewports nothing scrolls; on phones you swipe the table sideways. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.ui-notify-table {
+    width: 100%;
+    /* Sum of the fixed columns + a workable Event-name column. Below this the
+       wrapper scrolls rather than crushing inputs, checkboxes and labels into
+       unreadable slivers (auto layout would happily wrap "Not Applicable"
+       three lines deep to fit). */
+    min-width: 860px;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.ui-notify-table th,
+.ui-notify-table td {
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.ui-notify-table thead th {
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.ui-notify-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Column widths: Name takes the flexible remainder, the rest are fixed. */
+.ui-notify-table .col-status {
+    width: 170px;
+}
+
+.ui-notify-table .col-interval {
+    width: 120px;
+}
+
+/* "Notify before due (hrs)" - only rule rows carry an input here; check
+   rows show a dash, so the column stays narrow. */
+.ui-notify-table .col-lead {
+    width: 130px;
+}
+
+/* "Notify via": one compact stacked checkbox per delivery channel inside a
+   single cell. Stacked (not inline) so adding channels server-side never
+   overflows the table, and each label stays clickable. */
+.ui-notify-table .col-channels {
+    width: 150px;
+}
+
+.notify-channel-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.notify-channel-option + .notify-channel-option {
+    margin-top: 4px;
+}
+
+.ui-notify-table .col-check,
+.ui-notify-table .col-test {
+    width: 96px;
+    text-align: center;
+}
+
+/* Inputs live directly in cells here (no .settings-field wrapper), so they
+   need their own sizing - the checkbox must not inherit a full-width rule and
+   the interval field is deliberately narrow. */
+.ui-notify-table input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
+
+.ui-notify-table input[type="number"] {
+    width: 92px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.ui-notify-table input[type="number"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: var(--ring);
+}
+
+.ui-notify-status {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    font-size: 0.8rem;
+}
+
+/* Placeholder for a column that doesn't apply to a row (Status on the rule
+   event, "Notify before due" on condition checks). Muted so it reads as an
+   absence of data, kept on one line so it never reflows the row taller. */
+.ui-notify-na {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.ui-notify-badge {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.ui-notify-badge.status-ok {
+    color: var(--success);
+}
+
+.ui-notify-badge.status-problem {
+    color: var(--warn-text);
+}
+
+.ui-notify-badge.status-dismissed,
+.ui-notify-badge.status-unknown {
+    color: var(--text-secondary);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ui-notify-badge.status-ok {
+        color: #4ade80;
+    }
+}
+
+[data-theme="dark"] .ui-notify-badge.status-ok {
+    color: #4ade80;
+}
+
+/* The Check-now button spins its refresh glyph while the request is in flight. */
+.card-icon-btn.ui-notify-check-btn.spinning svg {
+    animation: spin 0.9s linear infinite;
+}
+
+/* Narrow screens: tighten padding and fixed columns so the table needs less
+   sideways scroll (the wrapper still scrolls if it must - see .ui-notify-wrap). */
+@media (max-width: 640px) {
+    .ui-notify-table {
+        min-width: 720px;
+        font-size: 0.8rem;
+    }
+
+    .ui-notify-table th,
+    .ui-notify-table td {
+        padding: 6px 7px;
+    }
+
+    .ui-notify-table .col-status {
+        width: 130px;
+    }
+
+    .ui-notify-table .col-interval {
+        width: 92px;
+    }
+
+    .ui-notify-table .col-lead {
+        width: 104px;
+    }
+
+    .ui-notify-table .col-channels {
+        width: 130px;
+    }
+
+    .ui-notify-table .col-check,
+    .ui-notify-table .col-test {
+        width: 72px;
+    }
+
+    .ui-notify-table input[type="number"] {
+        width: 74px;
+    }
+}

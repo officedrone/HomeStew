@@ -452,7 +452,7 @@ function commitDeviceDrop(session) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category_id: categoryId, device_ids: bucketIds }),
     }).catch(() => {
-        showToast('Failed to save the new order', 'error');
+        notifyError('Failed to save the new order');
         loadDevices();
     });
 }
@@ -509,7 +509,7 @@ function commitCategoryDrop(session) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category_ids: categories.map(c => c.id) }),
     }).catch(() => {
-        showToast('Failed to save the section order', 'error');
+        notifyError('Failed to save the section order');
         loadDevices();
     });
 }

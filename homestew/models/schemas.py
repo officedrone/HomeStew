@@ -2,7 +2,7 @@
 import re
 from pydantic import BaseModel, Field, model_validator
 from datetime import date, datetime, time
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 
 class DeviceBase(BaseModel):
@@ -248,7 +248,18 @@ class UINotificationItem(BaseModel):
     scoped: once dismissed the item disappears until the underlying
     condition goes false and later becomes true again (a new occurrence).
     """
-    key: str = Field(..., description="Check key - stable id used for dismissal")
+    key: str = Field(..., description="Event key (check key or calendar_reminders)")
+    dedup_key: str = Field(
+        ...,
+        description="Stable id for THIS occurrence - the frontend reconciles "
+        "cards by it and Dismiss posts it back (check:{key} for condition "
+        "episodes, calendar:{event_id}:{due}:{kind} for calendar cards)",
+    )
+    kind: Literal["check", "rule"] = Field(
+        "check",
+        description="check = condition-evaluation episode; rule = derived "
+        "from a rule (calendar due/overdue occurrences)",
+    )
     severity: Literal["info", "warn", "error"] = Field(
         "warn", description="Toast styling: info | warn | error"
     )
@@ -272,11 +283,33 @@ class UINotificationItem(BaseModel):
     )
 
 
+class UINotificationStatus(BaseModel):
+    """Last known state of one check, for the Settings > Advanced rows.
+
+    Lets each row show "OK" / "Problem detected" / "Dismissed" and how long
+    ago the check last ran, kept fresh by the same poll that feeds the toasts.
+    """
+    condition_true: Optional[bool] = Field(
+        None, description="None = never evaluated yet; else the last result"
+    )
+    dismissed: bool = Field(
+        False, description="The current episode was dismissed (still true)"
+    )
+    last_checked_at: Optional[str] = Field(
+        None, description="ISO-8601 UTC of the last evaluation"
+    )
+
+
 class UINotificationListResponse(BaseModel):
     """Active UI notifications for the frontend poller."""
     items: list[UINotificationItem] = []
     checked_at: str = Field(
         ..., description="ISO-8601 UTC timestamp of this poll (server clock)"
+    )
+    statuses: dict[str, UINotificationStatus] = Field(
+        default_factory=dict,
+        description="Per-check state (every registered key), for the "
+        "Settings > Advanced status labels",
     )
 
 
@@ -285,23 +318,92 @@ class UINotificationActionResponse(BaseModel):
     ok: bool = Field(..., description="Whether the action applied")
 
 
-class UINotificationSetting(BaseModel):
-    """Effective per-check configuration for Settings > Advanced."""
-    enabled: bool = Field(True, description="Whether this check runs at all")
-    interval_minutes: int = Field(
-        ..., ge=5, le=10080,
-        description="How often the condition is re-evaluated (minutes; "
-        "1440 = 24 hours)",
+class UINotificationTestResponse(BaseModel):
+    """Result of the Settings "Test" button for one event.
+
+    ``item`` is the local preview toast payload (rendered like a real card,
+    never reconciled by polls); ``deliveries`` reports per subscribed
+    external channel whether the sample payload was actually sent - so a
+    broken webhook URL fails visibly instead of only previewing happily.
+    """
+    item: UINotificationItem
+    deliveries: dict[str, bool] = Field(
+        default_factory=dict,
+        description="channel id -> send success, for non-UI subscribed "
+        "channels (empty when only the toast channel is subscribed)",
+    )
+
+
+class UINotificationTestRequest(BaseModel):
+    """Optional override for the Settings "Test" button.
+
+    ``channels`` lets the frontend test the channel checkboxes exactly as
+    currently shown - including a Webhook tick that has not been saved yet -
+    instead of only the persisted subscription. Omitted/None falls back to the
+    saved channels, so older clients and plain POSTs behave exactly as before.
+    """
+    channels: Optional[List[str]] = Field(
+        None,
+        description="Channel ids to test (e.g. ['ui', 'webhook']); None uses "
+        "the saved subscription. Unknown ids are ignored.",
+    )
+
+
+class NotifyChannelDef(BaseModel):
+    """One selectable delivery channel for the Settings events table."""
+    name: str = Field(..., description="Channel id sent in subscriptions ('ui', 'webhook', ...)")
+    label: str = Field(..., description="Checkbox label (e.g. 'Toast', 'Webhook')")
+
+
+class NotifySubscription(BaseModel):
+    """Effective per-event subscription for the Settings > Notifications table."""
+    enabled: bool = Field(
+        True,
+        description="Derived: True when at least one channel is subscribed "
+        "(channel enablement IS the per-event switch - there is no separate flag)",
+    )
+    interval_minutes: Optional[int] = Field(
+        None, ge=5, le=10080,
+        description="Scan cadence for this event (minutes) - editable for "
+        "both condition checks and rule events",
+    )
+    notify_before_due_hours: Optional[int] = Field(
+        None, ge=0, le=8760,
+        description="Lead window in hours before an event's due time "
+        "(rule/calendar events); None for condition checks, which have no "
+        "due date (the UI shows a dash)",
+    )
+    channels: list[str] = Field(
+        default_factory=list,
+        description="Delivery channel ids this event is subscribed to "
+        "(subset of notification_channels; 'ui' renders the in-app toast)",
     )
     label: str = Field(
-        ..., description="Human-readable check name for the settings row"
+        ..., description="Human-readable event name for the settings row"
+    )
+    kind: Literal["check", "rule"] = Field(
+        ..., description="check = condition check with its own interval; "
+        "rule = engine-driven event (calendar reminders)",
     )
 
 
-class UINotificationSettingUpdate(BaseModel):
-    """Partial per-check update; omitted fields keep their current value."""
-    enabled: Optional[bool] = None
+class NotifySubscriptionUpdate(BaseModel):
+    """Partial per-event update; omitted fields keep their current value.
+
+    There is no ``enabled`` field: enablement is the channel list, so an
+    empty ``channels`` list disables the event and a non-empty one enables it.
+    """
     interval_minutes: Optional[int] = Field(None, ge=5, le=10080)
+    notify_before_due_hours: Optional[int] = Field(
+        None, ge=0, le=8760,
+        description="Lead window in hours before due (rule events); ignored "
+        "for condition checks",
+    )
+    channels: Optional[list[str]] = Field(
+        None,
+        description="Full replacement channel list; unknown ids are "
+        "rejected with 422 by the route. An empty list disables the event.",
+    )
 
 
 class ManualCandidate(BaseModel):
@@ -471,12 +573,9 @@ class SettingsResponse(BaseModel):
     device_tool_description_default: str = Field(
         ..., description="Built-in default for device_tool_description (Restore Default)"
     )
-    notify_enabled: bool = Field(..., description="Background due-event notifier on/off")
-    notify_check_interval_minutes: int = Field(
-        ..., description="How often the notifier loop scans the calendar"
-    )
-    notify_lead_value: int = Field(..., description="Lead-time magnitude before due")
-    notify_lead_unit: str = Field(..., description="Lead-time unit: hours | days")
+    # The old global NOTIFY_ENABLED / NOTIFY_CHECK_INTERVAL_MINUTES /
+    # NOTIFY_LEAD_* fields are gone: cadence and lead now live per event in
+    # notify_subscriptions, and enablement is each event's channel list.
     notify_webhook_enabled: bool = Field(
         ..., description="Webhook channel on/off (requires a URL below)"
     )
@@ -554,11 +653,17 @@ class SettingsResponse(BaseModel):
         description="Index manuals for search immediately when they are "
         "uploaded or fetched; off until a manual Re-index otherwise",
     )
-    ui_notifications: dict[str, UINotificationSetting] = Field(
+    notify_subscriptions: dict[str, NotifySubscription] = Field(
         default_factory=dict,
-        description="In-app health notification checks (Settings > Advanced), "
-        "keyed by check id with the effective enabled/interval values merged "
-        "from the service registry.",
+        description="Notification events (Settings > Notifications), keyed by "
+        "event id with effective enabled/interval/channels merged from the "
+        "service registries (condition checks + rule events).",
+    )
+    notification_channels: list[NotifyChannelDef] = Field(
+        default_factory=list,
+        description="Selectable delivery channels for the subscription "
+        "checkboxes, in display order (registry-driven: new channels need "
+        "no frontend change).",
     )
 
 
@@ -638,14 +743,8 @@ class SettingsUpdate(BaseModel):
     device_tool_description: Optional[str] = Field(
         None, max_length=8000, description="Custom manage_devices tool description"
     )
-    notify_enabled: Optional[bool] = None
-    notify_check_interval_minutes: Optional[int] = Field(
-        None, ge=1, le=1440, description="Notifier scan cadence in minutes"
-    )
-    notify_lead_value: Optional[int] = Field(
-        None, ge=1, le=365, description="Notify this many hours/days before due"
-    )
-    notify_lead_unit: Optional[Literal["hours", "days"]] = None
+    # No global notify cadence/lead/enabled fields any more - per-event
+    # values are updated through notify_subscriptions below.
     notify_webhook_enabled: Optional[bool] = None
     notify_webhook_type: Optional[Literal["none", "generic", "synology"]] = Field(
         None, description="Webhook kind: none (disabled), generic JSON POST, or Synology Chat incoming webhook"
@@ -691,11 +790,12 @@ class SettingsUpdate(BaseModel):
         description="Index manuals on upload/fetch immediately (False defers "
         "until Re-index is pressed in Settings > Search)",
     )
-    ui_notifications: Optional[dict[str, UINotificationSettingUpdate]] = Field(
+    notify_subscriptions: Optional[dict[str, NotifySubscriptionUpdate]] = Field(
         None,
-        description="Per-check updates for the in-app health notifications "
-        "(Settings > Advanced). Unknown check keys are rejected with 422 by "
-        "the route; omitted fields inside an entry keep their current value.",
+        description="Per-event subscription updates (Settings > "
+        "Notifications). Unknown event keys or channel ids are rejected with "
+        "422 by the route; omitted fields inside an entry keep their current "
+        "value.",
     )
 
 
@@ -965,11 +1065,13 @@ class BackupNotification(BaseModel):
     """A notification-ledger row, so restored events don't re-alert.
 
     ``due_date`` stays a verbatim string to match the UNIQUE(event_id,
-    due_date, kind) dedupe key exactly on restore.
+    due_date, kind, channel) dedupe key exactly on restore.
     """
     event_id: int
     due_date: str
     kind: str
+    # Old archives predate the channel column; their rows were all webhook.
+    channel: str = "webhook"
     sent_at: Optional[str] = None
 
 

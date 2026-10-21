@@ -75,7 +75,13 @@ async def _seed_full_dataset():
         event_id = cur.lastrowid
 
         await db.execute(
-            "INSERT INTO notification_log (event_id, due_date, kind) VALUES (?, '2026-10-01', 'due')",
+            "INSERT INTO notification_log (event_id, due_date, kind, channel) VALUES (?, '2026-10-01', 'due', 'webhook')",
+            (event_id,),
+        )
+        # A toast dismissal row — its channel must survive the round-trip or
+        # it would collapse to 'webhook' and re-spam the inbox.
+        await db.execute(
+            "INSERT INTO notification_log (event_id, due_date, kind, channel) VALUES (?, '2026-10-01', 'due', 'ui')",
             (event_id,),
         )
         # A stale search row that a replace-restore must clear.
@@ -229,19 +235,24 @@ def test_restore_replace_remaps_notification_ledger(db_env):
     asyncio.run(_seed_full_dataset())
     backup_and_restore("replace")
 
-    # The ledger row must follow its event to the new id, not dangle.
+    # The ledger rows must follow their event to the new id, not dangle, and
+    # keep their channel ('ui' dismissals must not collapse to 'webhook').
     async def _check():
         async with get_db_context() as db:
             cur = await db.execute(
                 """
-                SELECT n.due_date, n.kind FROM notification_log n
+                SELECT n.due_date, n.kind, n.channel FROM notification_log n
                 JOIN calendar_events e ON e.id = n.event_id
+                ORDER BY n.channel
                 """
             )
             return [dict(r) for r in await cur.fetchall()]
 
     rows = asyncio.run(_check())
-    assert rows == [{"due_date": "2026-10-01", "kind": "due"}]
+    assert rows == [
+        {"due_date": "2026-10-01", "kind": "due", "channel": "ui"},
+        {"due_date": "2026-10-01", "kind": "due", "channel": "webhook"},
+    ]
 
 
 def test_restore_merge_is_idempotent(db_env):

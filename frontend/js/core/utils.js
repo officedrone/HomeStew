@@ -58,18 +58,20 @@ async function errorDetailFrom(response, fallback) {
     return fallback;
 }
 
-// Show a transient notification. With options.persistent the toast gets a ✕
-// button and stays until dismissed (used by the index progress monitor); all
-// other call sites keep the auto-remove timer. options.id reuses an existing
-// toast with that id instead of stacking a new one - the progress monitor
-// updates its single toast in place via updateToast().
+// Show a transient notification. INTERNAL primitive - call sites use the
+// notify* wrappers below (or notifyEvent for server payloads); this function
+// stays private to this file so every toast in the app flows through one
+// place. With options.persistent the toast gets a ✕ button and stays until
+// dismissed (used by the index progress monitor); all other call sites keep
+// the auto-remove timer. options.id reuses an existing toast with that id
+// instead of stacking a new one - the progress monitor updates its single
+// toast in place via updateToast().
 //
 // options.actions: [{label, variant, onClick}] renders a button row under the
 // message (the notification framework's "Go To" / "Dismiss" pair; variant is
 // 'primary' or 'ghost'). options.onClose fires when the ✕ closes the toast -
-// the framework uses it to remember a session-local hide. Both are additive:
-// every pre-existing call site passes neither and behaves exactly as before.
-function showToast(message, type = 'success', detailedError = null, options = {}) {
+// the framework uses it to remember a session-local hide.
+function _renderToast(message, type = 'success', detailedError = null, options = {}) {
     const container = document.getElementById('toast-container');
 
     // Same-id persistent toasts are updated rather than duplicated.
@@ -174,6 +176,85 @@ function updateToast(toast, message, percent = null) {
         if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
     }
     return toast;
+}
+
+// ---------------------------------------------------------------------------
+// Unified notification API (v0.2.5) - the ONLY toast entry points for call
+// sites. _renderToast above stays private to this file so every toast in the
+// app flows through one place; tests/test_frontend_split.py guards that no
+// showToast(/_renderToast( call appears anywhere else.
+//
+//   notify(message, {type, detail, persistent, progress, id, actions, onClose})
+//   notifySuccess / notifyError / notifyInfo / notifyWarn - intent wrappers
+//   notifyEvent(item, handlers) - renders a server UINotificationItem (the
+//     poll feed or a Test preview) as a persistent card with Go To / Dismiss.
+//
+// notifyError accepts both (message, detailString) and (message, options) so
+// call sites read naturally whichever shape they need. All wrappers return
+// the toast element (or the reused one when options.id matches an open toast).
+// ---------------------------------------------------------------------------
+
+function notify(message, options = {}) {
+    const { type = 'success', detail = null, ...rest } = options;
+    return _renderToast(message, type, detail, rest);
+}
+
+function notifySuccess(message, options = {}) {
+    return notify(message, { ...options, type: 'success' });
+}
+
+function notifyError(message, detailOrOptions = null, options = {}) {
+    if (detailOrOptions && typeof detailOrOptions === 'object') {
+        return notify(message, { ...detailOrOptions, type: 'error' });
+    }
+    return notify(message, { ...options, type: 'error', detail: detailOrOptions });
+}
+
+function notifyInfo(message, options = {}) {
+    return notify(message, { ...options, type: 'info' });
+}
+
+function notifyWarn(message, options = {}) {
+    return notify(message, { ...options, type: 'warn' });
+}
+
+// Render one server notification item (GET /api/notifications/ui or the Test
+// endpoint's sample) as a persistent card. The severity maps straight onto
+// the toast style; Go To / Dismiss are wired through `handlers` so this file
+// stays free of app logic - notifications.js supplies the navigation, the
+// server-side dismiss call, and the session-local hide bookkeeping, while a
+// Test preview passes lighter handlers that only close the card.
+//   handlers.onGoTo(item, toastEl)     - primary action clicked
+//   handlers.onDismiss(item, toastEl)  - Dismiss clicked
+//   handlers.onClose(item)             - ✕ clicked (persistent close button)
+// `options` are merged last, so a caller can override the id (a Test preview
+// must not reuse a live card's node) or any other render option.
+function notifyEvent(item, handlers = {}, options = {}) {
+    const actions = [];
+    if (handlers.onGoTo) {
+        actions.push({
+            label: item.action_label || 'Go To',
+            variant: 'primary',
+            onClick: (el) => handlers.onGoTo(item, el),
+        });
+    }
+    if (handlers.onDismiss) {
+        actions.push({
+            label: 'Dismiss',
+            variant: 'ghost',
+            onClick: (el) => handlers.onDismiss(item, el),
+        });
+    }
+    return notify(item.message, {
+        type: item.severity || 'warn',
+        persistent: true,
+        // The dedup key identifies THIS occurrence, so a recurring calendar
+        // event's next card never reuses the dismissed one's DOM node.
+        id: `ui-notify-${item.dedup_key || item.key}`,
+        actions,
+        onClose: handlers.onClose ? () => handlers.onClose(item) : undefined,
+        ...options,
+    });
 }
 
 function escapeHtml(text) {

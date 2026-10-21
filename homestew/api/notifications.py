@@ -1,5 +1,6 @@
 """Notification API endpoints: webhook test sends and the in-app toast feed."""
 import logging
+from typing import Optional
 
 import requests
 from fastapi import APIRouter, HTTPException, status
@@ -9,9 +10,11 @@ from homestew.config import settings
 from homestew.models.schemas import (
     UINotificationActionResponse,
     UINotificationListResponse,
+    UINotificationTestRequest,
+    UINotificationTestResponse,
     WebhookTestRequest,
 )
-from homestew.services import ui_notifications
+from homestew.services import dispatch, ui_notifications
 from homestew.services.notifier import build_test_payload
 from homestew.services.notify_channels import send_test_webhook
 
@@ -28,25 +31,30 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 @router.get("/ui", response_model=UINotificationListResponse)
 async def get_ui_notifications():
-    """Active in-app notifications, evaluating any check whose interval elapsed.
+    """Active in-app notifications: health episodes + calendar due/overdue.
 
-    Cheap by design: a check only re-runs its condition query once its own
-    configured interval has passed, so the per-minute poll costs almost
-    nothing the rest of the time.
+    Read-only since v0.2.5 - evaluation happens in the background notifier
+    loop (services/ui_notifications.run_due_checks) - so the per-minute poll
+    never runs condition queries and costs two cheap SELECTs plus, for toast-
+    subscribed calendar reminders, one candidate scan.
     """
     return UINotificationListResponse(**await ui_notifications.collect())
 
 
 @router.post("/ui/{key}/dismiss", response_model=UINotificationActionResponse)
 async def dismiss_ui_notification(key: str):
-    """Dismiss the current occurrence of one notification.
+    """Dismiss one occurrence - a check episode or a calendar card.
 
-    Server-side and permanent for that occurrence: the item never returns
-    while the condition keeps holding, and comes back only if the problem is
-    resolved and later recurs. Unknown key -> 404; nothing active to dismiss
-    -> ok:false (a benign race with another tab closing the episode).
+    Accepts both plain check keys (``unindexed_manuals``) and calendar dedup
+    keys (``calendar:{event_id}:{due}:{kind}``), i.e. whatever the item's
+    ``dedup_key`` field carries. Server-side and permanent for that
+    occurrence: a check stays silent while the condition holds (returning
+    only on a new episode); a calendar card writes a 'ui' ledger row so it
+    never resurrects, while the NEXT occurrence of a recurring event still
+    notifies. Unknown key -> 404; nothing active to dismiss -> ok:false (a
+    benign race with another tab closing the episode).
     """
-    if key not in ui_notifications.CHECKS:
+    if not ui_notifications.is_dismissable_key(key):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown notification: {key}",
@@ -56,18 +64,65 @@ async def dismiss_ui_notification(key: str):
 
 @router.post("/ui/{key}/check", response_model=UINotificationListResponse)
 async def check_ui_notification(key: str):
-    """Force one immediate evaluation of a single check, ignoring its interval.
+    """Force one immediate evaluation of a single event, ignoring its interval.
 
-    Returns the full active list (same shape as GET /ui) so the caller can
-    repaint without another request. Unknown key -> 404.
+    Condition checks run their evaluator (and deliver a new episode to
+    subscribed external channels, like the background loop would); the
+    calendar rule event runs one notifier scan (delivering due/overdue
+    occurrences to its subscribed external channels - the ledger still
+    dedupes occurrences already sent). Either way the response is the full
+    active list (same shape as GET /ui, including per-check statuses) so the
+    caller can repaint without another request. Unknown key -> 404.
     """
-    if key not in ui_notifications.CHECKS:
+    if key in ui_notifications.CHECKS:
+        await ui_notifications.run_due_checks(force_key=key)
+    elif key == dispatch.CALENDAR_EVENT_KEY:
+        from homestew.services import notifier
+
+        await notifier.run_tick()
+    else:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown notification: {key}",
         )
-    return UINotificationListResponse(
-        **await ui_notifications.collect(force_key=key)
+    return UINotificationListResponse(**await ui_notifications.collect())
+
+
+@router.post("/ui/{key}/test", response_model=UINotificationTestResponse)
+async def test_ui_notification(
+    key: str, body: Optional[UINotificationTestRequest] = None
+):
+    """Preview one event AND fire it through its real subscribed channels.
+
+    Two things happen, mirroring what a live alert would do (decision: Test
+    must exercise the actual delivery configuration):
+
+    1. A sample item is returned for a local preview toast - built from the
+       event's registered sample data without evaluating anything or touching
+       state, so it works even when the condition does not currently hold.
+    2. The same payload (marked ``test: true``) is delivered to every
+       non-UI channel subscribed for the event; per-channel success comes
+       back in ``deliveries`` so a broken webhook fails visibly instead of
+       only previewing happily. No ledger or episode state is written.
+
+    Works even with no channel subscribed yet (the preview always renders;
+    verifying before subscribing is the point). Unknown key -> 404.
+
+    An optional JSON body ``{"channels": [...]}`` overrides which channels to
+    fire through - the Settings UI sends the checkboxes exactly as currently
+    shown, so a freshly ticked (unsaved) Webhook still gets the test POST.
+    Without a body the saved subscription is used, unchanged.
+    """
+    if key not in dispatch.all_event_defs():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown notification: {key}",
+        )
+    deliveries = await ui_notifications.test_event(
+        key, channels=body.channels if body else None
+    )
+    return UINotificationTestResponse(
+        item=ui_notifications.sample_item(key), deliveries=deliveries
     )
 
 

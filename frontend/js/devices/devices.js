@@ -90,7 +90,7 @@ async function loadDevices() {
         refreshDashboard();
     } catch (error) {
         console.error('Failed to load devices:', error);
-        showToast('Failed to load devices', 'error');
+        notifyError('Failed to load devices');
     }
 }
 
@@ -435,7 +435,7 @@ async function selectDeviceIcon(key) {
             await loadDevices();
         } catch (error) {
             console.error('Failed to update device icon:', error);
-            showToast('Failed to update icon', 'error');
+            notifyError('Failed to update icon');
         }
         return;
     }
@@ -880,7 +880,7 @@ async function fetchManualsForNewDevice() {
     const brand = document.getElementById('device-brand').value.trim();
     const model = document.getElementById('device-model').value.trim();
     if (!name || !brand || !model) {
-        showToast('Enter the device name, brand and model first', 'error');
+        notifyError('Enter the device name, brand and model first');
         return;
     }
     if (!beginOp('add-device-fetch-manuals')) return;
@@ -914,11 +914,11 @@ async function fetchManualsForNewDevice() {
             });
             if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to create device'));
             _addDeviceCreatedId = (await response.json()).id;
-            showToast('Device saved - pick the manuals to download', 'success');
+            notifySuccess('Device saved - pick the manuals to download');
         }
     } catch (error) {
         console.error('Failed to save device before fetching manuals:', error);
-        showToast(error.message || 'Could not save the device first', 'error');
+        notifyError(error.message || 'Could not save the device first');
         return;
     } finally {
         endOp('add-device-fetch-manuals');
@@ -966,7 +966,7 @@ function addAddDeviceAttribute() {
     const value = valueInput.value.trim();
     
     if (!name || !value) {
-        showToast('Please enter both attribute name and value', 'error');
+        notifyError('Please enter both attribute name and value');
         return;
     }
     
@@ -1026,7 +1026,7 @@ async function handleAddDevice(e) {
             if (!resp.ok) {
                 let detail = `Failed to add attribute "${attr.name}"`;
                 try { const err = await resp.json(); if (err.detail) detail = err.detail; } catch (_) {}
-                showToast(detail, 'error');
+                notifyError(detail);
             }
         }
 
@@ -1035,7 +1035,7 @@ async function handleAddDevice(e) {
         const files = [...manualInput.files];
         for (const file of files) {
             if (!file.name.toLowerCase().endsWith('.pdf')) {
-                showToast(`Skipped "${file.name}" - only PDF files are supported`, 'error');
+                notifyError(`Skipped "${file.name}" - only PDF files are supported`);
                 continue;
             }
             const formData = new FormData();
@@ -1050,7 +1050,7 @@ async function handleAddDevice(e) {
                     const err = await uploadResp.json();
                     if (err.detail) detail = err.detail;
                 } catch (e) { /* non-JSON error body */ }
-                showToast(detail, 'error');
+                notifyError(detail);
             }
         }
 
@@ -1058,14 +1058,14 @@ async function handleAddDevice(e) {
         const msg = [];
         if (attrCount > 0) msg.push(`${attrCount} attribute${attrCount !== 1 ? 's' : ''}`);
         if (files.length > 0) msg.push(`${files.length} manual${files.length !== 1 ? 's' : ''}`);
-        showToast(msg.length > 0
+        notifySuccess(msg.length > 0
             ? `Device added with ${msg.join(' and ')}!`
-            : 'Device added successfully!', 'success');
+            : 'Device added successfully!');
         closeAddDeviceModal();
         await loadDevices();
     } catch (error) {
         console.error('Failed to add device:', error);
-        showToast('Failed to add device', 'error');
+        notifyError('Failed to add device');
     } finally {
         endOp('add-device');
     }
@@ -1083,7 +1083,7 @@ async function openDeviceEditorById(deviceId) {
     }
     const device = devices.find(d => d.id === deviceId);
     if (!device) {
-        showToast(`Device ${deviceId} no longer exists`, 'error');
+        notifyError(`Device ${deviceId} no longer exists`);
         return;
     }
     editDevice(deviceId);
@@ -1152,12 +1152,12 @@ async function handleEditDevice(e) {
         
         if (!response.ok) throw new Error('Failed to update device');
         
-        showToast('Device updated successfully!', 'success');
+        notifySuccess('Device updated successfully!');
         document.getElementById('edit-device-modal').style.display = 'none';
         await loadDevices();
     } catch (error) {
         console.error('Failed to update device:', error);
-        showToast('Failed to update device', 'error');
+        notifyError('Failed to update device');
     } finally {
         endOp('edit-device');
     }
@@ -1203,7 +1203,7 @@ async function addDeviceAttribute(deviceId) {
     const attributeValue = valueInput.value.trim();
     
     if (!attributeName || !attributeValue) {
-        showToast('Please enter both attribute name and value', 'error');
+        notifyError('Please enter both attribute name and value');
         return;
     }
     if (!beginOp(`add-attr-${deviceId}`)) return;
@@ -1214,14 +1214,14 @@ async function addDeviceAttribute(deviceId) {
         
         if (!response.ok) throw new Error('Failed to add attribute');
         
-        showToast('Attribute added successfully!', 'success');
+        notifySuccess('Attribute added successfully!');
         nameInput.value = '';
         valueInput.value = '';
         await loadDeviceAttributes(deviceId);
         await loadDevices(); // refresh the sidebar accordion details
     } catch (error) {
         console.error('Failed to add attribute:', error);
-        showToast('Failed to add attribute', 'error');
+        notifyError('Failed to add attribute');
     } finally {
         endOp(`add-attr-${deviceId}`);
     }
@@ -1241,12 +1241,12 @@ async function removeDeviceAttribute(deviceId, attributeId) {
         
         if (!response.ok) throw new Error('Failed to remove attribute');
         
-        showToast('Attribute removed', 'success');
+        notifySuccess('Attribute removed');
         await loadDeviceAttributes(deviceId);
         await loadDevices(); // refresh the sidebar accordion details
     } catch (error) {
         console.error('Failed to remove attribute:', error);
-        showToast('Failed to remove attribute', 'error');
+        notifyError('Failed to remove attribute');
     } finally {
         endOp(`remove-attr-${deviceId}-${attributeId}`);
     }
@@ -1444,7 +1444,7 @@ async function storeManual(index, btn) {
 
     const ok = await _storeOne(index, btn, replace, fetchManualsDeviceId);
     if (ok) {
-        showToast(`Stored "${fetchCandidates[index].name}"`, 'success');
+        notifySuccess(`Stored "${fetchCandidates[index].name}"`);
         await refreshAfterManualStored();
     }
 }
@@ -1491,7 +1491,7 @@ async function _storeOne(index, btn, replace, deviceId) {
     } catch (error) {
         console.error('Failed to store manual:', error);
         _markRowError(index, btn, originalIcon, error.message || 'Download failed.');
-        showToast(error.message || 'Download failed.', 'error');
+        notifyError(error.message || 'Download failed.');
         return false;
     }
 }
@@ -1554,7 +1554,7 @@ async function downloadAllManuals() {
     endOp('download-all-manuals');
 
     if (okCount > 0) {
-        showToast(`Stored ${okCount} manual${okCount !== 1 ? 's' : ''}`, 'success');
+        notifySuccess(`Stored ${okCount} manual${okCount !== 1 ? 's' : ''}`);
         await refreshAfterManualStored();
     }
     if (!fetchCandidates.some(c => !c.already_downloaded)) {
@@ -1598,12 +1598,12 @@ async function handleManualFileSelected(event) {
     if (!file || !deviceId) return;
 
     if (!file.name.toLowerCase().endsWith('.pdf')) {
-        showToast('Only PDF files are supported', 'error');
+        notifyError('Only PDF files are supported');
         return;
     }
     if (!beginOp(`upload-manual-${deviceId}`)) return;
 
-    showToast(`Uploading ${file.name}...`, 'success');
+    notifySuccess(`Uploading ${file.name}...`);
     try {
         const formData = new FormData();
         formData.append('file', file);
@@ -1623,7 +1623,7 @@ async function handleManualFileSelected(event) {
         }
 
         const manual = await response.json();
-        showToast(`Uploaded "${manual.filename}"`, 'success');
+        notifySuccess(`Uploaded "${manual.filename}"`);
         await loadDevices(); // refresh the manual count on the device card
         // If the edit modal is open for this device, show the new manual too.
         if (document.getElementById('edit-device-modal').style.display === 'flex' &&
@@ -1632,7 +1632,7 @@ async function handleManualFileSelected(event) {
         }
     } catch (error) {
         console.error('Failed to upload manual:', error);
-        showToast(error.message || 'Failed to upload manual', 'error');
+        notifyError(error.message || 'Failed to upload manual');
     } finally {
         endOp(`upload-manual-${deviceId}`);
     }
@@ -1686,12 +1686,12 @@ async function deleteManual(deviceId, manualId) {
         });
         if (!response.ok) throw new Error('Failed to delete manual');
 
-        showToast('Manual deleted', 'success');
+        notifySuccess('Manual deleted');
         await loadManuals(deviceId);
         await loadDevices(); // refresh the manual count on the device card
     } catch (error) {
         console.error('Failed to delete manual:', error);
-        showToast('Failed to delete manual', 'error');
+        notifyError('Failed to delete manual');
     } finally {
         endOp(`delete-manual-${deviceId}-${manualId}`);
     }
@@ -1712,11 +1712,11 @@ async function deleteDevice(deviceId) {
         
         expandedDeviceIds.delete(deviceId);
         gridExpandedIds.delete(deviceId);
-        showToast('Device deleted', 'success');
+        notifySuccess('Device deleted');
         await loadDevices();
     } catch (error) {
         console.error('Failed to delete device:', error);
-        showToast('Failed to delete device', 'error');
+        notifyError('Failed to delete device');
     } finally {
         endOp(`delete-device-${deviceId}`);
     }
@@ -1770,7 +1770,7 @@ async function handleSaveCategory(e) {
     const id = document.getElementById('category-id').value;
     const name = document.getElementById('category-name').value.trim();
     if (!name) {
-        showToast('Category name is required', 'error');
+        notifyError('Category name is required');
         return;
     }
     if (!beginOp('save-category')) return;
@@ -1781,13 +1781,13 @@ async function handleSaveCategory(e) {
             body: JSON.stringify({ name })
         });
         if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to save category'));
-        showToast(id ? 'Category renamed' : 'Category created', 'success');
+        notifySuccess(id ? 'Category renamed' : 'Category created');
         closeCategoryModal();
         await loadCategories();
         renderDevicesGrid();
     } catch (error) {
         console.error('Failed to save category:', error);
-        showToast(error.message || 'Failed to save category', 'error');
+        notifyError(error.message || 'Failed to save category');
     } finally {
         endOp('save-category');
     }
@@ -1804,12 +1804,12 @@ async function deleteCategory(categoryId, deviceCount) {
     try {
         const response = await fetch(`/api/categories/${categoryId}`, { method: 'DELETE' });
         if (!response.ok) throw new Error('Failed to delete category');
-        showToast('Category deleted', 'success');
+        notifySuccess('Category deleted');
         await loadCategories();
         renderDevicesGrid();
     } catch (error) {
         console.error('Failed to delete category:', error);
-        showToast('Failed to delete category', 'error');
+        notifyError('Failed to delete category');
     } finally {
         endOp(`delete-category-${categoryId}`);
     }

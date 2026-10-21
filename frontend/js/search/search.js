@@ -53,7 +53,7 @@ async function performSearch() {
     const query = document.getElementById('search-input').value.trim();
     
     if (!query) {
-        showToast('Please enter a search query', 'error');
+        notifyError('Please enter a search query');
         return;
     }
     if (!beginOp('search')) return;

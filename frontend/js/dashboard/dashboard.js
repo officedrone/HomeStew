@@ -52,8 +52,13 @@ async function refreshSystemStatus() {
         return;
     }
 
-    // Notifications: the master toggle, plus the delivery channel's type.
-    const notifyOn = !!settings.notify_enabled;
+    // Notifications: on when at least one event has a delivery channel
+    // subscribed (channel enablement IS the per-event switch since the
+    // master toggle was removed), plus the webhook channel's type.
+    const subs = settings.notify_subscriptions || {};
+    const notifyOn = Object.values(subs).some(
+        (sub) => Array.isArray(sub.channels) && sub.channels.length > 0
+    );
     setDashStatus('status-notifications', notifyOn ? 'On' : 'Off', notifyOn ? 'on' : 'off');
     // Webhook Type "none" (the default) means no webhook at all: show a grey
     // "None", the same neutral state as Notifications being switched off.

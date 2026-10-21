@@ -225,22 +225,57 @@ async def init_db():
             ON calendar_events(device_id)
         """)
 
-        # Notification ledger - one row per (event, occurrence, kind) already
-        # delivered. The background loop re-scans every tick, so this is what
-        # makes a due/overdue alert fire exactly once; recurring events re-alert
-        # on future occurrences because the due date differs. Rows cascade with
-        # their event. See services/notifier.py.
+        # Notification ledger - one row per (event, occurrence, kind, channel)
+        # already delivered. The background loop re-scans every tick, so this
+        # is what makes a due/overdue alert fire exactly once PER CHANNEL;
+        # recurring events re-alert on future occurrences because the due date
+        # differs. The channel column (v0.2.5) is what lets one occurrence be
+        # delivered to several channels independently: 'webhook' rows track
+        # outbound posts, 'ui' rows back in-app toast delivery - a Dismissed
+        # calendar toast writes a 'ui' row so the card never resurrects.
+        # Rows cascade with their event. See services/notifier.py.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS notification_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id INTEGER NOT NULL,
                 due_date DATE NOT NULL,
                 kind TEXT NOT NULL,
+                channel TEXT NOT NULL DEFAULT 'webhook',
                 sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(event_id, due_date, kind),
+                UNIQUE(event_id, due_date, kind, channel),
                 FOREIGN KEY (event_id) REFERENCES calendar_events(id) ON DELETE CASCADE
             )
         """)
+
+        # v0.2.5 migration: pre-channel installs have the ledger keyed on
+        # (event_id, due_date, kind) only, which cannot hold one row per
+        # channel. SQLite cannot alter a UNIQUE constraint, so rebuild the
+        # table in place when the channel column is missing. Existing rows
+        # keep their identity as 'webhook' deliveries (the only channel that
+        # existed), so upgraded installs never re-post old alerts.
+        cursor = await db.execute("PRAGMA table_info(notification_log)")
+        ledger_cols = {row[1] for row in await cursor.fetchall()}
+        if "channel" not in ledger_cols:
+            await db.execute("""
+                CREATE TABLE notification_log_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id INTEGER NOT NULL,
+                    due_date DATE NOT NULL,
+                    kind TEXT NOT NULL,
+                    channel TEXT NOT NULL DEFAULT 'webhook',
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(event_id, due_date, kind, channel),
+                    FOREIGN KEY (event_id) REFERENCES calendar_events(id) ON DELETE CASCADE
+                )
+            """)
+            await db.execute("""
+                INSERT OR IGNORE INTO notification_log_new
+                    (id, event_id, due_date, kind, channel, sent_at)
+                SELECT id, event_id, due_date, kind, 'webhook', sent_at
+                FROM notification_log
+            """)
+            await db.execute("DROP TABLE notification_log")
+            await db.execute("ALTER TABLE notification_log_new RENAME TO notification_log")
 
         # UI notification state - one row per in-app condition check (the
         # registry in services/ui_notifications.py). This is what makes a
@@ -249,7 +284,10 @@ async def init_db():
         # until the condition goes false and a later recurrence re-notifies.
         # last_checked_at drives the per-check interval; details caches the
         # evaluator's payload (e.g. {"count": 3}) between checks. Timestamps
-        # are ISO-8601 UTC strings. See services/ui_notifications.py.
+        # are ISO-8601 UTC strings. notified_channels (v0.2.5) is a JSON list
+        # of the non-UI channels already delivered for the CURRENT episode,
+        # so a webhook-subscribed check alerts once per episode even though
+        # the condition keeps re-evaluating. See services/ui_notifications.py.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS ui_notification_state (
                 check_key TEXT PRIMARY KEY,
@@ -257,9 +295,19 @@ async def init_db():
                 condition_true INTEGER NOT NULL DEFAULT 0,
                 episode_started_at TEXT,
                 dismissed_at TEXT,
-                details TEXT NOT NULL DEFAULT '{}'
+                details TEXT NOT NULL DEFAULT '{}',
+                notified_channels TEXT NOT NULL DEFAULT '[]'
             )
         """)
+
+        # v0.2.5 migration: add notified_channels to pre-existing installs.
+        try:
+            await db.execute(
+                "ALTER TABLE ui_notification_state ADD COLUMN"
+                " notified_channels TEXT NOT NULL DEFAULT '[]'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Create FTS5 virtual table for PDF content search.
         #

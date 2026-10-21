@@ -62,10 +62,6 @@ EDITABLE_SETTINGS = (
     "SEARCH_TOOL_DESCRIPTION",
     "CALENDAR_TOOL_DESCRIPTION",
     "DEVICE_TOOL_DESCRIPTION",
-    "NOTIFY_ENABLED",
-    "NOTIFY_CHECK_INTERVAL_MINUTES",
-    "NOTIFY_LEAD_VALUE",
-    "NOTIFY_LEAD_UNIT",
     "NOTIFY_WEBHOOK_ENABLED",
     "NOTIFY_WEBHOOK_TYPE",
     "NOTIFY_WEBHOOK_URL",
@@ -86,11 +82,18 @@ EDITABLE_SETTINGS = (
     # indexer at run time, and whether uploads/fetches index immediately.
     "INDEX_MAX_CHUNK_SIZE",
     "INDEX_AUTO_ON_UPLOAD",
-    # In-app notification checks (Settings > Advanced): per-check overrides
-    # {check_key: {"enabled": bool, "interval_minutes": int}}. The registry
-    # in services/ui_notifications.py supplies the defaults and the valid
-    # keys; anything unknown in settings.json is dropped at load.
-    "UI_NOTIFICATIONS",
+    # Notification event subscriptions (Settings > Notifications): per-event
+    # overrides {event_key: {"interval_minutes": int,
+    # "notify_before_due_hours": int, "channels": [str]}}. An event is
+    # enabled exactly when its channel list is non-empty - ticking a
+    # "Notify via" checkbox IS the enablement (the older per-event
+    # "enabled": false flag migrates to an empty channel list on load).
+    # The registry in services/ui_notifications.py supplies the defaults and
+    # the valid event keys; services/dispatch.py owns the valid channel
+    # names. Anything unknown in settings.json is dropped at load. Replaces
+    # the older UI_NOTIFICATIONS map (migrated on load - see
+    # load_settings_overrides).
+    "NOTIFY_SUBSCRIPTIONS",
 )
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
@@ -177,15 +180,6 @@ class Settings(BaseSettings):
     CALENDAR_TOOL_DESCRIPTION: str = DEFAULT_CALENDAR_TOOL_DESCRIPTION
     DEVICE_TOOL_DESCRIPTION: str = DEFAULT_DEVICE_TOOL_DESCRIPTION
 
-    # Notifications - a background loop (services/notifier.py) checks calendar
-    # events every NOTIFY_CHECK_INTERVAL_MINUTES minutes and alerts when one is
-    # overdue or due within the lead time (value + hours/days unit). The loop
-    # re-reads these values each tick, so UI changes apply without a restart.
-    NOTIFY_ENABLED: bool = False
-    NOTIFY_CHECK_INTERVAL_MINUTES: int = 15
-    NOTIFY_LEAD_VALUE: int = 24
-    NOTIFY_LEAD_UNIT: str = "hours"  # 'hours' | 'days'
-
     # Webhook notification channel - generic JSON POST to the user's URL.
     # The token is an optional bearer secret; like the LLM API key its value
     # is never returned by the settings API, only whether one is configured.
@@ -229,13 +223,16 @@ class Settings(BaseSettings):
     # Settings > Search - useful only to defer CPU work on weak hosts.
     INDEX_AUTO_ON_UPLOAD: bool = True
 
-    # In-app notification checks (Settings > Advanced "Health Notifications").
-    # Per-check overrides of the registry defaults, e.g.
-    # {"unindexed_manuals": {"enabled": true, "interval_minutes": 1440}}.
-    # Only the keys the user changed need to appear; the service merges the
-    # rest from its registry. Dismissal state itself lives in the
-    # ui_notification_state table, not here.
-    UI_NOTIFICATIONS: dict = {}
+    # Notification event subscriptions (Settings > Notifications "Notification
+    # Events"). Per-event overrides of the registry defaults, e.g.
+    # {"unindexed_manuals": {"interval_minutes": 1440,
+    # "channels": ["ui", "webhook"]}}. Only the keys the user changed need to
+    # appear; the service merges the rest from its registries. An event is
+    # enabled when its channel list is non-empty (channel enablement IS the
+    # per-event switch). Delivery bookkeeping (episodes, dismissals,
+    # per-channel ledgers) lives in the ui_notification_state /
+    # notification_log tables, not here.
+    NOTIFY_SUBSCRIPTIONS: dict = {}
     
     # Manual fetching (services/manual_finder.py + manual_downloader.py).
     # Env-only knobs (not UI-editable): MANUAL_SEARCH_BACKENDS is a comma-list
@@ -331,9 +328,16 @@ def load_settings_overrides() -> None:
     # ignored rather than crashing the load of every other setting.
     if "SETUP_STEPS" in data:
         data["SETUP_STEPS"] = normalize_setup_steps(data["SETUP_STEPS"])
-    # Same defensive coercion for the nested notification-check overrides.
-    if "UI_NOTIFICATIONS" in data:
-        data["UI_NOTIFICATIONS"] = normalize_ui_notifications(data["UI_NOTIFICATIONS"])
+    # Same defensive coercion for the nested notification-subscription map.
+    # One-time migration: installs that only have the older UI_NOTIFICATIONS
+    # map (enabled/interval per check) carry it over as the new subscriptions,
+    # so existing per-check choices survive the rename to event subscriptions.
+    if "NOTIFY_SUBSCRIPTIONS" not in data and "UI_NOTIFICATIONS" in data:
+        data["NOTIFY_SUBSCRIPTIONS"] = data["UI_NOTIFICATIONS"]
+    if "NOTIFY_SUBSCRIPTIONS" in data:
+        data["NOTIFY_SUBSCRIPTIONS"] = normalize_notify_subscriptions(
+            data["NOTIFY_SUBSCRIPTIONS"]
+        )
     unreadable: list[str] = []
     migrate = False  # plaintext secrets found while a key is available
     for key in EDITABLE_SETTINGS:
@@ -442,23 +446,36 @@ def normalize_setup_steps(value) -> dict:
     }
 
 
-# Bounds for a notification check's interval (minutes). 5 min keeps the
-# poll honest without hammering the DB; 10080 = one week.
+# Bounds for a notification event's scan interval (minutes). 5 min keeps the
+# loop honest without hammering the DB; 10080 = one week.
 UI_NOTIFICATION_INTERVAL_MIN = 5
 UI_NOTIFICATION_INTERVAL_MAX = 10080
 
+# Bounds for an event's "notify before due" lead (hours). 0 = alert only once
+# the event is actually due/overdue; 8760 = one year of lead.
+NOTIFY_LEAD_HOURS_MIN = 0
+NOTIFY_LEAD_HOURS_MAX = 8760
 
-def normalize_ui_notifications(value) -> dict:
-    """Coerce a stored UI_NOTIFICATIONS value to a clean per-check map.
 
-    Shape: ``{check_key: {"enabled": bool, "interval_minutes": int}}``. Keys
-    must be plain strings; each entry keeps only valid fields - booleans for
-    enabled, ints clamped into [UI_NOTIFICATION_INTERVAL_MIN,
-    UI_NOTIFICATION_INTERVAL_MAX] for the interval - so a hand-edited or
-    corrupted settings.json can never smuggle junk into the check loop.
-    Unknown check keys survive here (the service ignores what its registry
-    does not know); the merge with registry defaults happens in
-    services/ui_notifications.py to avoid a circular import.
+def normalize_notify_subscriptions(value) -> dict:
+    """Coerce a stored NOTIFY_SUBSCRIPTIONS value to a clean per-event map.
+
+    Shape: ``{event_key: {"interval_minutes": int,
+    "notify_before_due_hours": int, "channels": [str]}}``. Keys must be plain
+    strings; each entry keeps only valid fields - ints clamped into
+    [UI_NOTIFICATION_INTERVAL_MIN, UI_NOTIFICATION_INTERVAL_MAX] for the
+    interval and [NOTIFY_LEAD_HOURS_MIN, NOTIFY_LEAD_HOURS_MAX] for the lead,
+    and a deduplicated list of non-empty channel names - so a hand-edited or
+    corrupted settings.json can never smuggle junk into the dispatch loop.
+    Unknown event keys survive here (the service ignores what its registry
+    does not know) and unknown channel names are dropped only against the
+    static channel-name list, to avoid importing the services layer from
+    config.
+
+    Enablement migration: an event is enabled exactly when its channel list
+    is non-empty, so the older per-event ``"enabled": false`` flag migrates
+    to an explicit empty channel list (a stored ``true`` simply drops the
+    flag - the channels already say everything).
     """
     if not isinstance(value, dict):
         return {}
@@ -467,8 +484,6 @@ def normalize_ui_notifications(value) -> dict:
         if not isinstance(key, str) or not isinstance(entry, dict):
             continue
         clean: dict = {}
-        if isinstance(entry.get("enabled"), bool):
-            clean["enabled"] = entry["enabled"]
         interval = entry.get("interval_minutes")
         # bool is an int subclass - exclude it explicitly (True would store 1).
         if isinstance(interval, int) and not isinstance(interval, bool):
@@ -476,6 +491,24 @@ def normalize_ui_notifications(value) -> dict:
                 max(interval, UI_NOTIFICATION_INTERVAL_MIN),
                 UI_NOTIFICATION_INTERVAL_MAX,
             )
+        lead = entry.get("notify_before_due_hours")
+        if isinstance(lead, int) and not isinstance(lead, bool):
+            clean["notify_before_due_hours"] = min(
+                max(lead, NOTIFY_LEAD_HOURS_MIN),
+                NOTIFY_LEAD_HOURS_MAX,
+            )
+        channels = entry.get("channels")
+        seen: list[str] = []
+        if isinstance(channels, list):
+            for name in channels:
+                if isinstance(name, str) and name.strip() and name not in seen:
+                    seen.append(name)
+        if entry.get("enabled") is False:
+            # Legacy per-event disable flag: carry the intent over as "no
+            # channels" (the new way an event is off). True just drops it.
+            clean["channels"] = []
+        elif isinstance(channels, list):
+            clean["channels"] = seen
         if clean:
             out[key] = clean
     return out

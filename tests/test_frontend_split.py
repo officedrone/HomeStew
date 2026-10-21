@@ -143,3 +143,30 @@ def test_wire_all_calls_existing_functions():
     assert called, "wireAll() calls no wiring functions"
     unknown = [name for name in called if name not in funcs]
     assert not unknown, f"wireAll() calls undeclared functions: {unknown}"
+
+
+# The unified toast service (v0.2.5): every call site must go through the
+# notify*/notifyEvent wrappers in core/utils.js, which own the one rendering
+# primitive (_renderToast). A stray showToast( call means someone bypassed
+# the API and will break the next time the primitive's signature changes.
+_TOAST_PRIMITIVE_CALL = re.compile(r"(?<![.\w$])(?:showToast|_renderToast)\s*\(")
+
+
+def test_toast_calls_go_through_notify_api():
+    utils_rel = str((JS_DIR / "core" / "utils.js").relative_to(FRONTEND))
+    sources = {"index.html": INDEX_HTML.read_text(encoding="utf-8")}
+    for path in _js_files():
+        rel = str(path.relative_to(FRONTEND))
+        if rel == utils_rel:
+            continue  # the primitive's own home may call it
+        sources[rel] = path.read_text(encoding="utf-8")
+
+    offenders = {
+        where: len(_TOAST_PRIMITIVE_CALL.findall(text))
+        for where, text in sources.items()
+        if _TOAST_PRIMITIVE_CALL.search(text)
+    }
+    assert not offenders, (
+        "showToast(/_renderToast( called outside core/utils.js - use "
+        f"notifySuccess/notifyError/notifyInfo/notifyWarn/notifyEvent instead: {offenders}"
+    )

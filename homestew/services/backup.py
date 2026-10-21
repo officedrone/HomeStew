@@ -327,7 +327,7 @@ async def create_backup(include_manuals: bool = True) -> dict:
         events = [dict(r) for r in await ev_cur.fetchall()]
 
         log_cur = await db.execute(
-            "SELECT event_id, due_date, kind, sent_at FROM notification_log ORDER BY id"
+            "SELECT event_id, due_date, kind, channel, sent_at FROM notification_log ORDER BY id"
         )
         logs = [dict(r) for r in await log_cur.fetchall()]
 
@@ -771,8 +771,9 @@ async def _restore_backup_inner(zip_path: Path, mode: str) -> dict:
             events_restored += 1
 
         # --- notification ledger ------------------------------------------
-        # INSERT OR IGNORE: the UNIQUE(event_id, due_date, kind) key makes a
-        # re-restore of an already-alerted occurrence a no-op.
+        # INSERT OR IGNORE: the UNIQUE(event_id, due_date, kind, channel) key
+        # makes a re-restore of an already-alerted occurrence a no-op. The
+        # channel must survive or restored 'ui' dismissals collapse to webhook.
         for n in data.notification_log:
             bump_restore()
             live_event = event_map.get(n.event_id)
@@ -780,10 +781,11 @@ async def _restore_backup_inner(zip_path: Path, mode: str) -> dict:
                 continue  # its event wasn't restored/merged
             await db.execute(
                 """
-                INSERT OR IGNORE INTO notification_log (event_id, due_date, kind, sent_at)
-                VALUES (?, ?, ?, ?)
+                INSERT OR IGNORE INTO notification_log
+                    (event_id, due_date, kind, channel, sent_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (live_event, n.due_date, n.kind, n.sent_at),
+                (live_event, n.due_date, n.kind, n.channel or "webhook", n.sent_at),
             )
 
         await db.commit()
