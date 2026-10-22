@@ -4625,12 +4625,13 @@ body.is-dragging * {
 
 .ui-notify-table {
     width: 100%;
-    /* Sum of the fixed columns + a workable Event-name column. Below this the
-       wrapper scrolls rather than crushing inputs, checkboxes and labels into
-       unreadable slivers (auto layout would happily wrap "Not Applicable"
-       three lines deep to fit). */
-    min-width: 860px;
+    /* Fit-first sizing: the floor sits just above the table's natural
+       min-content width (~625px at this text size), so the table fills the
+       settings measure (see .settings-panels max-width) and only scrolls once
+       the viewport truly cannot fit it - columns are fully dynamic above. */
+    min-width: 630px;
     border-collapse: collapse;
+    /* Same text size as the Settings > Search table (.manuals-index-table). */
     font-size: 0.85rem;
 }
 
@@ -4652,27 +4653,14 @@ body.is-dragging * {
     border-bottom: none;
 }
 
-/* Column widths: Name takes the flexible remainder, the rest are fixed. */
-.ui-notify-table .col-status {
-    width: 170px;
-}
-
-.ui-notify-table .col-interval {
-    width: 120px;
-}
-
-/* "Notify before due (hrs)" - only rule rows carry an input here; check
-   rows show a dash, so the column stays narrow. */
-.ui-notify-table .col-lead {
-    width: 130px;
-}
+/* Column widths: fully dynamic. No fixed px widths - every column sizes to
+   its own content and shares any leftover table width proportionally, so no
+   column hoards empty space while another wraps mid-word. Headers wrap onto
+   two lines when their caption is longer than the cell's fair share. */
 
 /* "Notify via": one compact stacked checkbox per delivery channel inside a
    single cell. Stacked (not inline) so adding channels server-side never
    overflows the table, and each label stays clickable. */
-.ui-notify-table .col-channels {
-    width: 150px;
-}
 
 .notify-channel-option {
     display: flex;
@@ -4690,8 +4678,14 @@ body.is-dragging * {
 
 .ui-notify-table .col-check,
 .ui-notify-table .col-test {
-    width: 96px;
     text-align: center;
+}
+
+/* Action buttons/labels never wrap mid-word; the column just takes the width
+   of its widest button plus padding. */
+.ui-notify-table .col-check .card-icon-btn,
+.ui-notify-table .col-test .btn {
+    white-space: nowrap;
 }
 
 /* Inputs live directly in cells here (no .settings-field wrapper), so they
@@ -4704,7 +4698,7 @@ body.is-dragging * {
 }
 
 .ui-notify-table input[type="number"] {
-    width: 92px;
+    width: 84px;
     padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
@@ -4721,19 +4715,30 @@ body.is-dragging * {
 
 .ui-notify-status {
     display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
+    /* Always two lines: badge on top, relative timestamp under it. Never
+       forces the Status column wide, so the table keeps fitting its measure. */
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
     min-width: 0;
     font-size: 0.8rem;
 }
 
+/* The timestamp line under the badge sits flush with it (the global
+   .settings-hint margin is for stacked form fields, not table cells). */
+.ui-notify-status .settings-hint {
+    margin-top: 0;
+}
+
 /* Placeholder for a column that doesn't apply to a row (Status on the rule
    event, "Notify before due" on condition checks). Muted so it reads as an
-   absence of data, kept on one line so it never reflows the row taller. */
+   absence of data. */
 .ui-notify-na {
     color: var(--text-secondary);
+    /* Rendered as two lines via <br> in notifications.js ("Not" /
+       "Applicable"), so no nowrap - it must break where the markup breaks. */
     font-size: 0.8rem;
-    white-space: nowrap;
+    line-height: 1.35;
 }
 
 .ui-notify-badge {
@@ -4773,7 +4778,7 @@ body.is-dragging * {
    sideways scroll (the wrapper still scrolls if it must - see .ui-notify-wrap). */
 @media (max-width: 640px) {
     .ui-notify-table {
-        min-width: 720px;
+        min-width: 550px;
         font-size: 0.8rem;
     }
 
@@ -4782,28 +4787,7 @@ body.is-dragging * {
         padding: 6px 7px;
     }
 
-    .ui-notify-table .col-status {
-        width: 130px;
-    }
-
-    .ui-notify-table .col-interval {
-        width: 92px;
-    }
-
-    .ui-notify-table .col-lead {
-        width: 104px;
-    }
-
-    .ui-notify-table .col-channels {
-        width: 130px;
-    }
-
-    .ui-notify-table .col-check,
-    .ui-notify-table .col-test {
-        width: 72px;
-    }
-
     .ui-notify-table input[type="number"] {
-        width: 74px;
+        width: 68px;
     }
 }

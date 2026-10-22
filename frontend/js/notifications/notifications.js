@@ -222,7 +222,9 @@ function renderUINotificationSettings(settings) {
         // checks (manuals etc.) have none, so the cell reads "Not Applicable"
         // instead of an input. Rule rows likewise have no persisted check
         // status (the notifier scan drives them), so their Status cell does too.
-        const naCell = '<span class="ui-notify-na">Not Applicable</span>';
+        // Two stacked lines ("Not" / "Applicable") so the placeholder never
+        // forces its column wide - same two-line shape as the status cells.
+        const naCell = '<span class="ui-notify-na">Not<br>Applicable</span>';
         const leadCell = isRule
             ? `<input type="number" class="ui-notify-lead-input"
                     min="0" max="8760" step="1"
@@ -290,16 +292,18 @@ function uiNotifyStatusLabel(status) {
         return '<span class="ui-notify-badge status-unknown">Not checked yet</span>';
     }
     const when = escapeHtml(uiNotifyTimeAgo(status.last_checked_at));
+    // Two lines: badge on top, bare "Xh ago" timestamp under it (CSS stacks
+    // them; the word "checked" is dropped to keep the second line short).
     if (status.condition_true) {
         if (status.dismissed) {
             return `<span class="ui-notify-badge status-dismissed">Dismissed</span>`
-                + `<span class="settings-hint">checked ${when}</span>`;
+                + `<span class="settings-hint">${when}</span>`;
         }
         return `<span class="ui-notify-badge status-problem">Problem detected</span>`
-            + `<span class="settings-hint">checked ${when}</span>`;
+            + `<span class="settings-hint">${when}</span>`;
     }
     return `<span class="ui-notify-badge status-ok">OK</span>`
-        + `<span class="settings-hint">checked ${when}</span>`;
+        + `<span class="settings-hint">${when}</span>`;
 }
 
 // Repaint every rendered status badge from the cached statuses. Called after
@@ -329,7 +333,24 @@ async function checkNowUINotification(key, btn) {
         const data = await response.json();
         applyNotificationPayload(data);
         const firing = (data.items || []).some((item) => item.key === key);
-        if (firing) notifyWarn('Problem found');
+        // Calendar rule rows aren't "problems" - they report events inside the
+        // row's lead window, found or not. Read the value from the row itself
+        // so the message matches what's on screen.
+        const row = btn && btn.closest ? btn.closest('[data-ui-notify-key]') : null;
+        const lead = row && row.querySelector
+            ? row.querySelector('.ui-notify-lead-input') : null;
+        if (row && row.dataset.uiNotifyKind === 'rule' && lead) {
+            const hours = clampInt(lead.value, 0, 8760, 24);
+            if (firing) {
+                notifyWarn(hours > 0
+                    ? `There are events due in ${hours} hour${hours === 1 ? '' : 's'}`
+                    : 'There are events due now');
+            } else {
+                notifySuccess(hours > 0
+                    ? `No events in the next ${hours} hour${hours === 1 ? '' : 's'}`
+                    : 'No events due now');
+            }
+        } else if (firing) notifyWarn('Problem found');
         else notifySuccess('No problems found');
     } catch (e) {
         notifyError('Check failed');
