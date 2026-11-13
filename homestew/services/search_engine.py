@@ -586,13 +586,18 @@ async def _fetch_candidates(
 async def _fetch_device_entries(db, device_id: Optional[int] = None) -> List[dict]:
     """Build one searchable document per device from its own record.
 
-    A device's name, brand, model, description, serial/product numbers and
-    custom attributes are joined into a single text - the same fields the
-    chat UI already exposes as the "device entry". Users type real specs
-    into these fields (e.g. an attribute "RAM: 64GB max"), so when no
-    device filter is set they must be searchable alongside the manuals:
-    "How much RAM does my laptop support" should surface the device whose
-    entry answers it even when no manual page matches.
+    A device's name, brand, model, description, serial/product numbers,
+    custom attributes and photo text (label/notes/AI notes) are joined into
+    a single text - the same fields the chat UI already exposes as the
+    "device entry". Users type real specs into these fields (e.g. an
+    attribute "RAM: 64GB max"), so when no device filter is set they must be
+    searchable alongside the manuals: "How much RAM does my laptop support"
+    should surface the device whose entry answers it even when no manual
+    page matches.
+
+    Each entry also carries ``photo_ranges``: character spans of the joined
+    text that came from a specific photo, so a hit inside one can attach
+    that photo's id to the result (thumbnails in the UI).
     """
     dev_sql = (
         "SELECT id, name, brand, model, description, serial_number, "
@@ -620,19 +625,73 @@ async def _fetch_device_entries(db, device_id: Optional[int] = None) -> List[dic
             f"{a['attribute_name']}: {a['attribute_value']}"
         )
 
+    # Photo text joins the same blob so "MERV 13" finds the filter photo.
+    # The filename is included too - users name files after parts.
+    photo_sql = (
+        "SELECT id, device_id, filename, label, notes, ai_notes "
+        "FROM device_photos"
+    )
+    photo_params: list = []
+    if device_id is not None:
+        photo_sql += " WHERE device_id = ?"
+        photo_params.append(device_id)
+    photo_cursor = await db.execute(photo_sql + " ORDER BY id", photo_params)
+    photos_by_device: Dict[int, List[dict]] = {}
+    for p in await photo_cursor.fetchall():
+        photos_by_device.setdefault(p["device_id"], []).append(dict(p))
+
     entries: List[dict] = []
     for dev in devices:
-        parts = [dev.get("name") or "", dev.get("brand") or "", dev.get("model") or ""]
+        # (text_piece, photo_id or None); offsets are computed on the final
+        # joined string so they line up with match positions.
+        pieces: List[tuple] = [
+            (dev.get("name") or "", None),
+            (dev.get("brand") or "", None),
+            (dev.get("model") or "", None),
+        ]
         if dev.get("description"):
-            parts.append(dev["description"])
+            pieces.append((dev["description"], None))
         if dev.get("serial_number"):
-            parts.append(f"Serial number: {dev['serial_number']}")
+            pieces.append((f"Serial number: {dev['serial_number']}", None))
         if dev.get("product_number"):
-            parts.append(f"Product number: {dev['product_number']}")
-        parts += attrs_by_device.get(dev["id"], [])
-        text = " ".join(" ".join(p.split()) for p in parts if p)
+            pieces.append((f"Product number: {dev['product_number']}", None))
+        pieces += [(s, None) for s in attrs_by_device.get(dev["id"], [])]
+
+        text_parts: List[str] = []
+        photo_ranges: List[dict] = []
+        pos = 0
+        for piece, photo_id in pieces:
+            norm = " ".join(piece.split())
+            if not norm:
+                continue
+            if text_parts:
+                pos += 1  # the joining space
+            text_parts.append(norm)
+            pos += len(norm)
+        for photo in photos_by_device.get(dev["id"], []):
+            blob = " ".join(
+                p for p in (
+                    f"Photo {photo['filename']}",
+                    photo.get("label") or "",
+                    photo.get("notes") or "",
+                    photo.get("ai_notes") or "",
+                ) if p
+            )
+            norm = " ".join(blob.split())
+            if not norm:
+                continue
+            if text_parts:
+                pos += 1
+            start = pos
+            text_parts.append(norm)
+            pos += len(norm)
+            photo_ranges.append(
+                {"photo_id": photo["id"], "start": start, "end": pos}
+            )
+
+        text = " ".join(text_parts)
         if text.strip():
-            entries.append({"device": dev, "text": text})
+            entries.append({"device": dev, "text": text, "photo_ranges": photo_ranges})
     return entries
 
 
@@ -650,6 +709,18 @@ def _entry_result(entry: dict, rank_key: tuple) -> SearchResult:
     score = float(-tier * 1000 + neg_coverage * 100 - density * 100) - 50.0
     dev = entry["device"]
     label = " \u2014 ".join(p for p in (dev.get("brand"), dev.get("model")) if p)
+    # Photos whose text span contains a qualified match get their ids on
+    # the result so the UI can show thumbnails next to the hit.
+    photo_ids = sorted(
+        {
+            r["photo_id"]
+            for r in entry.get("photo_ranges", [])
+            if any(
+                o["start"] < r["end"] and o["end"] > r["start"]
+                for o in entry["qualified"]
+            )
+        }
+    )
     return SearchResult(
         manual_id=0,
         device_id=dev["id"],
@@ -658,6 +729,7 @@ def _entry_result(entry: dict, rank_key: tuple) -> SearchResult:
         page_number=0,
         snippet=" \u2026 ".join(_snippets_for_row(entry["text"], entry["qualified"])),
         score=score,
+        photo_ids=photo_ids,
     )
 
 

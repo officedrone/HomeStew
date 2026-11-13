@@ -96,8 +96,8 @@ async def _seed_full_dataset():
 async def _counts():
     async with get_db_context() as db:
         out = {}
-        for table in ("devices", "device_attributes", "manuals", "calendar_events",
-                      "notification_log", "pdf_index"):
+        for table in ("devices", "device_attributes", "manuals", "device_photos",
+                      "calendar_events", "notification_log", "pdf_index"):
             cur = await db.execute(f"SELECT COUNT(*) AS n FROM {table}")
             out[table] = (await cur.fetchone())["n"]
         return out
@@ -113,7 +113,7 @@ async def _wipe_all():
     """Empty every restored table so a following merge restore starts fresh."""
     async with get_db_context() as db:
         for table in ("notification_log", "calendar_events", "manuals",
-                      "device_attributes", "devices", "categories"):
+                      "device_photos", "device_attributes", "devices", "categories"):
             await db.execute(f"DELETE FROM {table}")
         await db.execute("DELETE FROM pdf_index")
         await db.commit()
@@ -126,6 +126,14 @@ def backup_and_restore(mode, include_manuals=True):
     assert zip_path.is_file()
     result = asyncio.run(backup_service.restore_backup(zip_path, mode))
     return result, zip_path
+
+
+def _write_raw_zip(tmp_path, members: dict) -> Path:
+    zip_path = tmp_path / "crafted.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for name, payload in members.items():
+            zf.writestr(name, payload)
+    return zip_path
 
 
 # --- export ----------------------------------------------------------------
@@ -151,6 +159,7 @@ def test_export_zip_layout_and_manifest(db_env):
             "devices": 1,
             "categories": 0,
             "manuals": 1,
+            "photos": 0,
             "calendar_events": 1,
         }
 
@@ -277,7 +286,7 @@ def test_restore_merge_is_idempotent(db_env):
 async def _wipe_like_fresh_install():
     async with get_db_context() as db:
         for table in ("notification_log", "calendar_events", "manuals",
-                      "device_attributes", "devices", "pdf_index"):
+                      "device_photos", "device_attributes", "devices", "pdf_index"):
             await db.execute(f"DELETE FROM {table}")
         await db.commit()
 
@@ -332,6 +341,111 @@ def test_merge_remaps_children_when_identities_differ(db_env):
     assert Path(manuals[0]["filepath"]).parent.parent.name == str(tv_id)
 
 
+# --- photos (format v2) ------------------------------------------------------
+
+# Minimal valid PNG (1x1 red pixel) for photo round-trip tests.
+TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753"
+    "de0000000c4944415408d763f8cfc0000003010100" "18dd8db0" "0000000049454e44ae426082"
+)
+
+
+async def _seed_photo_device():
+    """One device with a photo (real file + AI fields + pending proposal)."""
+    async with get_db_context() as db:
+        cur = await db.execute(
+            "INSERT INTO devices (name, brand, model) VALUES ('Furnace', 'Trane', 'XR14')"
+        )
+        did = cur.lastrowid
+        photo_dir = cfg.settings.DEVICES_DIR / str(did) / "photos"
+        photo_dir.mkdir(parents=True, exist_ok=True)
+        img_path = photo_dir / "filter.png"
+        img_path.write_bytes(TINY_PNG)
+        await db.execute(
+            """
+            INSERT INTO device_photos (device_id, filename, filepath, label, notes,
+                ai_notes, ai_analyzed_at, pending_ai_notes, pending_reason,
+                mime_type, width, height, size_bytes)
+            VALUES (?, 'filter.png', ?, 'HVAC filter', '20x25x1 pleated',
+                    'White pleated filter, 20x25x1', '2026-01-05 09:00:00',
+                    'Filter looks grey - replace soon', 'Re-checked in chat',
+                    'image/png', 1, 1, ?)
+            """,
+            (did, str(img_path), len(TINY_PNG)),
+        )
+        await db.commit()
+        return did
+
+
+def test_photo_round_trip_replace(db_env):
+    asyncio.run(_seed_photo_device())
+    result, zip_path = backup_and_restore("replace")
+
+    assert result["photos_restored"] == 1
+    with zipfile.ZipFile(zip_path) as zf:
+        assert "photos/1.png" in zf.namelist()
+        assert zf.read("photos/1.png") == TINY_PNG
+
+    photos = asyncio.run(_rows("device_photos"))
+    assert len(photos) == 1
+    p = photos[0]
+    # User text, AI notes AND the pending proposal all survive verbatim.
+    assert p["label"] == "HVAC filter"
+    assert p["notes"] == "20x25x1 pleated"
+    assert p["ai_notes"] == "White pleated filter, 20x25x1"
+    assert p["pending_ai_notes"] == "Filter looks grey - replace soon"
+    assert p["mime_type"] == "image/png"
+    # Filepath rewritten against the current DEVICES_DIR; bytes intact.
+    dest = Path(p["filepath"])
+    assert dest.is_file() and dest.read_bytes() == TINY_PNG
+    assert str(cfg.settings.DEVICES_DIR) in str(dest)
+
+
+def test_photo_merge_is_idempotent(db_env):
+    asyncio.run(_seed_photo_device())
+    info = asyncio.run(backup_service.create_backup())
+    zip_path = cfg.settings.DATA_DIR / "backups" / info["filename"]
+
+    result = asyncio.run(backup_service.restore_backup(zip_path, "merge"))
+    assert result["photos_restored"] == 0
+    counts = asyncio.run(_counts())
+    assert counts["device_photos"] == 1
+
+
+def test_v1_archive_without_photos_still_restores(db_env):
+    """Archives made before format v2 have no device_photos key at all."""
+    zip_path = _write_raw_zip(db_env, {
+        "manifest.json": json.dumps({"format_version": 1}),
+        "data.json": json.dumps({
+            "devices": [{"id": 1, "name": "Radio", "brand": "A", "model": "B"}],
+            "categories": [],
+            "device_attributes": [],
+            "manuals": [],
+            "calendar_events": [],
+            "notification_log": [],
+        }),
+    })
+    result = asyncio.run(backup_service.restore_backup(zip_path, "merge"))
+    assert result["devices_created"] == 1
+    assert result["photos_restored"] == 0
+
+
+def test_rejects_bad_photo_archive_path(db_env):
+    zip_path = _write_raw_zip(db_env, {
+        "manifest.json": json.dumps({"format_version": 2}),
+        "data.json": json.dumps({
+            "devices": [],
+            "device_photos": [{
+                "id": 1, "device_id": 1, "filename": "x.png",
+                "mime_type": "image/png",
+                "archive_path": "../escape.png",
+            }],
+        }),
+    })
+    with pytest.raises(ValueError, match="invalid path"):
+        asyncio.run(backup_service.restore_backup(zip_path, "merge"))
+
+
 def test_duplicate_filenames_within_one_backup_get_renamed(db_env):
     """Two manuals of one device sharing a name must not overwrite each other."""
     async def _seed():
@@ -363,14 +477,6 @@ def test_duplicate_filenames_within_one_backup_get_renamed(db_env):
 
 
 # --- archive validation ----------------------------------------------------
-
-def _write_raw_zip(tmp_path, members: dict) -> Path:
-    zip_path = tmp_path / "crafted.zip"
-    with zipfile.ZipFile(zip_path, "w") as zf:
-        for name, payload in members.items():
-            zf.writestr(name, payload)
-    return zip_path
-
 
 def test_rejects_zip_slip_member(db_env):
     zip_path = _write_raw_zip(db_env, {

@@ -63,6 +63,47 @@ class DeviceAttribute(BaseModel):
         from_attributes = True
 
 
+class DevicePhoto(BaseModel):
+    """A photo attached to a device (e.g. the filter it takes).
+
+    Text lives in three fields with different owners: ``label``/``notes``
+    are written by the user; ``ai_notes`` is what a vision pass recorded,
+    only ever after the user confirmed it (NULL = never analyzed);
+    ``pending_ai_notes`` is a proposal awaiting confirmation - the LLM may
+    write that but never ``ai_notes`` directly.
+    """
+    id: int
+    device_id: int
+    filename: str
+    label: Optional[str] = None
+    notes: Optional[str] = None
+    ai_notes: Optional[str] = None
+    ai_analyzed_at: Optional[datetime] = None
+    pending_ai_notes: Optional[str] = None
+    pending_reason: Optional[str] = None
+    proposed_at: Optional[datetime] = None
+    mime_type: str
+    width: Optional[int] = None
+    height: Optional[int] = None
+    size_bytes: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DevicePhotoUpdate(BaseModel):
+    """User edits to a photo (label/notes only - never the AI fields)."""
+    label: Optional[str] = Field(None, max_length=200)
+    notes: Optional[str] = Field(None, max_length=4000)
+
+
+class DevicePhotoSuggestionDecision(BaseModel):
+    """Accept/decline body for a pending AI note suggestion."""
+    accept: bool
+
+
 class DeviceIconOption(BaseModel):
     """One selectable device icon, as offered by GET /api/devices/icons."""
     key: str = Field(..., description="Lucide icon name stored on the device (e.g. 'washing-machine')")
@@ -139,7 +180,11 @@ class DeviceResponse(BaseModel):
     updated_at: datetime = Field(..., description="When the device was last modified (read-only)")
     manual_count: int = 0
     attributes: list[DeviceAttribute] = []
-    
+    photo_count: int = Field(0, description="Photos attached to this device")
+    unanalyzed_photo_count: int = Field(
+        0, description="Photos with no AI notes yet (never analyzed)"
+    )
+
     class Config:
         from_attributes = True
 
@@ -180,6 +225,11 @@ class SearchResult(BaseModel):
     page_number: int
     snippet: str
     score: float
+    photo_ids: list[int] = Field(
+        default_factory=list,
+        description="Photos whose text matched (device-entry hits only; "
+        "the UI renders them as thumbnails)",
+    )
 
 
 class SearchResponse(BaseModel):
@@ -1047,6 +1097,37 @@ class BackupManual(BaseModel):
     )
 
 
+class BackupPhoto(BaseModel):
+    """A device photo row; the image itself lives at ``archive_path``.
+
+    Format v2 added photos. The absolute ``filepath`` column is machine-
+    specific, so the archive carries only a relative member path and the
+    restore rewrites the destination against the current DEVICES_DIR.
+    """
+    id: int
+    device_id: int
+    filename: str
+    label: Optional[str] = None
+    notes: Optional[str] = None
+    ai_notes: Optional[str] = None
+    ai_analyzed_at: Optional[str] = None
+    # A proposal survives the round-trip so an unfinished review continues
+    # after a restore instead of silently disappearing.
+    pending_ai_notes: Optional[str] = None
+    pending_reason: Optional[str] = None
+    proposed_at: Optional[str] = None
+    mime_type: str = "image/jpeg"
+    width: Optional[int] = None
+    height: Optional[int] = None
+    size_bytes: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    archive_path: Optional[str] = Field(
+        None,
+        description="Relative path of the image inside the archive (photos/<id>.<ext>)",
+    )
+
+
 class BackupCalendarEvent(BaseModel):
     """A calendar event row exactly as stored."""
     id: int
@@ -1081,6 +1162,8 @@ class BackupData(BaseModel):
     categories: list[BackupCategory] = []
     device_attributes: list[BackupAttribute] = []
     manuals: list[BackupManual] = []
+    # v1 archives have no photos key; the default keeps them restorable.
+    device_photos: list[BackupPhoto] = []
     calendar_events: list[BackupCalendarEvent] = []
     notification_log: list[BackupNotification] = []
 
@@ -1091,6 +1174,7 @@ class BackupCreateResponse(BaseModel):
     url: str = Field(..., description="One-shot download URL for the archive")
     devices: int
     manuals: int
+    photos: int = 0
     calendar_events: int
     missing_files: list[str] = Field(
         default_factory=list,
@@ -1104,6 +1188,7 @@ class RestoreResponse(BaseModel):
     devices_created: int
     devices_merged: int
     manuals_restored: int
+    photos_restored: int = 0
     events_restored: int
     skipped: int = Field(0, description="Rows already present and left untouched (merge)")
     index_total: int = Field(..., description="Manuals queued for search re-indexing")

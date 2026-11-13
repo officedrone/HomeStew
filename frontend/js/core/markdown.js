@@ -45,7 +45,7 @@ function internalDeviceLink(href) {
     } catch (e) {
         return null;
     }
-    const m = /^#(edit-device|fetch-manuals)-(\d+)$/.exec(hash);
+    const m = /^#(edit-device|fetch-manuals|attach-photos)-(\d+)$/.exec(hash);
     if (!m) return null;
     return { action: m[1], deviceId: parseInt(m[2], 10) };
 }
@@ -62,6 +62,8 @@ function handleInternalLink(e) {
     e.preventDefault();
     if (target.action === 'fetch-manuals') {
         openDeviceEditorAndFetchById(target.deviceId);
+    } else if (target.action === 'attach-photos') {
+        attachDevicePhotosToChat(target.deviceId);
     } else {
         openDeviceEditorById(target.deviceId);
     }
@@ -80,6 +82,8 @@ function renderMarkdown(text) {
 //   #edit-device-<id>   - the LLM refuses a delete and hands over the editor
 //   #fetch-manuals-<id> - a freshly created device: open its editor AND start
 //                         the manual search so the user only has to approve.
+//   #attach-photos-<id> - load the device's stored photos into the chat
+//                         composer so the user can send them for a re-check.
 // Bound on document (capture) rather than on #chat-messages: answers are
 // rendered dynamically, and links can also appear in tool traces.
 function wireMarkdownLinks() {

@@ -197,6 +197,59 @@ async def init_db():
             ON device_attributes(device_id)
         """)
 
+        # Device photos: pictures the user attaches to a device (the HVAC
+        # filter that fits it, a nameplate, a wiring label) with text about
+        # them. Deliberately NOT a custom attribute: attributes are consumed
+        # as plain text by the chat roster note, the search entry blob and the
+        # manage_devices reports, so an image reference in there would have to
+        # be parsed apart by every one of those readers and could not hold
+        # more than one picture.
+        #
+        # Text lives in three columns with different owners:
+        #   label / notes      - written by the user (short caption + free text)
+        #   ai_notes           - what a vision pass recorded, only ever written
+        #                        after the user confirmed it. NULL = never
+        #                        analyzed, which is what drives the "N
+        #                        unanalyzed" flag in the chat roster and the
+        #                        on-demand analysis offer.
+        #   pending_ai_notes   - a proposal awaiting confirmation. The LLM may
+        #                        write this but never ai_notes itself, so an
+        #                        analysis can never silently overwrite what
+        #                        the model previously recorded (same
+        #                        refuse-and-confirm convention as device
+        #                        deletion). pending_reason is a one-line
+        #                        summary of what differs; proposed_at orders
+        #                        suggestions and detects stale ones.
+        # width/height/size_bytes are read from the file header at upload so
+        # the UI can lay out thumbnails before fetching them.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS device_photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                filepath TEXT NOT NULL,
+                label TEXT,
+                notes TEXT,
+                ai_notes TEXT,
+                ai_analyzed_at TIMESTAMP,
+                pending_ai_notes TEXT,
+                pending_reason TEXT,
+                proposed_at TIMESTAMP,
+                mime_type TEXT NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                size_bytes INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+            )
+        """)
+
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_device_photos_device 
+            ON device_photos(device_id)
+        """)
+
         # Create calendar events table - periodic maintenance reminders tied
         # (usually) to a device. device_id is nullable so an event can exist
         # without one; when set it cascades on device delete. The schedule is

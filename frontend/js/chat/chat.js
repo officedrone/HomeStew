@@ -144,36 +144,18 @@ async function handleChatImageSelected(event) {
 }
 
 // Resize an image file to at most CHAT_IMAGE_MAX_DIM on its longest edge and
-// re-encode as JPEG. Phone photos are several MB; a downscaled 1024px JPEG is
-// ~100-300 KB of base64 - still sharp enough for the model to read labels and
-// nameplates, but small enough not to blow up local-model context.
-function downscaleImageToDataUrl(file) {
+// re-encode as JPEG (shared helper in core/utils.js), then wrap it as a data
+// URL for the message payload. Phone photos are several MB; a downscaled
+// 1024px JPEG is ~100-300 KB of base64 - still sharp enough for the model to
+// read labels and nameplates, but small enough not to blow up local-model
+// context.
+async function downscaleImageToDataUrl(file) {
+    const blob = await downscaleImageToBlob(file, CHAT_IMAGE_MAX_DIM);
     return new Promise((resolve, reject) => {
-        const url = URL.createObjectURL(file);
-        const img = new Image();
-        img.onload = () => {
-            try {
-                const scale = Math.min(1, CHAT_IMAGE_MAX_DIM / Math.max(img.width, img.height));
-                const w = Math.max(1, Math.round(img.width * scale));
-                const h = Math.max(1, Math.round(img.height * scale));
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                // JPEG has no alpha: paint white so transparent PNGs don't
-                // turn black when re-encoded.
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(0, 0, w, h);
-                ctx.drawImage(img, 0, 0, w, h);
-                resolve(canvas.toDataURL('image/jpeg', 0.85));
-            } catch (e) {
-                reject(e);
-            } finally {
-                URL.revokeObjectURL(url);
-            }
-        };
-        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image failed to load')); };
-        img.src = url;
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('Image read failed'));
+        reader.readAsDataURL(blob);
     });
 }
 
@@ -213,6 +195,56 @@ function renderPendingChatPreviews() {
 function clearPendingChatImages() {
     pendingChatImages = [];
     renderPendingChatPreviews();
+}
+
+// Chat link "#attach-photos-<id>" (handed over by the device tool when the
+// user wants a photo re-examined): download the device's stored pictures,
+// downscale them like any attached image, and queue them in the composer so
+// the user just presses Send. Newest photos first, capped at MAX_CHAT_IMAGES.
+async function attachDevicePhotosToChat(deviceId) {
+    if (!chatVisionEnabled) {
+        notifyError('The model does not support images. Enable "Model supports Vision" in Settings > AI.');
+        return;
+    }
+    if (!beginOp(`attach-photos-${deviceId}`)) return;
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/photos`);
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to load photos'));
+        const photos = await response.json();
+        if (!photos.length) {
+            notifyInfo('That device has no photos yet. The user can add them in the device editor.');
+            return;
+        }
+
+        let added = 0;
+        for (const photo of photos) {
+            if (pendingChatImages.length >= MAX_CHAT_IMAGES) {
+                notifyWarn(`Composer is full - attached ${added} of ${photos.length} photos`);
+                break;
+            }
+            try {
+                const fileResponse = await fetch(`/api/devices/${deviceId}/photos/${photo.id}/file`);
+                if (!fileResponse.ok) throw new Error('Failed to download photo');
+                const blob = await fileResponse.blob();
+                const file = new File([blob], photo.filename, { type: blob.type || 'image/jpeg' });
+                pendingChatImages.push(await downscaleImageToDataUrl(file));
+                added++;
+            } catch (e) {
+                console.error('Failed to attach stored photo:', e);
+                notifyError(`Could not attach "${photo.filename}"`, String(e));
+            }
+        }
+        if (added) {
+            renderPendingChatPreviews();
+            switchTab('chat');
+            document.getElementById('chat-input').focus();
+        }
+    } catch (error) {
+        console.error('Failed to attach device photos:', error);
+        notifyError(error.message || 'Failed to attach device photos');
+    } finally {
+        endOp(`attach-photos-${deviceId}`);
+    }
 }
 
 async function sendChatMessage() {

@@ -2624,6 +2624,251 @@ body.no-vision .chat-input-wrap textarea {
     font-size: 0.85rem;
 }
 
+/* ---------------------------------------------------------------------------
+   Device photos (edit modal Photos section + lightbox)
+   --------------------------------------------------------------------------- */
+
+.photos-grid {
+    max-height: 420px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.photos-grid .empty-state,
+.photos-grid .loading {
+    padding: 12px;
+    font-size: 0.85rem;
+}
+
+.photo-card {
+    background: var(--bg-light);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+}
+
+.photo-card-main {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.photo-thumb {
+    width: 96px;
+    height: 96px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    cursor: zoom-in;
+    flex-shrink: 0;
+    background: var(--surface);
+}
+
+.photo-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.photo-label-input,
+.photo-notes-input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.photo-label-input:focus,
+.photo-notes-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: var(--ring);
+}
+
+.photo-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* AI-owned notes: visually distinct from the user's editable fields. */
+.photo-ai-notes {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    background: var(--surface);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.photo-ai-label {
+    display: block;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.photo-ai-date {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.7rem;
+    opacity: 0.75;
+}
+
+.photo-ai-none {
+    font-style: italic;
+}
+
+/* Pending AI suggestion: proposal card with Accept/Decline. */
+.photo-suggestion {
+    border: 1px solid var(--primary-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.photo-suggestion-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.photo-suggestion-reason,
+.photo-suggestion-notes {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.photo-suggestion-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.photo-actions {
+    align-items: center;
+}
+
+.photo-analyze-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+/* The global input rule stretches fields to full width; without this reset
+   the checkbox balloons and wraps its label one word per line. */
+.photo-analyze-toggle input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
+
+/* Inline analysis feedback on a photo card (next to the trashcan). Shown
+   while "Analyze" runs instead of a toast - the user is looking at the card. */
+.photo-analyze-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.photo-analyze-status:empty {
+    display: none;
+}
+
+.photo-analyze-status.busy::before {
+    content: "";
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.photo-analyze-status.busy {
+    color: var(--text-secondary);
+}
+
+.photo-analyze-status.muted {
+    color: var(--text-secondary);
+}
+
+.photo-analyze-status.error {
+    color: var(--error);
+}
+
+/* Lightbox: above modals (2000) and popovers (2500), below toasts (3000). */
+.photo-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 2600;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+}
+
+.photo-lightbox[hidden] {
+    display: none;
+}
+
+.photo-lightbox img {
+    max-width: 92vw;
+    max-height: 82vh;
+    object-fit: contain;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.photo-lightbox-caption {
+    color: #e5e7eb;
+    font-size: 0.9rem;
+}
+
+.photo-lightbox-close {
+    position: absolute;
+    top: 12px;
+    right: 18px;
+    background: none;
+    border: none;
+    color: #f3f4f6;
+    font-size: 2rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.photo-lightbox-close:hover {
+    color: #fff;
+}
+
 /* Read-only audit timestamps at the bottom of the edit-device modal. */
 .device-timestamps {
     margin-top: 14px;

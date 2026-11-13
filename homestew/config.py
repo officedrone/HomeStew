@@ -82,6 +82,10 @@ EDITABLE_SETTINGS = (
     # indexer at run time, and whether uploads/fetches index immediately.
     "INDEX_MAX_CHUNK_SIZE",
     "INDEX_AUTO_ON_UPLOAD",
+    # Device photos: default for the "Analyze with AI now" checkbox in the
+    # upload picker. Off by default so a weak host never pays for a vision
+    # pass it did not ask for; per-upload choice still overrides it.
+    "PHOTO_AUTO_ANALYZE_DEFAULT",
     # Notification event subscriptions (Settings > Notifications): per-event
     # overrides {event_key: {"interval_minutes": int,
     # "notify_before_due_hours": int, "channels": [str]}}. An event is
@@ -219,6 +223,19 @@ class Settings(BaseSettings):
     # Off means new manuals stay unsearchable until Re-index is pressed in
     # Settings > Search - useful only to defer CPU work on weak hosts.
     INDEX_AUTO_ON_UPLOAD: bool = True
+
+    # Device photos (api/devices.py + services/photo_analyzer.py). The browser
+    # downscales every photo before upload, so the server limits below are a
+    # guard against non-browser clients rather than a resize request: an image
+    # over either limit is refused with 413 instead of silently bloating the
+    # data volume (there is deliberately no server-side re-encode - adding an
+    # image library would put Pillow's CVE stream into the runtime image).
+    PHOTO_MAX_SIZE_MB: int = 15
+    PHOTO_MAX_DIM_PX: int = 2048
+    # Default state of the "Analyze with AI now" checkbox in the photo picker.
+    # Off keeps a vision pass from running unasked on weak hosts; the user can
+    # still tick it per upload, or analyze later from the device panel.
+    PHOTO_AUTO_ANALYZE_DEFAULT: bool = False
 
     # Notification event subscriptions (Settings > Notifications "Notification
     # Events"). Per-event overrides of the registry defaults, e.g.

@@ -715,7 +715,10 @@ async function createBackup() {
 
         const info = await response.json();
         const parts = [`${info.devices} device(s)`, `${info.calendar_events} calendar event(s)`];
-        if (includeManuals) parts.push(`${info.manuals} manual(s)`);
+        if (includeManuals) {
+            parts.push(`${info.manuals} manual(s)`);
+            parts.push(`${info.photos || 0} photo(s)`);
+        }
 
         // Kick off the download; the server sends Content-Disposition: attachment.
         const link = document.createElement('a');
@@ -813,7 +816,9 @@ async function postRestoreFile(file, mode) {
 
         const result = await response.json();
         restoreSummaryText = `Restored ${result.devices_created} device(s), ` +
-            `${result.manuals_restored} manual(s), ${result.events_restored} event(s)` +
+            `${result.manuals_restored} manual(s)` +
+            (result.photos_restored ? `, ${result.photos_restored} photo(s)` : '') +
+            `, ${result.events_restored} event(s)` +
             (result.skipped ? ` (${result.skipped} already present, skipped)` : '') + '.';
 
         // Refresh everything the restore may have changed. The bar keeps

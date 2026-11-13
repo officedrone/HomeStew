@@ -186,7 +186,7 @@ function renderDeviceList() {
                 <div class="device-details-inner">
                     <div class="device-meta">${escapeHtml(device.brand)} ${escapeHtml(device.model)}</div>
                     ${deviceDetailLines(device)}
-                    <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
+                    <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}${device.photo_count ? ` · ${device.photo_count} photo${device.photo_count !== 1 ? 's' : ''}` : ''}</div>
                 </div>
             </div>
         </div>`;
@@ -556,7 +556,7 @@ function deviceCardHtml(device) {
                     ${device.serial_number ? `<div class="device-meta">Serial: ${escapeHtml(device.serial_number)}</div>` : ''}
                     ${device.product_number ? `<div class="device-meta">Product: ${escapeHtml(device.product_number)}</div>` : ''}
                     ${warrantyDetailLines(device).map(line => `<div class="device-meta">${escapeHtml(line)}</div>`).join('')}
-                    <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}</div>
+                    <div class="device-meta">${device.manual_count} manual${device.manual_count !== 1 ? 's' : ''}${device.photo_count ? ` · ${device.photo_count} photo${device.photo_count !== 1 ? 's' : ''}` : ''}</div>
                 </div>
             </div>
         </div>`;
@@ -1122,7 +1122,13 @@ async function editDevice(deviceId) {
 
     // Load and render manuals
     await loadManuals(deviceId);
-    
+
+    // Photos: the "Analyze with AI now" toggle only makes sense for a
+    // vision-capable model.
+    const analyzeWrap = document.getElementById('photo-analyze-now-wrap');
+    if (analyzeWrap) analyzeWrap.hidden = !chatVisionEnabled;
+    await loadPhotos(deviceId);
+
     // Show edit modal
     document.getElementById('edit-device-modal').style.display = 'flex';
 }
@@ -1697,6 +1703,268 @@ async function deleteManual(deviceId, manualId) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Device photos (edit modal "Photos" section)
+// ---------------------------------------------------------------------------
+
+// The hidden photo input is shared by every device's "Upload Photo" button;
+// the target device id is stashed before opening the picker (same pattern as
+// manual uploads, but a separate variable so a stale manual target can never
+// receive a photo).
+let photoUploadTargetDeviceId = null;
+
+// Photos currently shown in the edit modal, so confirm dialogs and the
+// lightbox caption can name a photo without embedding text in onclick attrs.
+let currentPhotos = [];
+
+function triggerUploadPhoto(deviceId) {
+    photoUploadTargetDeviceId = deviceId;
+    const input = document.getElementById('photo-upload-input');
+    input.value = ''; // allow re-selecting the same file after a cancel
+    input.click();
+}
+
+// A picture chosen via the hidden photo input: downscale in the browser (the
+// server rejects oversized originals and never re-encodes), then upload with
+// the label/notes filled in afterwards on the photo card. The "Analyze with
+// AI now" checkbox (visible only when the model has vision) decides whether
+// the first vision pass runs immediately or stays on-demand.
+async function handlePhotoFileSelected(event) {
+    const file = event.target.files[0];
+    const deviceId = photoUploadTargetDeviceId;
+    photoUploadTargetDeviceId = null;
+    if (!file || !deviceId) return;
+
+    if (!file.type.startsWith('image/')) {
+        notifyError('Only image files are supported');
+        return;
+    }
+    if (!beginOp(`upload-photo-${deviceId}`)) return;
+
+    try {
+        let payload = file;
+        try {
+            // Cap at the server's PHOTO_MAX_DIM_PX so large phone photos
+            // pass validation; small images are re-encoded untouched in size.
+            payload = await downscaleImageToBlob(file, 2048);
+        } catch (e) {
+            console.error('Failed to downscale photo:', e);
+            notifyError('Could not read that image', String(e));
+            return;
+        }
+
+        const analyzeToggle = document.getElementById('photo-analyze-now');
+        const formData = new FormData();
+        formData.append('file', payload, 'photo.jpg');
+        formData.append('label', '');
+        formData.append('notes', '');
+        formData.append('analyze', analyzeToggle && analyzeToggle.checked ? 'true' : 'false');
+
+        const response = await fetch(`/api/devices/${deviceId}/photos`, {
+            method: 'POST',
+            body: formData
+        });
+        if (!response.ok) {
+            throw new Error(await errorDetailFrom(response, 'Failed to upload photo'));
+        }
+
+        const photo = await response.json();
+        notifySuccess(`Added photo "${photo.filename}"`);
+        await loadPhotos(deviceId);
+        await loadDevices(); // refresh the photo count on the device card
+    } catch (error) {
+        console.error('Failed to upload photo:', error);
+        notifyError(error.message || 'Failed to upload photo');
+    } finally {
+        endOp(`upload-photo-${deviceId}`);
+    }
+}
+
+// Render a device's photos inside the edit modal: thumbnail, editable user
+// label/notes, read-only AI notes, and (when one exists) the pending AI
+// suggestion with Accept/Decline buttons.
+async function loadPhotos(deviceId) {
+    const container = document.getElementById('device-photos-list');
+    if (!container) return;
+    container.innerHTML = '<div class="loading">Loading photos...</div>';
+    currentPhotos = [];
+
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/photos`);
+        if (!response.ok) throw new Error('Failed to load photos');
+        const photos = await response.json();
+        currentPhotos = photos;
+
+        if (photos.length === 0) {
+            container.innerHTML = '<div class="empty-state">No photos yet. Upload one below.</div>';
+            return;
+        }
+
+        const fileUrl = p => `/api/devices/${deviceId}/photos/${p.id}/file`;
+        container.innerHTML = photos.map(p => {
+            const aiBlock = p.ai_notes
+                ? `<div class="photo-ai-notes"><span class="photo-ai-label">AI notes</span>${escapeHtml(p.ai_notes)}${p.ai_analyzed_at ? `<span class="photo-ai-date">${escapeHtml(String(p.ai_analyzed_at).slice(0, 10))}</span>` : ''}</div>`
+                : '<div class="photo-ai-notes photo-ai-none">AI notes: not analyzed yet.</div>';
+            const suggestion = p.pending_ai_notes ? `
+                <div class="photo-suggestion">
+                    <div class="photo-suggestion-title">Suggested AI note update</div>
+                    ${p.pending_reason ? `<div class="photo-suggestion-reason">${escapeHtml(p.pending_reason)}</div>` : ''}
+                    <div class="photo-suggestion-notes">${escapeHtml(p.pending_ai_notes)}</div>
+                    <div class="photo-suggestion-actions">
+                        <button type="button" class="btn btn-primary btn-small" data-dedupe onclick="decidePhotoSuggestion(${deviceId}, ${p.id}, true)">Accept</button>
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="decidePhotoSuggestion(${deviceId}, ${p.id}, false)">Decline</button>
+                    </div>
+                </div>` : '';
+            const analyzeBtn = chatVisionEnabled
+                ? `<button type="button" class="btn btn-secondary btn-small" data-dedupe title="Ask the AI to look at this photo" onclick="analyzePhotoNow(${deviceId}, ${p.id})">Analyze</button>`
+                : '';
+            return `
+            <div class="photo-card">
+                <div class="photo-card-main">
+                    <img class="photo-thumb" src="${fileUrl(p)}" alt="${escapeHtml(p.label || p.filename)}"
+                         loading="lazy" onclick="openPhotoLightbox(${p.id})">
+                    <div class="photo-card-body">
+                        <input type="text" class="photo-label-input" id="photo-label-${p.id}" maxlength="200"
+                               placeholder="Label (e.g. HVAC filter size)" value="${escapeHtml(p.label || '')}">
+                        <textarea class="photo-notes-input" id="photo-notes-${p.id}" maxlength="4000"
+                                  rows="2" placeholder="Notes (part numbers, size, where bought...)">${escapeHtml(p.notes || '')}</textarea>
+                        <div class="photo-card-actions">
+                            <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="savePhotoMeta(${deviceId}, ${p.id})">Save</button>
+                            ${analyzeBtn}
+                            <button type="button" class="card-icon-btn card-icon-danger" title="Delete photo" aria-label="Delete photo" data-dedupe onclick="deletePhoto(${deviceId}, ${p.id})">${CARD_ACTION_ICONS.trash}</button>
+                            <span class="photo-analyze-status" id="photo-analyze-status-${p.id}" role="status"></span>
+                        </div>
+                        ${aiBlock}
+                        ${suggestion}
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (error) {
+        console.error('Failed to load photos:', error);
+        container.innerHTML = '<div class="empty-state">Failed to load photos.</div>';
+    }
+}
+
+async function savePhotoMeta(deviceId, photoId) {
+    if (!beginOp(`save-photo-${photoId}`)) return;
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/photos/${photoId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                label: document.getElementById(`photo-label-${photoId}`).value.trim() || null,
+                notes: document.getElementById(`photo-notes-${photoId}`).value.trim() || null
+            })
+        });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to save photo details'));
+        notifySuccess('Photo details saved');
+        await loadPhotos(deviceId);
+    } catch (error) {
+        console.error('Failed to save photo details:', error);
+        notifyError(error.message || 'Failed to save photo details');
+    } finally {
+        endOp(`save-photo-${photoId}`);
+    }
+}
+
+async function deletePhoto(deviceId, photoId) {
+    const photo = currentPhotos.find(p => p.id === photoId);
+    const label = photo ? (photo.label || photo.filename) : `photo ${photoId}`;
+    if (!confirm(`Delete "${label}"?`)) return;
+    if (!beginOp(`delete-photo-${deviceId}-${photoId}`)) return;
+
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/photos/${photoId}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to delete photo'));
+
+        notifySuccess('Photo deleted');
+        await loadPhotos(deviceId);
+        await loadDevices(); // refresh the photo count on the device card
+    } catch (error) {
+        console.error('Failed to delete photo:', error);
+        notifyError(error.message || 'Failed to delete photo');
+    } finally {
+        endOp(`delete-photo-${deviceId}-${photoId}`);
+    }
+}
+
+// Ask the vision model for a first look (or a re-check against the notes on
+// file). The result is only ever a PROPOSAL: it lands in the card's pending
+// block and becomes AI notes when the user accepts it. Progress shows inline
+// next to the trashcan (not as a toast) because the user is watching this
+// very card while the analysis runs.
+async function analyzePhotoNow(deviceId, photoId) {
+    if (!beginOp(`analyze-photo-${photoId}`)) return;
+    const statusEl = document.getElementById(`photo-analyze-status-${photoId}`);
+    const setInlineStatus = (cls, text) => {
+        if (!statusEl) return;
+        statusEl.className = `photo-analyze-status ${cls}`;
+        statusEl.textContent = text;
+    };
+    setInlineStatus('busy', 'Analyzing…');
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/photos/${photoId}/analyze`, {
+            method: 'POST'
+        });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Photo analysis failed'));
+        const photo = await response.json();
+        if (photo.pending_ai_notes) {
+            // Re-render shows the suggestion card with Accept/Decline; that
+            // replaces the status line, so no final text is needed here.
+            await loadPhotos(deviceId);
+        } else {
+            setInlineStatus('muted', 'Nothing new to record');
+        }
+    } catch (error) {
+        console.error('Photo analysis failed:', error);
+        setInlineStatus('error', 'Analysis failed');
+        notifyError(error.message || 'Photo analysis failed');
+    } finally {
+        endOp(`analyze-photo-${photoId}`);
+    }
+}
+
+// Accept: the proposal becomes the photo's AI notes. Decline: it is discarded.
+async function decidePhotoSuggestion(deviceId, photoId, accept) {
+    if (!beginOp(`suggestion-photo-${photoId}`)) return;
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/photos/${photoId}/suggestion`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accept })
+        });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to record your decision'));
+        notifySuccess(accept ? 'AI notes updated' : 'Suggestion declined');
+        await loadPhotos(deviceId);
+    } catch (error) {
+        console.error('Failed to record suggestion decision:', error);
+        notifyError(error.message || 'Failed to record your decision');
+    } finally {
+        endOp(`suggestion-photo-${photoId}`);
+    }
+}
+
+// Full-size view for a photo card thumbnail.
+function openPhotoLightbox(photoId) {
+    const photo = currentPhotos.find(p => p.id === photoId);
+    if (!photo) return;
+    const box = document.getElementById('photo-lightbox');
+    const img = document.getElementById('photo-lightbox-img');
+    const caption = document.getElementById('photo-lightbox-caption');
+    img.src = `/api/devices/${photo.device_id}/photos/${photo.id}/file`;
+    caption.textContent = photo.label || photo.filename;
+    box.hidden = false;
+}
+
+function closePhotoLightbox() {
+    const box = document.getElementById('photo-lightbox');
+    box.hidden = true;
+    document.getElementById('photo-lightbox-img').removeAttribute('src');
+}
+
 async function deleteDevice(deviceId) {
     if (!confirm('Are you sure you want to delete this device and all its manuals?')) {
         return;
@@ -1851,6 +2119,18 @@ function wireDevicesEvents() {
     // Manual upload: the hidden input is shared by every device's "Upload
     // Manual" button; the target device id is stashed before opening it.
     document.getElementById('manual-upload-input').addEventListener('change', handleManualFileSelected);
+
+    // Photo upload: same shared-hidden-input pattern as manuals.
+    document.getElementById('photo-upload-input').addEventListener('change', handlePhotoFileSelected);
+
+    // Photo lightbox: click anywhere on the backdrop (or press Esc) to close.
+    const lightbox = document.getElementById('photo-lightbox');
+    lightbox.addEventListener('click', (e) => {
+        if (e.target === lightbox) closePhotoLightbox();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !lightbox.hidden) closePhotoLightbox();
+    });
 
     // The Add Device modal has its own (optional) manual picker: files are
     // uploaded right after the new device row exists.

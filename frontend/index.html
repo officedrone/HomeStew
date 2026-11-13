@@ -766,7 +766,7 @@
                                 <div class="label-row">
                                     <label class="checkbox-option" for="backup-include-manuals">
                                         <input type="checkbox" id="backup-include-manuals" checked>
-                                        Include user manual PDF files in the backup
+                                        Include manual PDFs and device photos in the backup
                                     </label>
                                     <span class="info-wrap">
                                         <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
@@ -1115,6 +1115,25 @@
                         <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerUploadManual(parseInt(document.getElementById('edit-device-id').value))">
                             Upload Manual
                         </button>
+                    </div>
+                </div>
+
+                <!-- Photos Section -->
+                <div class="attributes-section">
+                    <h4>Photos</h4>
+                    <div id="device-photos-list" class="photos-grid">
+                        <div class="empty-state">No photos</div>
+                    </div>
+                    <div class="manual-actions photo-actions">
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerUploadPhoto(parseInt(document.getElementById('edit-device-id').value))">
+                            Upload Photo
+                        </button>
+                        <!-- Only shown when the model supports vision: sends
+                             analyze=true with the next upload so the AI takes
+                             a first look immediately instead of on-demand. -->
+                        <label id="photo-analyze-now-wrap" class="checkbox-label photo-analyze-toggle" hidden>
+                            <input type="checkbox" id="photo-analyze-now"> Analyze with AI now
+                        </label>
                     </div>
                 </div>
 
@@ -1498,6 +1517,9 @@
 
     <!-- Hidden file input used by the "Upload Manual" buttons -->
     <input type="file" id="manual-upload-input" accept="application/pdf,.pdf" style="display: none;">
+    <!-- Hidden file input used by the device editor's "Upload Photo" button.
+         Accepts exactly what the server sniffs (png/jpeg/webp/gif). -->
+    <input type="file" id="photo-upload-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display: none;">
     <!-- Settings > General "Restore": single backup archive picker. -->
     <input type="file" id="restore-file-input" accept=".zip,application/zip" style="display: none;">
     <!-- Setup wizard "Restore from backup": wizard-owned archive picker so it
@@ -1509,6 +1531,13 @@
          rear camera directly (desktop browsers just show a file picker). -->
     <input type="file" id="chat-image-input" accept="image/png,image/jpeg,image/webp" multiple style="display: none;">
     <input type="file" id="chat-camera-input" accept="image/*" capture="environment" style="display: none;">
+
+    <!-- Photo lightbox: click the backdrop or ✕ (or press Esc) to close. -->
+    <div id="photo-lightbox" class="photo-lightbox" hidden>
+        <button type="button" class="photo-lightbox-close" aria-label="Close" onclick="closePhotoLightbox()">&times;</button>
+        <img id="photo-lightbox-img" alt="Device photo">
+        <div id="photo-lightbox-caption" class="photo-lightbox-caption"></div>
+    </div>
 
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>

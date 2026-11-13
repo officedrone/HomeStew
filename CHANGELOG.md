@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.5]
+
+- ADD: **Device photos.** Every device can now hold pictures — a filter size, a nameplate, a breaker panel, the back of a remote. Open a device and use the new **Photos** section: upload one or more images (PNG/JPEG/WebP/GIF), give each a **label** and free-form **notes**, click a thumbnail for a full-screen lightbox, and delete what you no longer need. Images are downscaled in your browser before upload (max 2048px), so phone photos never bloat the server.
+- ADD: **AI photo notes.** With **Model supports Vision** enabled, an uploaded photo can be analyzed right away (tick *Analyze with AI now*) or left for later. The AI's description is stored in its own **AI Notes** block, separate from your own notes, and never overwrites them silently: re-checks produce a *suggestion* you **Accept** or **Decline**.
+- ADD: Chat can re-examine photos on demand. When the assistant needs to look at a device's pictures it offers an **attach photos** link in its reply — clicking it pulls that device's images into the chat input, ready to send. Photo text is never part of the top-level device list the model sees; the assistant fetches it only when you ask about pictures, so ordinary chats stay lean.
+- ADD: Labels, your notes and the AI notes are all **searchable** from the Search tab alongside manual text.
+- ADD: Settings > Notifications gains a **Photo AI suggestions pending** event, so an un-reviewed AI note resurfaces (once every 12 hours by default) until you accept or decline it.
+- UPDATE: Backups are format version 2 and now carry device photos (image files + metadata, including pending AI suggestions). Restores keep working with older v1 archives; *Merge* skips photos that already exist, *Replace* rebuilds them exactly. The backup summary reports the photo count.
+- FIX: Deleting a device left its uploaded files on disk. The whole device directory is now removed with the device.
+
 ## [0.2.4]
 
 - UPDATE: Settings > Notifications is now fully per-event. The **"Enable notifications"** master checkbox and the separate "Check every (minutes)" / "Notify before due" fields are gone — the page is just the Webhook section and the Notification Events table.

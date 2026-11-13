@@ -6,7 +6,8 @@ A lightweight home appliance and device knowledge repository.
 
 - **Add devices or appliances** - Track your home devices (TVs, appliances, electronics, etc.)
 - **Fetch device manuals** - Use the built-in manual fetch functionality to easily search for and download PDF manuals from the internet
-- **Full-text search** - Fast keyword search across all manuals using SQLite FTS5
+- **Device photos with AI notes** - Attach pictures (filter sizes, nameplates, wiring) to any device; a vision model can describe them and keep the notes updated with your confirmation
+- **Full-text search** - Fast keyword search across all manuals and photo notes using SQLite FTS5
 - **AI chat interface** - Ask questions in natural language, AI searches manuals for answers (requires self-hosted or cloud-based LLM)
 
 ## Quick Start
@@ -62,7 +63,34 @@ Use the search tab:
 - Filter by specific device if needed
 - View highlighted snippets from PDFs
 
-### 4. AI Chat
+### 4. Device Photos
+
+Open any device and scroll to the **Photos** section:
+
+- **Upload Photo** accepts PNG, JPEG, WebP or GIF files (multiple at once). Large
+  phone photos are downscaled in your browser first (longest side 2048px), so
+  uploads stay small and within the server's limits.
+- Each photo gets a **label** (e.g. `HVAC filter size`) and **notes** (e.g.
+  `20x25x1 pleated, arrow points down`). Both are yours to edit at any time.
+- Click a thumbnail to open it full-screen; press Esc or click the backdrop to close.
+- Photo labels and notes are included in **Search** results next to manual text,
+  so `"filter size"` finds the picture you took of it.
+
+**AI photo notes (vision models).** With *Model supports Vision* ticked under
+**Settings → AI**, uploading offers an extra **Analyze with AI now** checkbox:
+
+- Ticked: the model looks at the image right away and writes a description.
+- Unticked: analysis happens later, on demand — from the photo's **Analyze**
+  button, or while you are chatting about the device.
+
+The AI's description lives in its own **AI Notes** block and never overwrites
+your notes. When HomeStew re-examines a photo it already described, the new
+reading is stored as a **pending suggestion** with a short reason; you **Accept**
+it (replacing the old AI notes) or **Decline** it. While a suggestion is waiting,
+Settings > Notifications' **Photo AI suggestions pending** event keeps reminding
+you about it.
+
+### 5. AI Chat
 
 Switch to the chat tab and ask questions:
 
@@ -76,7 +104,9 @@ The AI will automatically search your manuals and provide answers based on the a
 **Photos & vision models.** If your model supports vision, tick **Model supports Vision** under **Settings → AI** (or
 in the first-run wizard's AI step). This reveals the photo-attach and camera
 buttons in the chat input so you can add new devices using the camera, or troubleshoot existing devices by snapping a nameplate or error screen and asking the LLM
-about it.
+about it. It also lets the assistant re-examine photos already stored on a device: ask about one ("does my filter look dirty?") and the reply includes an
+**attach photos** link that loads those images into the chat input for you to send. HomeStew then compares what the model sees with the photo's existing AI
+notes and proposes an update, which you confirm before anything is saved.
 
 **Model reasoning.** The **Reasoning** checkbox (same places: **Settings → AI** and the wizard's AI step) is ticked by
 default, letting thinking models reason before answering. Untick it to send explicit "do not think" parameters with
@@ -97,16 +127,16 @@ that don't understand the parameters ignore them, so leaving it unticked is harm
 
 The model list and Test Connection still probe `{base}/models`, which both surfaces expose.
 
-### 5. Backup & Restore
+### 6. Backup & Restore
 
 HomeStew supports backup and Restore of Device and Calendar data.
 
 Open **Settings → General**:
 
 - **Download Backup** creates a single `.zip` with all devices (incl. custom
-  attributes), calendar events and - optionally - the manual PDF files.
+  attributes, device photos and AI photo notes), calendar events and - optionally - the manual PDF files.
   Inside, `data.json` holds plain JSON rows you can inspect, plus one PDF per
-  manual under `manuals/`.
+  manual under `manuals/` and one image per photo under `photos/`.
 - **Restore** takes that file back. _Merge_ adds only what's missing (restoring
   twice changes nothing); _Replace_ wipes devices, manuals and calendar events
   first, then recreates them exactly from the archive. Restored PDFs are
@@ -307,6 +337,17 @@ and re-arm the create-account screen).
 - `POST /api/devices` - Add new device
 - `GET /api/devices` - List all devices
 - `DELETE /api/devices/{id}` - Delete device
+
+### Device Photos
+
+- `GET /api/devices/{id}/photos` - List a device's photos (metadata incl. AI notes)
+- `POST /api/devices/{id}/photos` - Upload a photo (`multipart`: file, label, notes, analyze)
+- `GET /api/devices/{id}/photos/{photo_id}` - One photo's metadata
+- `PUT /api/devices/{id}/photos/{photo_id}` - Update label/notes
+- `DELETE /api/devices/{id}/photos/{photo_id}` - Delete a photo (file + row)
+- `GET /api/devices/{id}/photos/{photo_id}/file` - Download the image bytes
+- `POST /api/devices/{id}/photos/{photo_id}/analyze` - Run (or re-run) vision analysis; writes a pending suggestion if AI notes exist
+- `POST /api/devices/{id}/photos/{photo_id}/suggestion` - Accept or decline a pending AI note update
 
 ### Downloads
 

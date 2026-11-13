@@ -60,7 +60,8 @@ async def create_backup(include_manuals: bool = Form(True)):
     """Build a backup archive and return its stats + download URL.
 
     ``include_manuals`` False produces a lightweight metadata-only archive
-    (devices, attributes, calendar events) without any manual rows or PDFs.
+    (devices, attributes, calendar events) without any manual rows, photos
+    or files on disk.
     """
     out_dir = backup_service.backup_dir()
     await run_in_threadpool(_sweep_stale, out_dir)
@@ -79,6 +80,7 @@ async def create_backup(include_manuals: bool = Form(True)):
         url=f"/api/backup/file/{result['filename']}",
         devices=result["devices"],
         manuals=result["manuals"],
+        photos=result.get("photos", 0),
         calendar_events=result["calendar_events"],
         missing_files=result["missing_files"],
     )
@@ -175,6 +177,7 @@ async def restore_backup(
         devices_created=result["devices_created"],
         devices_merged=result["devices_merged"],
         manuals_restored=result["manuals_restored"],
+        photos_restored=result.get("photos_restored", 0),
         events_restored=result["events_restored"],
         skipped=result["skipped"],
         index_total=result["index_total"],

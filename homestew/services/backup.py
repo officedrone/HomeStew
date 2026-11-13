@@ -1,18 +1,19 @@
-"""Backup / restore of devices, manuals and calendar events (Settings > General).
+"""Backup / restore of devices, manuals, photos and calendar events (Settings > General).
 
 A backup is a single ``.zip`` archive whose members are stored *uncompressed*
-(``ZIP_STORED``): the payloads are already-compressed PDFs, so deflating them
-would only burn CPU and memory without shrinking anything - important under the
-container's 512 MB cap. The archive layout is::
+(``ZIP_STORED``): the payloads are already-compressed PDFs and JPEGs, so
+deflating them would only burn CPU and memory without shrinking anything -
+important under the container's 512 MB cap. The archive layout is::
 
     manifest.json              # format/app versions, timestamp, counts, missing files
-    data.json                  # raw DB rows (devices, attributes, manuals, events, log)
+    data.json                  # raw DB rows (devices, attributes, manuals, photos, events, log)
     manuals/<manual_id>.pdf     # one member per manual PDF, keyed by id
+    photos/<photo_id>.<ext>     # one member per device photo (format v2+)
 
 ``data.json`` stores the database columns verbatim so a restore reproduces the
-original rows as faithfully as possible. A manual's absolute ``filepath`` is
-machine-specific and never archived; instead each manual carries an
-``archive_path`` pointing at its PDF inside the zip, which a restore rewrites
+original rows as faithfully as possible. A manual's or photo's absolute
+``filepath`` is machine-specific and never archived; instead each carries an
+``archive_path`` pointing at its file inside the zip, which a restore rewrites
 against the *current* ``DEVICES_DIR``.
 
 Settings and secrets are deliberately out of scope: the persisted settings file
@@ -34,6 +35,7 @@ from homestew.config import settings
 from homestew.db import get_db_context
 from homestew.models.schemas import BackupData
 from homestew.services.device_icons import is_valid_icon_key
+from homestew.services.photo_images import SUPPORTED_MIME_TYPES as PHOTO_MIME_TYPES
 from homestew.services.indexer import (
     get_index_status,
     start_background_reindex,
@@ -44,11 +46,24 @@ logger = logging.getLogger(__name__)
 
 # Bump when the archive layout or data.json shape changes incompatibly. A
 # restore refuses archives newer than this version but reads older ones.
-BACKUP_FORMAT_VERSION = 1
+# v2 added device photos (v1 archives simply carry none - still restorable).
+BACKUP_FORMAT_VERSION = 2
 
 # Only these members are ever read back; anything else in an uploaded zip is
-# rejected (guards against a crafted "zip-slip" archive).
-_MEMBER_RE = re.compile(r"^manuals/\d+\.pdf$")
+# rejected (guards against a crafted "zip-slip" archive). Photos may carry any
+# extension the sniffer produces (.png/.jpg/.webp/.gif, or .bin as fallback).
+_MEMBER_RE = re.compile(
+    r"^(manuals/\d+\.pdf|photos/\d+\.(png|jpg|jpeg|webp|gif|bin))$"
+)
+
+# MIME -> archive extension for photo members, mirroring the upload path's
+# _PHOTO_MIME_EXT in api/devices.py.
+_PHOTO_MIME_EXT = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 
 # Cap on how large a single restored PDF may be, mirroring the upload limit so
 # a hand-edited archive can't smuggle an oversized file onto disk.
@@ -237,6 +252,17 @@ def _sanitize_filename(filename: str) -> str:
     return name
 
 
+def _sanitize_photo_name(filename: str, mime_type: str) -> str:
+    """Safe basename for a restored photo; extension from the stored MIME.
+
+    Mirrors api/devices.py's _sanitize_photo_filename so a restored file is
+    named exactly like a fresh upload would be.
+    """
+    name = Path(filename or "").name
+    stem = re.sub(r"[^\w.\- ]+", "_", Path(name).stem).strip() or "photo"
+    return f"{stem}{_PHOTO_MIME_EXT.get(mime_type, '.bin')}"
+
+
 def _unique_filename(
     device_dir: Path, filename: str, reserved: Optional[set] = None
 ) -> str:
@@ -307,6 +333,7 @@ async def create_backup(include_manuals: bool = True) -> dict:
         attributes = [dict(r) for r in await attr_cur.fetchall()]
 
         manual_rows: List[dict] = []
+        photo_rows: List[dict] = []
         if include_manuals:
             man_cur = await db.execute(
                 """
@@ -316,6 +343,17 @@ async def create_backup(include_manuals: bool = True) -> dict:
                 """
             )
             manual_rows = [dict(r) for r in await man_cur.fetchall()]
+
+            photo_cur = await db.execute(
+                """
+                SELECT id, device_id, filename, label, notes, ai_notes,
+                       ai_analyzed_at, pending_ai_notes, pending_reason,
+                       proposed_at, mime_type, width, height, size_bytes,
+                       filepath, created_at, updated_at
+                FROM device_photos ORDER BY id
+                """
+            )
+            photo_rows = [dict(r) for r in await photo_cur.fetchall()]
 
         ev_cur = await db.execute(
             """
@@ -358,11 +396,47 @@ async def create_backup(include_manuals: bool = True) -> dict:
         else:
             missing_files.append(m["filename"])
 
+    # Build photo entries the same way: archive-relative path + bytes to copy.
+    # The member extension follows the sniffed MIME stored on the row.
+    photos_json: List[dict] = []
+    for p in photo_rows:
+        ext = _PHOTO_MIME_EXT.get(p.get("mime_type"), ".bin")
+        archive_path = f"photos/{p['id']}{ext}"
+        src = p.get("filepath") or ""
+        exists = bool(src) and Path(src).is_file()
+        photos_json.append(
+            {
+                "id": p["id"],
+                "device_id": p["device_id"],
+                "filename": p["filename"],
+                "label": p.get("label"),
+                "notes": p.get("notes"),
+                "ai_notes": p.get("ai_notes"),
+                "ai_analyzed_at": p.get("ai_analyzed_at"),
+                "pending_ai_notes": p.get("pending_ai_notes"),
+                "pending_reason": p.get("pending_reason"),
+                "proposed_at": p.get("proposed_at"),
+                "mime_type": p.get("mime_type") or "image/jpeg",
+                "width": p.get("width"),
+                "height": p.get("height"),
+                "size_bytes": p.get("size_bytes"),
+                "created_at": p.get("created_at"),
+                "updated_at": p.get("updated_at"),
+                # None when the image is gone: metadata still survives.
+                "archive_path": archive_path if exists else None,
+            }
+        )
+        if exists:
+            copy_pairs.append((archive_path, src))
+        else:
+            missing_files.append(p["filename"])
+
     data = BackupData(
         devices=devices,
         categories=categories,
         device_attributes=attributes,
         manuals=manuals_json,
+        device_photos=photos_json,
         calendar_events=events,
         notification_log=logs,
     )
@@ -374,6 +448,7 @@ async def create_backup(include_manuals: bool = True) -> dict:
             "devices": len(devices),
             "categories": len(categories),
             "manuals": len(manuals_json),
+            "photos": len(photos_json),
             "calendar_events": len(events),
         },
         "missing_files": missing_files,
@@ -390,13 +465,14 @@ async def create_backup(include_manuals: bool = True) -> dict:
     )
 
     logger.info(
-        "Created backup %s (%d devices, %d manuals, %d events)",
-        filename, len(devices), len(manuals_json), len(events),
+        "Created backup %s (%d devices, %d manuals, %d photos, %d events)",
+        filename, len(devices), len(manuals_json), len(photos_json), len(events),
     )
     return {
         "filename": filename,
         "devices": len(devices),
         "manuals": len(manuals_json),
+        "photos": len(photos_json),
         "calendar_events": len(events),
         "missing_files": missing_files,
     }
@@ -456,6 +532,11 @@ def _read_archive(zip_path: Path) -> Tuple[dict, BackupData]:
     for m in data.manuals:
         if m.archive_path and not _MEMBER_RE.match(m.archive_path):
             raise ValueError(f"Manual references an invalid path: {m.archive_path}")
+
+    # Same rule for photos (v1 archives carry none).
+    for p in data.device_photos:
+        if p.archive_path and not _MEMBER_RE.match(p.archive_path):
+            raise ValueError(f"Photo references an invalid path: {p.archive_path}")
 
     return manifest, data
 
@@ -536,16 +617,19 @@ async def _restore_backup_inner(zip_path: Path, mode: str) -> dict:
                 key = _identity_key(r["name"], r["brand"], r["model"])
                 existing_devices.setdefault(key, r["id"])
 
-        # Replace mode: capture PDF paths + device ids to purge, then delete in
-        # FK-safe order (child -> parent) and clear the search index.
+        # Replace mode: capture PDF/photo paths + device ids to purge, then
+        # delete in FK-safe order (child -> parent) and clear the search index.
         files_to_delete: List[str] = []
         if mode == "replace":
             cur = await db.execute("SELECT filepath FROM manuals")
             files_to_delete = [r["filepath"] for r in await cur.fetchall() if r["filepath"]]
+            cur = await db.execute("SELECT filepath FROM device_photos")
+            files_to_delete += [r["filepath"] for r in await cur.fetchall() if r["filepath"]]
             for table in (
                 "notification_log",
                 "calendar_events",
                 "manuals",
+                "device_photos",
                 "device_attributes",
                 "devices",
                 "categories",
@@ -563,6 +647,7 @@ async def _restore_backup_inner(zip_path: Path, mode: str) -> dict:
             0,
             len(data.categories) + len(data.devices)
             + len(data.device_attributes) + len(data.manuals)
+            + len(data.device_photos)
             + len(data.calendar_events) + len(data.notification_log),
         )
 
@@ -726,6 +811,60 @@ async def _restore_backup_inner(zip_path: Path, mode: str) -> dict:
                 )
             manuals_restored += 1
 
+        # --- photos ---------------------------------------------------------
+        # Merge dedupe by (device, filename) like manuals: a re-restore of the
+        # same archive adds nothing. v1 archives carry no photos at all.
+        photo_existing: dict[int, set] = {}
+        if mode == "merge":
+            cur = await db.execute("SELECT device_id, filename FROM device_photos")
+            for r in await cur.fetchall():
+                photo_existing.setdefault(r["device_id"], set()).add(
+                    (r["filename"] or "").lower()
+                )
+
+        planned_photo_names: dict[int, set] = {}
+        photos_restored = 0
+        for p in data.device_photos:
+            bump_restore()
+            target = device_map.get(p.device_id)
+            if target is None:
+                continue
+            if mode == "merge":
+                names = photo_existing.setdefault(target, set())
+                if (p.filename or "").lower() in names:
+                    skipped += 1
+                    continue
+
+            photo_dir = settings.DEVICES_DIR / str(target) / "photos"
+            photo_dir.mkdir(parents=True, exist_ok=True)
+            reserved = planned_photo_names.setdefault(target, set())
+            safe_name = _unique_filename(
+                photo_dir, _sanitize_photo_name(p.filename, p.mime_type), reserved
+            )
+            reserved.add(safe_name)
+            dest = photo_dir / safe_name
+
+            cur = await db.execute(
+                """
+                INSERT INTO device_photos (device_id, filename, filepath, label,
+                    notes, ai_notes, ai_analyzed_at, pending_ai_notes,
+                    pending_reason, proposed_at, mime_type, width, height,
+                    size_bytes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+                """,
+                (
+                    target, safe_name, str(dest), p.label, p.notes, p.ai_notes,
+                    p.ai_analyzed_at, p.pending_ai_notes, p.pending_reason,
+                    p.proposed_at, p.mime_type, p.width, p.height,
+                    p.size_bytes, p.created_at, p.updated_at,
+                ),
+            )
+
+            if p.archive_path:
+                files_to_write.append((p.archive_path, str(dest)))
+            photos_restored += 1
+
         # --- calendar events ----------------------------------------------
         event_map: dict[int, int] = {}  # backup id -> live id (for the ledger)
         event_seen: set[tuple] = set()
@@ -810,6 +949,7 @@ async def _restore_backup_inner(zip_path: Path, mode: str) -> dict:
         "devices_merged": devices_merged,
         "categories_created": categories_created,
         "manuals_restored": manuals_restored,
+        "photos_restored": photos_restored,
         "events_restored": events_restored,
         "skipped": skipped,
         "index_total": len(pending_index),

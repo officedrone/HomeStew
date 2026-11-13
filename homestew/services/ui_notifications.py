@@ -123,6 +123,33 @@ def _unindexed_message(details: Dict[str, Any]) -> str:
     return f"{n} {plural} not in the search index yet."
 
 
+async def _count_pending_photo_suggestions() -> Optional[Dict[str, Any]]:
+    """Photos whose AI note proposal is waiting for the user's decision.
+
+    A vision pass (on upload or during a chat re-check) never edits AI notes
+    directly - it leaves a pending proposal on the photo. This event nudges
+    the user to review those, and closes as soon as each is accepted or
+    declined in the device editor's Photos section.
+    """
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) AS n FROM device_photos
+            WHERE pending_ai_notes IS NOT NULL AND pending_ai_notes != ''
+            """
+        )
+        row = await cursor.fetchone()
+    count = int(row["n"]) if row else 0
+    return {"count": count} if count > 0 else None
+
+
+def _photo_suggestion_message(details: Dict[str, Any]) -> str:
+    n = int(details.get("count", 0))
+    plural = "photos" if n != 1 else "photo"
+    have = "have" if n != 1 else "has"
+    return f"{n} {plural} {have} an AI note suggestion awaiting your review."
+
+
 CHECKS: Dict[str, UINotificationCheck] = {
     c.key: c
     for c in (
@@ -136,6 +163,18 @@ CHECKS: Dict[str, UINotificationCheck] = {
             goto_tab="settings",
             goto_section="search",
             action_label="Go to Search settings",
+            sample_details={"count": 1},
+        ),
+        UINotificationCheck(
+            key="photo_suggestions",
+            label="Photo AI suggestions pending",
+            default_interval_minutes=720,  # twice a day
+            evaluate=_count_pending_photo_suggestions,
+            message=_photo_suggestion_message,
+            severity="info",
+            goto_tab="devices",
+            goto_section=None,
+            action_label="Go to Devices",
             sample_details={"count": 1},
         ),
     )

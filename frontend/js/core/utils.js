@@ -257,6 +257,50 @@ function notifyEvent(item, handlers = {}, options = {}) {
     });
 }
 
+// Resize an image file to at most maxDim on its longest edge and re-encode
+// as a JPEG blob. Phone photos are several MB; a downscaled JPEG is a few
+// hundred KB - still sharp enough for a vision model to read labels and
+// nameplates, but small enough for local-model context and upload limits.
+// Shared by the chat composer (data URL) and device photo uploads (blob).
+function downscaleImageToBlob(file, maxDim, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            let canvas;
+            try {
+                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                const w = Math.max(1, Math.round(img.width * scale));
+                const h = Math.max(1, Math.round(img.height * scale));
+                canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                // JPEG has no alpha: paint white so transparent PNGs don't
+                // turn black when re-encoded.
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+            } catch (e) {
+                URL.revokeObjectURL(url);
+                reject(e);
+                return;
+            }
+            canvas.toBlob(
+                (blob) => {
+                    URL.revokeObjectURL(url);
+                    if (blob) resolve(blob);
+                    else reject(new Error('Image re-encode failed'));
+                },
+                'image/jpeg',
+                quality
+            );
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image failed to load')); };
+        img.src = url;
+    });
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;

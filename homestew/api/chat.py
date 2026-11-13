@@ -89,6 +89,18 @@ async def resolve_device_filter(device_id: Optional[int]) -> Optional[Dict[str, 
             (device_id,),
         )
         device["attributes"] = [dict(a) for a in await attr_cursor.fetchall()]
+
+        # Count + unanalyzed flag only; photo text stays behind action=
+        # 'photo_notes' so the filtered prompt does not grow with pictures.
+        photo_cursor = await db.execute(
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN ai_notes IS NULL THEN 1 ELSE 0 END) AS unanalyzed "
+            "FROM device_photos WHERE device_id = ?",
+            (device_id,),
+        )
+        prow = await photo_cursor.fetchone()
+        device["photo_count"] = prow["total"] or 0
+        device["unanalyzed_photo_count"] = prow["unanalyzed"] or 0
     return device
 
 
@@ -125,6 +137,18 @@ async def device_roster_note() -> str:
             attrs.setdefault(a["device_id"], []).append(
                 f"{a['attribute_name']}: {a['attribute_value']}"
             )
+        # Photo COUNT and the unanalyzed flag only - photo text never joins
+        # the roster (prompt bloat); action='photo_notes' is the on-demand
+        # list for that.
+        photo_cursor = await db.execute(
+            "SELECT device_id, COUNT(*) AS total, "
+            "SUM(CASE WHEN ai_notes IS NULL THEN 1 ELSE 0 END) AS unanalyzed "
+            "FROM device_photos GROUP BY device_id"
+        )
+        photos: Dict[int, tuple] = {
+            p["device_id"]: (p["total"], p["unanalyzed"] or 0)
+            for p in await photo_cursor.fetchall()
+        }
 
     if not rows:
         return ""
@@ -137,6 +161,12 @@ async def device_roster_note() -> str:
             parts.append(warranty)
         if attrs.get(r["id"]):
             parts.append("attributes: " + "; ".join(attrs[r["id"]]))
+        total, unanalyzed = photos.get(r["id"], (0, 0))
+        if total:
+            note = f"photos: {total}"
+            if unanalyzed:
+                note += f" ({unanalyzed} unanalyzed)"
+            parts.append(note)
         lines.append(" | ".join(parts))
     return (
         "\n\nThe user's registered devices (these are the ONLY valid "
@@ -151,6 +181,9 @@ async def device_roster_note() -> str:
         "words as query BEFORE answering - never pick a device from this "
         "list yourself and never ask the user which device they mean unless "
         "that tool reports AMBIGUOUS.\n"
+        "A 'photos: N' count means the device has pictures attached; their "
+        "labels/notes/AI notes are NOT shown here - call manage_devices with "
+        "action='photo_notes' and the device_id when they are relevant.\n"
         "Every answer about one of these devices MUST end with a reference "
         "line 'Device: [name](#edit-device-<id>)' using that device's real "
         "device_id from this list - you write it yourself, no tool call or "
@@ -277,6 +310,14 @@ def device_filter_note(device: Dict[str, Any]) -> str:
         lines.append(f"- {warranty}")
     for attr in device.get("attributes", []):
         lines.append(f"- {attr['attribute_name']}: {attr['attribute_value']}")
+    photo_count = device.get("photo_count") or 0
+    if photo_count:
+        unanalyzed = device.get("unanalyzed_photo_count") or 0
+        note = f"- Photos: {photo_count}"
+        if unanalyzed:
+            note += f" ({unanalyzed} not yet analyzed by AI)"
+        note += " - their labels/notes/AI notes are not shown here; call manage_devices action='photo_notes' when they matter"
+        lines.append(note)
 
     return (
         "\n\nThe user has filtered this conversation to one specific device, "

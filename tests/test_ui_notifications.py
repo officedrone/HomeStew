@@ -124,6 +124,23 @@ def _keys(payload):
     return [i["key"] for i in payload["items"]]
 
 
+async def _seed_pending_photo_suggestion(pending="Filter looks grey"):
+    async with get_db_context() as db:
+        cur = await db.execute(
+            "INSERT INTO devices (name, brand, model) VALUES ('Furnace', 'Trane', 'XR14')"
+        )
+        await db.execute(
+            "INSERT INTO device_photos (device_id, filename, filepath, "
+            "mime_type, pending_ai_notes) VALUES (?, 'f.png', '/nope/f.png', ?, ?)",
+            (cur.lastrowid, "image/png", pending),
+        )
+        await db.commit()
+
+
+def seed_pending_photo(**kw):
+    asyncio.run(_seed_pending_photo_suggestion(**kw))
+
+
 def run_eval():
     """Simulate one background-loop pass (collect() itself is read-only)."""
     return asyncio.run(ui_notifications.run_due_checks())
@@ -170,6 +187,46 @@ def test_count_tracks_number_of_unindexed_manuals(client):
     assert body["items"][0]["count"] == 2
     # Message pluralises on the count.
     assert body["items"][0]["message"].startswith("2 ")
+
+
+# ---------------------------------------------------------------------------
+# Photo AI suggestions pending
+# ---------------------------------------------------------------------------
+
+def test_pending_photo_suggestion_triggers_notification(client):
+    seed_pending_photo()
+    run_eval()
+    body = client.get("/api/notifications/ui").json()
+    assert _keys(body) == ["photo_suggestions"]
+    item = body["items"][0]
+    assert item["count"] == 1
+    assert item["severity"] == "info"
+    assert item["goto_tab"] == "devices"
+    assert "photo" in item["message"].lower()
+
+
+def test_accepted_suggestion_clears_the_notification(client):
+    seed_pending_photo()
+    run_eval()
+    assert _keys(client.get("/api/notifications/ui").json()) == ["photo_suggestions"]
+
+    async def accept():
+        async with get_db_context() as db:
+            await db.execute(
+                "UPDATE device_photos SET ai_notes = pending_ai_notes, "
+                "pending_ai_notes = NULL"
+            )
+            await db.commit()
+
+    asyncio.run(accept())
+    body = client.post("/api/notifications/ui/photo_suggestions/check").json()
+    assert body["items"] == []
+
+
+def test_empty_pending_string_is_not_a_suggestion(client):
+    seed_pending_photo(pending="")
+    run_eval()
+    assert "photo_suggestions" not in _keys(client.get("/api/notifications/ui").json())
 
 
 # ---------------------------------------------------------------------------
