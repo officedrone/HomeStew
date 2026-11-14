@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.6]
+
+- ADD: **Take a photo, don't just upload one.** The Photos section gains a camera button next to *Upload Photo*: on a phone it opens the rear camera directly (the same `capture="environment"` trick AI Chat uses), on a desktop it falls back to a file picker. The shot follows the identical downscale-and-upload path, so labels, notes and *Analyze with AI now* all work the same.
+- ADD: The **Add New Device** form now has its own **Photos** section with the same upload/camera pair and vision toggle. Pictures are downscaled and previewed in the form (each removable before you commit) and uploaded to the new device the moment you save it — reported in the success message alongside attributes and manuals.
+
 ## [0.2.5]
 
 - ADD: **Device photos.** Every device can now hold pictures — a filter size, a nameplate, a breaker panel, the back of a remote. Open a device and use the new **Photos** section: upload one or more images (PNG/JPEG/WebP/GIF), give each a **label** and free-form **notes**, click a thumbnail for a full-screen lightbox, and delete what you no longer need. Images are downscaled in your browser before upload (max 2048px), so phone photos never bloat the server.

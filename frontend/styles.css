@@ -2766,6 +2766,40 @@ body.no-vision .chat-input-wrap textarea {
     align-items: center;
 }
 
+/* Camera shortcut beside "Upload Photo": a square icon button, but dressed in
+   the secondary-button skin so it reads as part of the same pair instead of a
+   bare transparent glyph. */
+.photo-camera-btn {
+    width: 32px;
+    height: 32px;
+    background: var(--bg-light);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.photo-camera-btn:hover {
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--surface));
+    border-color: var(--primary-color);
+    color: var(--text-primary);
+}
+
+/* Pictures staged in the Add Device form: they only exist in browser memory
+   until the device is created, so the strip stays shorter than the edit
+   modal's real photo list and its thumbnails are not clickable (no lightbox
+   for something that has no id yet). */
+.staged-photos {
+    max-height: 260px;
+}
+
+.staged-photos .photo-thumb {
+    cursor: default;
+}
+
+.staged-photo-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
 .photo-analyze-toggle {
     display: flex;
     align-items: center;
