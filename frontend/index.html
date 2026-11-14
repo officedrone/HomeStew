@@ -988,6 +988,28 @@
                     <span id="add-device-manual-names" class="manual-file-names"></span>
                 </div>
 
+                <!-- Photos: picked pictures are downscaled and held in memory,
+                     then uploaded once the device exists (photos are stored per
+                     device). Same upload/camera pair and AI toggle as the edit
+                     modal's Photos section. -->
+                <div class="attributes-section">
+                    <h4>Photos</h4>
+                    <div id="add-device-photos-list" class="photos-grid staged-photos">
+                        <div class="empty-state">No photos</div>
+                    </div>
+                    <div class="manual-actions photo-actions">
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerStagePhoto()">
+                            Upload Photo
+                        </button>
+                        <button type="button" class="card-icon-btn photo-camera-btn" data-dedupe title="Take a photo" aria-label="Take a photo" onclick="triggerStageCamera()">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+                        </button>
+                        <label id="add-device-photo-analyze-wrap" class="checkbox-label photo-analyze-toggle" hidden>
+                            <input type="checkbox" id="add-device-photo-analyze"> Analyze with AI now
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Custom Attributes Section -->
                 <div class="attributes-section">
                     <h4>Custom Attributes</h4>
@@ -1127,6 +1149,12 @@
                     <div class="manual-actions photo-actions">
                         <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerUploadPhoto(parseInt(document.getElementById('edit-device-id').value))">
                             Upload Photo
+                        </button>
+                        <!-- Camera glyph (same glyph AI Chat uses) instead of a
+                             second text button: it sits beside Upload Photo as
+                             an alternate way to supply the same picture. -->
+                        <button type="button" class="card-icon-btn photo-camera-btn" data-dedupe title="Take a photo" aria-label="Take a photo" onclick="triggerTakePhoto(parseInt(document.getElementById('edit-device-id').value))">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
                         </button>
                         <!-- Only shown when the model supports vision: sends
                              analyze=true with the next upload so the AI takes
@@ -1517,9 +1545,18 @@
 
     <!-- Hidden file input used by the "Upload Manual" buttons -->
     <input type="file" id="manual-upload-input" accept="application/pdf,.pdf" style="display: none;">
-    <!-- Hidden file input used by the device editor's "Upload Photo" button.
-         Accepts exactly what the server sniffs (png/jpeg/webp/gif). -->
+    <!-- Hidden file inputs used by the device photo buttons. The upload one
+         accepts exactly what the server sniffs (png/jpeg/webp/gif); the camera
+         one asks for capture="environment" so phones open their rear camera
+         directly, the same trick AI Chat uses (desktop browsers show a file
+         picker). Both feed the same handler. -->
     <input type="file" id="photo-upload-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display: none;">
+    <input type="file" id="photo-camera-input" accept="image/*" capture="environment" style="display: none;">
+    <!-- Add Device modal's own photo pickers: staged pictures belong to a
+         device that does not exist yet, so they must never cross-trigger the
+         edit modal's upload handler. -->
+    <input type="file" id="add-device-photo-input" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display: none;">
+    <input type="file" id="add-device-photo-camera" accept="image/*" capture="environment" style="display: none;">
     <!-- Settings > General "Restore": single backup archive picker. -->
     <input type="file" id="restore-file-input" accept=".zip,application/zip" style="display: none;">
     <!-- Setup wizard "Restore from backup": wizard-owned archive picker so it

@@ -859,6 +859,9 @@ function openAddDeviceModal() {
     setDeviceIcon('device', '');
     populateCategorySelect('device', null);
     updateAddDeviceManualNames();
+    clearAddDevicePhotos();
+    const analyzeWrap = document.getElementById('add-device-photo-analyze-wrap');
+    if (analyzeWrap) analyzeWrap.hidden = !chatVisionEnabled;
     _addDeviceAttributes = [];
     _addDeviceCreatedId = null;
     renderAddDeviceAttributes();
@@ -870,6 +873,7 @@ function closeAddDeviceModal() {
     document.getElementById('add-device-modal').style.display = 'none';
     _addDeviceAttributes = [];
     _addDeviceCreatedId = null;
+    clearAddDevicePhotos();
 }
 
 // "Fetch Manuals" inside the Add Device modal. Manuals are stored per device,
@@ -935,6 +939,127 @@ function updateAddDeviceManualNames() {
     const names = [...input.files].map(f => f.name);
     document.getElementById('add-device-manual-names').textContent =
         names.length === 0 ? '' : `${names.length} file${names.length !== 1 ? 's' : ''}: ${names.join(', ')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Add Device photos (staged in the browser until the device exists)
+// ---------------------------------------------------------------------------
+
+// Photos picked in the Add Device form cannot be uploaded yet — the server
+// stores pictures against an existing device. So each pick is downscaled to a
+// JPEG blob held in memory with an object URL for its thumbnail, and pushed
+// through the same POST /photos pipeline once the device has been created.
+// Each entry is { blob: Blob, url: string, label: string, notes: string }.
+let _addDevicePhotos = [];
+
+function triggerStagePhoto() {
+    const input = document.getElementById('add-device-photo-input');
+    input.value = '';
+    input.click();
+}
+
+// Camera variant of the staged picker: capture="environment" makes phones open
+// their rear camera, desktop browsers fall back to a file picker.
+function triggerStageCamera() {
+    const input = document.getElementById('add-device-photo-camera');
+    input.value = '';
+    input.click();
+}
+
+async function handleAddDevicePhotoSelected(event) {
+    const files = [...(event.target.files || [])];
+    event.target.value = '';
+    for (const file of files) {
+        if (!file.type.startsWith('image/')) {
+            notifyError('Only image files are supported');
+            continue;
+        }
+        try {
+            // Same 2048px cap the edit modal uses, so a camera shot passes the
+            // server's PHOTO_MAX_DIM_PX check.
+            const blob = await downscaleImageToBlob(file, 2048);
+            _addDevicePhotos.push({ blob, url: URL.createObjectURL(blob), label: '', notes: '' });
+        } catch (e) {
+            console.error('Failed to read photo:', e);
+            notifyError('Could not read that image', String(e));
+        }
+    }
+    renderAddDevicePhotos();
+}
+
+function renderAddDevicePhotos() {
+    const container = document.getElementById('add-device-photos-list');
+    if (!container) return;
+    if (_addDevicePhotos.length === 0) {
+        container.innerHTML = '<div class="empty-state">No photos</div>';
+        return;
+    }
+    // Label/notes are kept in the entries themselves: re-rendering must not
+    // discard what the user typed while adding more pictures.
+    container.innerHTML = _addDevicePhotos.map((p, i) => `
+        <div class="photo-card">
+            <div class="photo-card-main">
+                <img class="photo-thumb" src="${p.url}" alt="Photo ${i + 1} preview">
+                <div class="photo-card-body">
+                    <input type="text" class="photo-label-input" maxlength="200" placeholder="Label (optional, e.g. Nameplate)"
+                           value="${escapeHtml(p.label)}" oninput="setAddDevicePhotoField(${i}, 'label', this.value)">
+                    <textarea class="photo-notes-input" rows="2" maxlength="4000" placeholder="Notes (optional)"
+                              oninput="setAddDevicePhotoField(${i}, 'notes', this.value)">${escapeHtml(p.notes)}</textarea>
+                    <div class="photo-card-actions">
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="removeAddDevicePhoto(${i})">Remove</button>
+                        <span class="staged-photo-hint">Uploaded when you save the device</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function setAddDevicePhotoField(index, field, value) {
+    const entry = _addDevicePhotos[index];
+    if (entry) entry[field] = value;
+}
+
+function removeAddDevicePhoto(index) {
+    const [entry] = _addDevicePhotos.splice(index, 1);
+    if (entry) URL.revokeObjectURL(entry.url);
+    renderAddDevicePhotos();
+}
+
+// Drop every staged picture and release its object URL. Called on modal
+// open/close so a cancelled form never leaks previews into the next device.
+function clearAddDevicePhotos() {
+    _addDevicePhotos.forEach(p => URL.revokeObjectURL(p.url));
+    _addDevicePhotos = [];
+    renderAddDevicePhotos();
+}
+
+// Upload the staged pictures against a freshly created device, mirroring the
+// edit modal's photo upload (label/notes travel with the file; analyze is the
+// vision toggle in this form). Failures are reported per photo but never lose
+// the device or the other photos.
+async function uploadAddDevicePhotos(deviceId) {
+    const analyze = document.getElementById('add-device-photo-analyze');
+    let uploaded = 0;
+    for (const [i, entry] of _addDevicePhotos.entries()) {
+        const formData = new FormData();
+        formData.append('file', entry.blob, 'photo.jpg');
+        formData.append('label', entry.label.trim());
+        formData.append('notes', entry.notes.trim());
+        formData.append('analyze', analyze && analyze.checked ? 'true' : 'false');
+        try {
+            const response = await fetch(`/api/devices/${deviceId}/photos`, {
+                method: 'POST',
+                body: formData
+            });
+            if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to upload photo'));
+            uploaded++;
+        } catch (error) {
+            console.error('Failed to upload staged photo:', error);
+            notifyError(error.message || `Failed to upload photo ${i + 1}`);
+        }
+    }
+    return uploaded;
 }
 
 // ---------------------------------------------------------------------------
@@ -1054,10 +1179,14 @@ async function handleAddDevice(e) {
             }
         }
 
+        // Upload the pictures staged in the form.
+        const photoCount = await uploadAddDevicePhotos(newDeviceId);
+
         const attrCount = _addDeviceAttributes.length;
         const msg = [];
         if (attrCount > 0) msg.push(`${attrCount} attribute${attrCount !== 1 ? 's' : ''}`);
         if (files.length > 0) msg.push(`${files.length} manual${files.length !== 1 ? 's' : ''}`);
+        if (photoCount > 0) msg.push(`${photoCount} photo${photoCount !== 1 ? 's' : ''}`);
         notifySuccess(msg.length > 0
             ? `Device added with ${msg.join(' and ')}!`
             : 'Device added successfully!');
@@ -1724,6 +1853,16 @@ function triggerUploadPhoto(deviceId) {
     input.click();
 }
 
+// "Take Photo" opens the rear camera on phones (capture="environment" on the
+// hidden input) and a plain file picker on desktop, exactly like AI Chat's
+// camera button. Both inputs run through the same upload handler.
+function triggerTakePhoto(deviceId) {
+    photoUploadTargetDeviceId = deviceId;
+    const input = document.getElementById('photo-camera-input');
+    input.value = '';
+    input.click();
+}
+
 // A picture chosen via the hidden photo input: downscale in the browser (the
 // server rejects oversized originals and never re-encodes), then upload with
 // the label/notes filled in afterwards on the photo card. The "Analyze with
@@ -2120,8 +2259,15 @@ function wireDevicesEvents() {
     // Manual" button; the target device id is stashed before opening it.
     document.getElementById('manual-upload-input').addEventListener('change', handleManualFileSelected);
 
-    // Photo upload: same shared-hidden-input pattern as manuals.
+    // Photo upload: same shared-hidden-input pattern as manuals. The camera
+    // input is a second picker feeding the identical handler.
     document.getElementById('photo-upload-input').addEventListener('change', handlePhotoFileSelected);
+    document.getElementById('photo-camera-input').addEventListener('change', handlePhotoFileSelected);
+
+    // Add Device photos are staged in memory (the device does not exist yet),
+    // so they get their own picker pair and handler.
+    document.getElementById('add-device-photo-input').addEventListener('change', handleAddDevicePhotoSelected);
+    document.getElementById('add-device-photo-camera').addEventListener('change', handleAddDevicePhotoSelected);
 
     // Photo lightbox: click anywhere on the backdrop (or press Esc) to close.
     const lightbox = document.getElementById('photo-lightbox');

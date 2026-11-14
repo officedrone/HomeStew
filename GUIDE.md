@@ -67,9 +67,15 @@ Use the search tab:
 
 Open any device and scroll to the **Photos** section:
 
-- **Upload Photo** accepts PNG, JPEG, WebP or GIF files (multiple at once). Large
+- **Upload Photo** accepts PNG, JPEG, WebP or GIF files from your storage. Large
   phone photos are downscaled in your browser first (longest side 2048px), so
   uploads stay small and within the server's limits.
+- The **camera button** beside it opens your device's camera instead of a file
+  picker (on a phone it goes straight to the rear camera; on a desktop browser
+  it falls back to a file picker). The picture then follows the exact same path.
+- The **Add New Device** form has the same Photos section with both controls.
+  There the pictures are previewed in the form and uploaded as soon as you save
+  the device.
 - Each photo gets a **label** (e.g. `HVAC filter size`) and **notes** (e.g.
   `20x25x1 pleated, arrow points down`). Both are yours to edit at any time.
 - Click a thumbnail to open it full-screen; press Esc or click the backdrop to close.
