@@ -50,6 +50,8 @@ _ACTIONS = (
     "rename_category",
     "add_attribute",
     "remove_attribute",
+    "photo_notes",
+    "propose_photo_notes",
     "delete",
 )
 
@@ -772,6 +774,7 @@ async def _search_devices(args: Dict[str, Any], chat_device_id: Optional[int]) -
             attrs_by_device.setdefault(a["device_id"], []).append(
                 f'{a["attribute_name"]}: {a["attribute_value"]}'
             )
+        photo_counts = await _photo_counts(db, [r["id"] for r in rows])
 
     if not rows:
         return "No devices are registered yet, so none can match."
@@ -884,10 +887,22 @@ async def _search_devices(args: Dict[str, Any], chat_device_id: Optional[int]) -
         line = f'- device_id={row["id"]}: {_device_line(row)}'
         if attr_list:
             line += " | attributes: " + "; ".join(attr_list)
+        # Count + unanalyzed flag only; photo text is on-demand via
+        # action='photo_notes' so rosters stay lean.
+        line += _photo_count_note(*photo_counts.get(row["id"], (0, 0)))
         lines.append(line)
 
     if len(matches) == 1:
         row = matches[0][0]
+        photo_hint = ""
+        total, unanalyzed = photo_counts.get(row["id"], (0, 0))
+        if total:
+            photo_hint = (
+                f" This device has {total} photo(s)"
+                + (f" ({unanalyzed} not yet analyzed by AI)" if unanalyzed else "")
+                + " - call action='photo_notes' to read their labels and "
+                "notes when the question concerns them."
+            )
         return (
             f"Found exactly ONE device matching the question:\n"
             + "\n".join(lines)
@@ -901,6 +916,7 @@ async def _search_devices(args: Dict[str, Any], chat_device_id: Optional[int]) -
             'without any search. When you mention this device in your '
             "answer, include its link verbatim: "
             + device_link_markdown(row["name"], row["id"])
+            + photo_hint
         )
 
     return (
@@ -956,6 +972,7 @@ async def _list(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
         attrs_by_device: Dict[int, list] = {}
         for a in await attr_cursor.fetchall():
             attrs_by_device.setdefault(a["device_id"], []).append(dict(a))
+        photo_counts = await _photo_counts(db, [r["id"] for r in rows])
 
     if not rows:
         return (
@@ -972,6 +989,7 @@ async def _list(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
                 f'id={a["id"]} {a["attribute_name"]}: {a["attribute_value"]}'
                 for a in attrs
             )
+        line += _photo_count_note(*photo_counts.get(r["id"], (0, 0)))
         lines.append(line)
 
     total = len(rows)
@@ -1135,6 +1153,164 @@ async def _rename_category(args: Dict[str, Any]) -> str:
     )
 
 
+async def _photo_counts(db, device_ids: List[int]) -> Dict[int, Tuple[int, int]]:
+    """Map device id -> (photo_count, unanalyzed_count) for report lines.
+
+    Reports only ever carry the COUNT and the unanalyzed flag - photo text
+    stays out of the roster/list so it cannot bloat every prompt. The full
+    text is fetched on demand via action='photo_notes'.
+    """
+    if not device_ids:
+        return {}
+    marks = ",".join("?" for _ in device_ids)
+    cursor = await db.execute(
+        f"SELECT device_id, COUNT(*) AS total, "
+        f"SUM(CASE WHEN ai_notes IS NULL THEN 1 ELSE 0 END) AS unanalyzed "
+        f"FROM device_photos WHERE device_id IN ({marks}) GROUP BY device_id",
+        tuple(device_ids),
+    )
+    return {
+        r["device_id"]: (r["total"], r["unanalyzed"] or 0)
+        for r in await cursor.fetchall()
+    }
+
+
+def _photo_count_note(total: int, unanalyzed: int) -> str:
+    """' | photos: 2 (1 unanalyzed)' fragment, empty when there are none."""
+    if not total:
+        return ""
+    note = f" | photos: {total}"
+    if unanalyzed:
+        note += f" ({unanalyzed} unanalyzed)"
+    return note
+
+
+async def _photo_notes(args: Dict[str, Any], chat_device_id: Optional[int]) -> str:
+    """Read a device's photo inventory (action='photo_notes').
+
+    The separate list the roster note points at: labels, user notes and
+    confirmed AI notes for every photo of one device. Deliberately NOT part
+    of any roster or search report - the model calls this only when photo
+    detail is actually relevant to the conversation.
+    """
+    async with get_db_context() as db:
+        row, err = await _load_scoped_device(
+            db, args.get("device_id") if args.get("device_id") not in (None, "") else chat_device_id,
+            chat_device_id,
+        )
+        if err:
+            return err
+        cursor = await db.execute(
+            "SELECT id, filename, label, notes, ai_notes, ai_analyzed_at, "
+            "pending_ai_notes FROM device_photos WHERE device_id = ? "
+            "ORDER BY id",
+            (row["id"],),
+        )
+        photos = [dict(r) for r in await cursor.fetchall()]
+
+    if not photos:
+        return (
+            f'{row["name"]} has no photos attached. The user adds them in the '
+            "device editor's Photos section; when they want to discuss a "
+            "photo with the AI, they can attach it to this conversation "
+            "from there."
+        )
+
+    lines = []
+    for p in photos:
+        title = p.get("label") or p["filename"]
+        parts = [f'- photo_id={p["id"]}: {title}']
+        if p.get("notes"):
+            parts.append(f'user notes: {_clean_text(p["notes"], 600)}')
+        if p.get("ai_notes"):
+            parts.append(f'AI notes: {_clean_text(p["ai_notes"], 600)}')
+        else:
+            parts.append("AI notes: (never analyzed)")
+        if p.get("pending_ai_notes"):
+            parts.append("a suggested AI-notes update is awaiting user confirmation")
+        lines.append(" | ".join(parts))
+
+    return (
+        f'Photo details for {row["name"]}:\n' + "\n".join(lines)
+        + "\nIf the user wants a photo re-examined with fresh context, offer "
+        "to attach it to this chat: end your answer with the link "
+        "[attach photos](#attach-photos-"
+        + str(row["id"])
+        + ") verbatim - the UI then loads the pictures into the composer "
+        "for them to send."
+    )
+
+
+async def _propose_photo_notes(
+    args: Dict[str, Any], chat_device_id: Optional[int]
+) -> str:
+    """Record a suggested AI-notes update (action='propose_photo_notes').
+
+    The model NEVER writes confirmed AI notes directly: proposals land in
+    the photo's pending fields and only become ai_notes when the user
+    accepts them on the device's Photos card. ``changed=false`` means the
+    model re-checked the picture against the notes on file and found no
+    material difference - nothing is written in that case.
+    """
+    photo_id = args.get("photo_id")
+    try:
+        photo_id = int(photo_id)
+    except (TypeError, ValueError):
+        return (
+            "Error: 'photo_id' is required and must be the id shown by "
+            "action='photo_notes'."
+        )
+    changed = bool(args.get("changed"))
+    notes = _clean_text(args.get("notes"), 4000)
+    reason = _clean_text(args.get("reason"), 500)
+
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT p.id, p.device_id, p.label, p.filename, d.name AS device_name "
+            "FROM device_photos p JOIN devices d ON d.id = p.device_id "
+            "WHERE p.id = ?",
+            (photo_id,),
+        )
+        photo = await cursor.fetchone()
+        if not photo:
+            return (
+                f"Error: no photo with id={photo_id}. Call action='photo_notes' "
+                "to see the real photo ids - never invent one."
+            )
+        if chat_device_id is not None and photo["device_id"] != chat_device_id:
+            return (
+                "Error: that photo belongs to a different device than this "
+                "conversation is filtered to."
+            )
+
+        if not changed:
+            return (
+                f'Nothing recorded: you reported no material difference for '
+                f'photo {photo_id} of "{photo["device_name"]}". Tell the user '
+                "the photo still matches the notes on file."
+            )
+        if not notes:
+            return (
+                "Error: 'notes' is required when changed=true - pass the full "
+                "updated notes you want the user to confirm."
+            )
+
+        await db.execute(
+            "UPDATE device_photos SET pending_ai_notes = ?, pending_reason = ?, "
+            "proposed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (notes, reason or None, photo_id),
+        )
+        await db.commit()
+
+    title = photo["label"] or photo["filename"]
+    return (
+        f'Suggestion saved for photo "{title}" on "{photo["device_name"]}". '
+        "The user must confirm it before the AI notes change - tell them to "
+        "review it on the device's Photos card: "
+        + device_link_markdown(photo["device_name"], photo["device_id"])
+    )
+
+
 async def execute_device_tool(
     args: Dict[str, Any], chat_device_id: Optional[int]
 ) -> str:
@@ -1167,6 +1343,10 @@ async def execute_device_tool(
             return await _add_attribute(args, chat_device_id)
         if action == "remove_attribute":
             return await _remove_attribute(args, chat_device_id)
+        if action == "photo_notes":
+            return await _photo_notes(args, chat_device_id)
+        if action == "propose_photo_notes":
+            return await _propose_photo_notes(args, chat_device_id)
         if action == "list_categories":
             # Read-only catalog lookup - no device scope applies.
             return await _list_categories(args, chat_device_id)

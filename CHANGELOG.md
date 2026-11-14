@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.5]
+
+- ADD: **Device photos.** Every device can now hold pictures — a filter size, a nameplate, a breaker panel, the back of a remote. Open a device and use the new **Photos** section: upload one or more images (PNG/JPEG/WebP/GIF), give each a **label** and free-form **notes**, click a thumbnail for a full-screen lightbox, and delete what you no longer need. Images are downscaled in your browser before upload (max 2048px), so phone photos never bloat the server.
+- ADD: **AI photo notes.** With **Model supports Vision** enabled, an uploaded photo can be analyzed right away (tick *Analyze with AI now*) or left for later. The AI's description is stored in its own **AI Notes** block, separate from your own notes, and never overwrites them silently: re-checks produce a *suggestion* you **Accept** or **Decline**.
+- ADD: Chat can re-examine photos on demand. When the assistant needs to look at a device's pictures it offers an **attach photos** link in its reply — clicking it pulls that device's images into the chat input, ready to send. Photo text is never part of the top-level device list the model sees; the assistant fetches it only when you ask about pictures, so ordinary chats stay lean.
+- ADD: Labels, your notes and the AI notes are all **searchable** from the Search tab alongside manual text.
+- ADD: Settings > Notifications gains a **Photo AI suggestions pending** event, so an un-reviewed AI note resurfaces (once every 12 hours by default) until you accept or decline it.
+- UPDATE: Backups are format version 2 and now carry device photos (image files + metadata, including pending AI suggestions). Restores keep working with older v1 archives; *Merge* skips photos that already exist, *Replace* rebuilds them exactly. The backup summary reports the photo count.
+- FIX: Deleting a device left its uploaded files on disk. The whole device directory is now removed with the device.
+
+## [0.2.4]
+
+- UPDATE: Settings > Notifications is now fully per-event. The **"Enable notifications"** master checkbox and the separate "Check every (minutes)" / "Notify before due" fields are gone — the page is just the Webhook section and the Notification Events table.
+- UPDATE: An event is enabled exactly when at least one of its **"Notify via"** channels is ticked; unticking all of them switches the event off. The redundant **Enable** column was removed from the Events table — there is no separate enable flag anywhere any more.
+- ADD: The Events table gains editable per-row fields: **Interval (min)** now applies to calendar reminders too (their scan cadence), and a new **Notify before due (hrs)** column holds the calendar lead window (condition checks show **Not Applicable** — they have no due date). Both apply without a restart.
+- ADD: A **Check Now** button on every row, including calendar reminders: it forces one immediate evaluation (a notifier scan for the calendar event) ignoring the interval, then refreshes the feed.
+- FIX: The **Test** button now fires through the channel checkboxes exactly as shown on screen. Previously it only used the _saved_ subscription, so ticking "Webhook" and clicking Test before pressing Save produced just the local toast preview with no webhook send.
+- UPDATE: The Events table is usable on small screens: it scrolls horizontally inside its frame (instead of crushing columns into unreadable slivers), with tighter padding and narrower fixed columns under 640px.
+
+- ADD: Unified toast notification framework that events can use to display notifications to users . Every notification is now an **event** (what happened) delivered over the **channels** you subscribe to (in-app toast, webhook, future ones). Routing lives in one place (`services/dispatch.py`); adding an event or a channel needs no UI changes.
+- ADD: Subscribe 'un-indexed manuals found' event to the new notification framework
+- ADD: Settings > Notifications gains an **Events** table
+- UPDATE: The notification ledger is now per-channel, so an in-app toast and a webhook send no longer suppress each other, and a partially failed delivery retries only the failed channel. Backups carry the channel column so restores keep both ledgers intact.
+- UPDATE: All frontend toasts render through one notify API (`notifySuccess`/`notifyError`/`notifyInfo`/`notifyWarn`/`notifyEvent` in `core/utils.js`); a guard test rejects stray calls that bypass it.
+- REFACTOR: Post-unification cleanup — removed the compatibility shims and load-time migrations left over from the notification rework (alias functions in `ui_notifications`/`notifier`, an unused subscriber probe in `dispatch`, the dead `UI_NOTIFICATIONS` settings migration), and made code comments version-agnostic. The ledger upgrade path for pre-channel webhook databases is kept.
+
 ## [0.2.3]
 
 - SECURITY: Bumped `pypdf` 6.16.2 → 6.19.0 — fixes CVE-2026-102993, CVE-2026-102994, CVE-2026-102995, CVE-2026-102996, CVE-2026-102997, CVE-2026-102998, CVE-2026-102999, CVE-2026-103000 (8.7 High).

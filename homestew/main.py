@@ -83,7 +83,8 @@ async def lifespan(app: FastAPI):
 
     # Background due-event notifier (services/notifier.py). uvicorn runs a
     # single process, so one task per container is enough; it re-reads the
-    # notify_* settings every tick and no-ops while NOTIFY_ENABLED is off.
+    # per-event notify_subscriptions every wake and does no database work
+    # while no event subscribes an external channel.
     notifier_task = asyncio.create_task(notification_loop())
 
     yield

@@ -583,46 +583,6 @@
 
                         <!-- Notifications -->
                         <section id="settings-panel-notifications" class="settings-panel" hidden>
-                            <div class="settings-field">
-                                <div class="label-row">
-                                    <label class="checkbox-option" for="settings-notify-enabled">
-                                        <input type="checkbox" id="settings-notify-enabled">
-                                        Enable notifications
-                                    </label>
-                                    <span class="info-wrap">
-                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
-                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Enable background notifications for maintenance tasks.</p></span>
-                                    </span>
-                                </div>
-                            </div>
-                            <h4 class="settings-subheading">Calendar Event Notifications</h4>
-                            <div class="settings-field">
-                                <div class="label-row">
-                                    <label for="settings-notify-interval">Check every (minutes)</label>
-                                    <span class="info-wrap">
-                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
-                                        <span class="info-popover" role="tooltip"><p class="settings-hint">How often the background check runs. Changes apply without a restart.</p></span>
-                                    </span>
-                                </div>
-                                <input type="number" id="settings-notify-interval" min="1" max="1440" step="1">
-                            </div>
-                            <div class="settings-field">
-                                <div class="label-row">
-                                    <label for="settings-notify-lead-value">Notify before due</label>
-                                    <span class="info-wrap">
-                                        <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
-                                        <span class="info-popover" role="tooltip"><p class="settings-hint">Send an alert this far ahead of the due date. Overdue tasks are also alerted once.</p></span>
-                                    </span>
-                                </div>
-                                <div class="model-row">
-                                    <input type="number" id="settings-notify-lead-value" min="1" max="365" step="1">
-                                    <select id="settings-notify-lead-unit">
-                                        <option value="hours">Hours</option>
-                                        <option value="days">Days</option>
-                                    </select>
-                                </div>
-                            </div>
-
                             <h4 class="settings-subheading">Webhook</h4>
                             <div class="settings-field">
                                 <label class="checkbox-option" for="settings-notify-webhook-enabled">
@@ -685,6 +645,29 @@
                                 </div>
                                 <p class="settings-hint" id="webhook-test-hint"></p>
                             </div>
+
+                            <!-- Notification Events: one table row per subscribable
+                                 event (status / interval / notify-before-due /
+                                 Notify-via channels / check-now / test), rendered by
+                                 renderUINotificationSettings() from the server's
+                                 notify_subscriptions + notification_channels
+                                 payloads. Enabling an event = ticking one of its
+                                 "Notify via" channels (no separate enable column).
+                                 Adding an event or channel server-side needs no
+                                 markup here. Saved with the shared form. -->
+                            <h4 class="settings-subheading">Notification Events
+                                <span class="info-wrap">
+                                    <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
+                                    <span class="info-popover" role="tooltip"><p class="settings-hint">
+                                HomeStew watches for events (problems found by periodic
+                                checks, or calendar reminders) and delivers each one to the
+                                channels you tick here: an in-app toast, the webhook above,
+                                etc. Dismissing a notification silences that occurrence until
+                                the problem goes away and comes back.
+                            </p></span>
+                                </span>
+                            </h4>
+                            <div id="ui-notification-rows"></div>
                         </section>
 
                         <!-- Search index. Layout top-to-bottom: Indexing Options
@@ -783,7 +766,7 @@
                                 <div class="label-row">
                                     <label class="checkbox-option" for="backup-include-manuals">
                                         <input type="checkbox" id="backup-include-manuals" checked>
-                                        Include user manual PDF files in the backup
+                                        Include manual PDFs and device photos in the backup
                                     </label>
                                     <span class="info-wrap">
                                         <button type="button" class="info-btn" aria-label="More information"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></button>
@@ -1132,6 +1115,25 @@
                         <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerUploadManual(parseInt(document.getElementById('edit-device-id').value))">
                             Upload Manual
                         </button>
+                    </div>
+                </div>
+
+                <!-- Photos Section -->
+                <div class="attributes-section">
+                    <h4>Photos</h4>
+                    <div id="device-photos-list" class="photos-grid">
+                        <div class="empty-state">No photos</div>
+                    </div>
+                    <div class="manual-actions photo-actions">
+                        <button type="button" class="btn btn-secondary btn-small" data-dedupe onclick="triggerUploadPhoto(parseInt(document.getElementById('edit-device-id').value))">
+                            Upload Photo
+                        </button>
+                        <!-- Only shown when the model supports vision: sends
+                             analyze=true with the next upload so the AI takes
+                             a first look immediately instead of on-demand. -->
+                        <label id="photo-analyze-now-wrap" class="checkbox-label photo-analyze-toggle" hidden>
+                            <input type="checkbox" id="photo-analyze-now"> Analyze with AI now
+                        </label>
                     </div>
                 </div>
 
@@ -1515,6 +1517,9 @@
 
     <!-- Hidden file input used by the "Upload Manual" buttons -->
     <input type="file" id="manual-upload-input" accept="application/pdf,.pdf" style="display: none;">
+    <!-- Hidden file input used by the device editor's "Upload Photo" button.
+         Accepts exactly what the server sniffs (png/jpeg/webp/gif). -->
+    <input type="file" id="photo-upload-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display: none;">
     <!-- Settings > General "Restore": single backup archive picker. -->
     <input type="file" id="restore-file-input" accept=".zip,application/zip" style="display: none;">
     <!-- Setup wizard "Restore from backup": wizard-owned archive picker so it
@@ -1526,6 +1531,13 @@
          rear camera directly (desktop browsers just show a file picker). -->
     <input type="file" id="chat-image-input" accept="image/png,image/jpeg,image/webp" multiple style="display: none;">
     <input type="file" id="chat-camera-input" accept="image/*" capture="environment" style="display: none;">
+
+    <!-- Photo lightbox: click the backdrop or ✕ (or press Esc) to close. -->
+    <div id="photo-lightbox" class="photo-lightbox" hidden>
+        <button type="button" class="photo-lightbox-close" aria-label="Close" onclick="closePhotoLightbox()">&times;</button>
+        <img id="photo-lightbox-img" alt="Device photo">
+        <div id="photo-lightbox-caption" class="photo-lightbox-caption"></div>
+    </div>
 
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
@@ -1577,6 +1589,7 @@
     <script src="/static/js/chat/chat.js"></script>
     <script src="/static/js/search/search.js"></script>
     <script src="/static/js/settings/settings.js"></script>
+    <script src="/static/js/notifications/notifications.js"></script>
     <script src="/static/js/wizard/wizard.js"></script>
     <script src="/static/js/bootstrap.js"></script>
 </body>

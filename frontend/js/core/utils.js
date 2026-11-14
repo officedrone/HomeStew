@@ -58,12 +58,20 @@ async function errorDetailFrom(response, fallback) {
     return fallback;
 }
 
-// Show a transient notification. With options.persistent the toast gets a ✕
-// button and stays until dismissed (used by the index progress monitor); all
-// other call sites keep the auto-remove timer. options.id reuses an existing
-// toast with that id instead of stacking a new one - the progress monitor
-// updates its single toast in place via updateToast().
-function showToast(message, type = 'success', detailedError = null, options = {}) {
+// Show a transient notification. INTERNAL primitive - call sites use the
+// notify* wrappers below (or notifyEvent for server payloads); this function
+// stays private to this file so every toast in the app flows through one
+// place. With options.persistent the toast gets a ✕ button and stays until
+// dismissed (used by the index progress monitor); all other call sites keep
+// the auto-remove timer. options.id reuses an existing toast with that id
+// instead of stacking a new one - the progress monitor updates its single
+// toast in place via updateToast().
+//
+// options.actions: [{label, variant, onClick}] renders a button row under the
+// message (the notification framework's "Go To" / "Dismiss" pair; variant is
+// 'primary' or 'ghost'). options.onClose fires when the ✕ closes the toast -
+// the framework uses it to remember a session-local hide.
+function _renderToast(message, type = 'success', detailedError = null, options = {}) {
     const container = document.getElementById('toast-container');
 
     // Same-id persistent toasts are updated rather than duplicated.
@@ -115,13 +123,32 @@ function showToast(message, type = 'success', detailedError = null, options = {}
         toast.appendChild(detailsDiv);
     }
 
+    // Action buttons (notification cards): a row under the message. Built
+    // before the close button so ✕ stays the last child, top-right.
+    if (Array.isArray(options.actions) && options.actions.length) {
+        const row = document.createElement('div');
+        row.className = 'toast-actions';
+        for (const action of options.actions) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `toast-btn ${action.variant === 'ghost' ? 'ghost' : 'primary'}`;
+            btn.textContent = action.label;
+            btn.addEventListener('click', () => action.onClick && action.onClick(toast));
+            row.appendChild(btn);
+        }
+        toast.appendChild(row);
+    }
+
     // Persistent toasts never time out; they get a close button instead.
     if (options.persistent) {
         const closeBtn = document.createElement('button');
         closeBtn.className = 'toast-close';
         closeBtn.innerHTML = '&times;';
-        closeBtn.setAttribute('aria-label', 'Dismiss');
-        closeBtn.addEventListener('click', () => toast.remove());
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.addEventListener('click', () => {
+            toast.remove();
+            if (options.onClose) options.onClose();
+        });
         toast.appendChild(closeBtn);
     }
 
@@ -149,6 +176,129 @@ function updateToast(toast, message, percent = null) {
         if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
     }
     return toast;
+}
+
+// ---------------------------------------------------------------------------
+// Unified notification API - the ONLY toast entry points for call
+// sites. _renderToast above stays private to this file so every toast in the
+// app flows through one place; tests/test_frontend_split.py guards that no
+// showToast(/_renderToast( call appears anywhere else.
+//
+//   notify(message, {type, detail, persistent, progress, id, actions, onClose})
+//   notifySuccess / notifyError / notifyInfo / notifyWarn - intent wrappers
+//   notifyEvent(item, handlers) - renders a server UINotificationItem (the
+//     poll feed or a Test preview) as a persistent card with Go To / Dismiss.
+//
+// notifyError accepts both (message, detailString) and (message, options) so
+// call sites read naturally whichever shape they need. All wrappers return
+// the toast element (or the reused one when options.id matches an open toast).
+// ---------------------------------------------------------------------------
+
+function notify(message, options = {}) {
+    const { type = 'success', detail = null, ...rest } = options;
+    return _renderToast(message, type, detail, rest);
+}
+
+function notifySuccess(message, options = {}) {
+    return notify(message, { ...options, type: 'success' });
+}
+
+function notifyError(message, detailOrOptions = null, options = {}) {
+    if (detailOrOptions && typeof detailOrOptions === 'object') {
+        return notify(message, { ...detailOrOptions, type: 'error' });
+    }
+    return notify(message, { ...options, type: 'error', detail: detailOrOptions });
+}
+
+function notifyInfo(message, options = {}) {
+    return notify(message, { ...options, type: 'info' });
+}
+
+function notifyWarn(message, options = {}) {
+    return notify(message, { ...options, type: 'warn' });
+}
+
+// Render one server notification item (GET /api/notifications/ui or the Test
+// endpoint's sample) as a persistent card. The severity maps straight onto
+// the toast style; Go To / Dismiss are wired through `handlers` so this file
+// stays free of app logic - notifications.js supplies the navigation, the
+// server-side dismiss call, and the session-local hide bookkeeping, while a
+// Test preview passes lighter handlers that only close the card.
+//   handlers.onGoTo(item, toastEl)     - primary action clicked
+//   handlers.onDismiss(item, toastEl)  - Dismiss clicked
+//   handlers.onClose(item)             - ✕ clicked (persistent close button)
+// `options` are merged last, so a caller can override the id (a Test preview
+// must not reuse a live card's node) or any other render option.
+function notifyEvent(item, handlers = {}, options = {}) {
+    const actions = [];
+    if (handlers.onGoTo) {
+        actions.push({
+            label: item.action_label || 'Go To',
+            variant: 'primary',
+            onClick: (el) => handlers.onGoTo(item, el),
+        });
+    }
+    if (handlers.onDismiss) {
+        actions.push({
+            label: 'Dismiss',
+            variant: 'ghost',
+            onClick: (el) => handlers.onDismiss(item, el),
+        });
+    }
+    return notify(item.message, {
+        type: item.severity || 'warn',
+        persistent: true,
+        // The dedup key identifies THIS occurrence, so a recurring calendar
+        // event's next card never reuses the dismissed one's DOM node.
+        id: `ui-notify-${item.dedup_key || item.key}`,
+        actions,
+        onClose: handlers.onClose ? () => handlers.onClose(item) : undefined,
+        ...options,
+    });
+}
+
+// Resize an image file to at most maxDim on its longest edge and re-encode
+// as a JPEG blob. Phone photos are several MB; a downscaled JPEG is a few
+// hundred KB - still sharp enough for a vision model to read labels and
+// nameplates, but small enough for local-model context and upload limits.
+// Shared by the chat composer (data URL) and device photo uploads (blob).
+function downscaleImageToBlob(file, maxDim, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            let canvas;
+            try {
+                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                const w = Math.max(1, Math.round(img.width * scale));
+                const h = Math.max(1, Math.round(img.height * scale));
+                canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                // JPEG has no alpha: paint white so transparent PNGs don't
+                // turn black when re-encoded.
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+            } catch (e) {
+                URL.revokeObjectURL(url);
+                reject(e);
+                return;
+            }
+            canvas.toBlob(
+                (blob) => {
+                    URL.revokeObjectURL(url);
+                    if (blob) resolve(blob);
+                    else reject(new Error('Image re-encode failed'));
+                },
+                'image/jpeg',
+                quality
+            );
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image failed to load')); };
+        img.src = url;
+    });
 }
 
 function escapeHtml(text) {

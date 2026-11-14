@@ -1,9 +1,11 @@
 """Device management API endpoints."""
 import logging
 import re
+import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from typing import List
 
 from homestew.config import settings
@@ -14,12 +16,16 @@ from homestew.models.schemas import (
     DeviceCategoryUpdate,
     DeviceCreate,
     DeviceIconOption,
+    DevicePhoto,
+    DevicePhotoSuggestionDecision,
+    DevicePhotoUpdate,
     DeviceReorderRequest,
     DeviceResponse,
     Manual,
 )
 from homestew.services.device_icons import search_icon_keys
 from homestew.services.indexer import index_manual
+from homestew.services.photo_images import sniff_image
 from homestew.services.warranty import warranty_fields
 
 logger = logging.getLogger(__name__)
@@ -74,7 +80,13 @@ def _warranty_fields(device: DeviceCreate) -> tuple:
     )
 
 
-def _row_to_response(row, manual_count: int, attributes=None) -> DeviceResponse:
+def _row_to_response(
+    row,
+    manual_count: int,
+    attributes=None,
+    photo_count: int = 0,
+    unanalyzed_photo_count: int = 0,
+) -> DeviceResponse:
     """Build a DeviceResponse from a device row (with optional attributes).
 
     ``category_name`` is only present when the SELECT joined ``categories``;
@@ -100,6 +112,8 @@ def _row_to_response(row, manual_count: int, attributes=None) -> DeviceResponse:
         updated_at=row['updated_at'],
         manual_count=manual_count or 0,
         attributes=attributes or [],
+        photo_count=photo_count or 0,
+        unanalyzed_photo_count=unanalyzed_photo_count or 0,
     )
 
 
@@ -157,7 +171,10 @@ async def list_devices():
             SELECT 
                 {DEVICE_COLUMNS},
                 c.name AS category_name,
-                COUNT(m.id) as manual_count
+                COUNT(m.id) as manual_count,
+                (SELECT COUNT(*) FROM device_photos p WHERE p.device_id = d.id) AS photo_count,
+                (SELECT COUNT(*) FROM device_photos p
+                 WHERE p.device_id = d.id AND p.ai_notes IS NULL) AS unanalyzed_photo_count
             FROM devices d
             LEFT JOIN manuals m ON d.id = m.device_id
             {CATEGORY_JOIN}
@@ -186,7 +203,13 @@ async def list_devices():
             )
         
         return [
-            _row_to_response(row, row['manual_count'], attrs_by_device.get(row['id'], []))
+            _row_to_response(
+                row,
+                row['manual_count'],
+                attrs_by_device.get(row['id'], []),
+                photo_count=row['photo_count'],
+                unanalyzed_photo_count=row['unanalyzed_photo_count'],
+            )
             for row in rows
         ]
 
@@ -281,7 +304,10 @@ async def get_device(device_id: int):
             SELECT 
                 {DEVICE_COLUMNS},
                 c.name AS category_name,
-                COUNT(m.id) as manual_count
+                COUNT(m.id) as manual_count,
+                (SELECT COUNT(*) FROM device_photos p WHERE p.device_id = d.id) AS photo_count,
+                (SELECT COUNT(*) FROM device_photos p
+                 WHERE p.device_id = d.id AND p.ai_notes IS NULL) AS unanalyzed_photo_count
             FROM devices d
             LEFT JOIN manuals m ON d.id = m.device_id
             {CATEGORY_JOIN}
@@ -316,7 +342,13 @@ async def get_device(device_id: int):
             for attr in attrs
         ]
         
-        return _row_to_response(row, row['manual_count'], attributes)
+        return _row_to_response(
+            row,
+            row['manual_count'],
+            attributes,
+            photo_count=row['photo_count'],
+            unanalyzed_photo_count=row['unanalyzed_photo_count'],
+        )
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
@@ -489,6 +521,333 @@ async def remove_device_attribute(device_id: int, attribute_id: int):
         await db.commit()
 
 
+# --------------------------------------------------------------------------
+# Photos
+# --------------------------------------------------------------------------
+
+# Columns shared by every device_photos SELECT (filepath stays server-side;
+# the file endpoint derives it from the row internally).
+PHOTO_COLUMNS = (
+    "id, device_id, filename, label, notes, ai_notes, ai_analyzed_at, "
+    "pending_ai_notes, pending_reason, proposed_at, mime_type, width, "
+    "height, size_bytes, created_at, updated_at"
+)
+
+# Upload extension -> canonical MIME, used only as a fallback hint; the
+# authoritative type comes from sniffing the bytes.
+_PHOTO_EXT_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def _photo_to_model(row) -> DevicePhoto:
+    return DevicePhoto(**{k: row[k] for k in row.keys()})
+
+
+async def _require_device(db, device_id: int):
+    cursor = await db.execute("SELECT id FROM devices WHERE id = ?", (device_id,))
+    if not await cursor.fetchone():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Device {device_id} not found"
+        )
+
+
+async def _require_photo(db, device_id: int, photo_id: int):
+    cursor = await db.execute(
+        "SELECT id, filepath, pending_ai_notes FROM device_photos "
+        "WHERE id = ? AND device_id = ?",
+        (photo_id, device_id),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Photo {photo_id} not found for device {device_id}"
+        )
+    return row
+
+
+@router.get("/{device_id}/photos", response_model=List[DevicePhoto])
+async def list_device_photos(device_id: int):
+    """List the photos attached to a device, newest first."""
+    async with get_db_context() as db:
+        await _require_device(db, device_id)
+        cursor = await db.execute(
+            f"SELECT {PHOTO_COLUMNS} FROM device_photos WHERE device_id = ? "
+            "ORDER BY created_at DESC, id DESC",
+            (device_id,),
+        )
+        return [_photo_to_model(row) for row in await cursor.fetchall()]
+
+
+@router.post("/{device_id}/photos", response_model=DevicePhoto, status_code=status.HTTP_201_CREATED)
+async def upload_device_photo(
+    device_id: int,
+    file: UploadFile = File(...),
+    label: str = Form(""),
+    notes: str = Form(""),
+    analyze: bool = Form(False),
+):
+    """Attach a photo to a device (e.g. the filter it takes).
+
+    The browser downscales before upload; the server only validates: magic
+    bytes must identify a PNG/JPEG/WebP/GIF, the payload must fit
+    ``PHOTO_MAX_SIZE_MB`` and its header dimensions ``PHOTO_MAX_DIM_PX``.
+    When ``analyze`` (or ``PHOTO_AUTO_ANALYZE_DEFAULT``) is set and the LLM
+    has vision, a background analysis writes a *suggestion* into the pending
+    fields - it never lands in ``ai_notes`` without the user confirming.
+    """
+    async with get_db_context() as db:
+        await _require_device(db, device_id)
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded file is empty."
+        )
+    max_bytes = settings.PHOTO_MAX_SIZE_MB * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Photo too large. Maximum size is {settings.PHOTO_MAX_SIZE_MB} MB."
+        )
+
+    sniffed = sniff_image(data)
+    if sniffed is None:
+        # A client that skipped the canvas re-encode can still upload a
+        # format we recognize by extension; refuse everything else outright.
+        guessed = _PHOTO_EXT_MIME.get(Path(file.filename or "").suffix.lower())
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The file does not appear to be a supported image "
+                f"(PNG, JPEG, WebP or GIF).{'' if guessed is None else ' Detected extension suggests ' + guessed + ', but the content did not match.'}"
+            )
+        )
+    mime_type, width, height = sniffed
+
+    if width and height and max(width, height) > settings.PHOTO_MAX_DIM_PX:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"Photo is {width}x{height}px; the maximum dimension is "
+                f"{settings.PHOTO_MAX_DIM_PX}px. Shrink it and try again."
+            )
+        )
+
+    # Store under the device's photos directory with a safe unique name.
+    photo_dir = settings.DEVICES_DIR / str(device_id) / "photos"
+    photo_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = _unique_filename(photo_dir, _sanitize_photo_filename(file.filename or "", mime_type))
+    filepath = photo_dir / safe_name
+    try:
+        filepath.write_bytes(data)
+    except OSError as exc:
+        logger.error(f"Failed to save uploaded photo for device {device_id}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to store the uploaded file."
+        )
+
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            """
+            INSERT INTO device_photos (device_id, filename, filepath, label, notes,
+                mime_type, width, height, size_bytes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+            """,
+            (
+                device_id, safe_name, str(filepath),
+                (label or "").strip() or None,
+                (notes or "").strip() or None,
+                mime_type, width, height, len(data),
+            )
+        )
+        photo_id = (await cursor.fetchone())["id"]
+        await db.commit()
+
+        if analyze or settings.PHOTO_AUTO_ANALYZE_DEFAULT:
+            # Analysis failures must never lose the upload, and the response
+            # should not wait on the LLM round-trip.
+            import asyncio
+
+            from homestew.services.photo_analyzer import analyze_photo_job
+
+            asyncio.create_task(analyze_photo_job(photo_id, device_id))
+
+        cursor = await db.execute(
+            f"SELECT {PHOTO_COLUMNS} FROM device_photos WHERE id = ?", (photo_id,)
+        )
+        return _photo_to_model(await cursor.fetchone())
+
+
+@router.get("/{device_id}/photos/{photo_id}", response_model=DevicePhoto)
+async def get_device_photo(device_id: int, photo_id: int):
+    """Fetch one photo's metadata (label, notes, AI notes, pending suggestion)."""
+    async with get_db_context() as db:
+        await _require_photo(db, device_id, photo_id)
+        cursor = await db.execute(
+            f"SELECT {PHOTO_COLUMNS} FROM device_photos WHERE id = ?", (photo_id,)
+        )
+        return _photo_to_model(await cursor.fetchone())
+
+
+@router.put("/{device_id}/photos/{photo_id}", response_model=DevicePhoto)
+async def update_device_photo(device_id: int, photo_id: int, update: DevicePhotoUpdate):
+    """Edit a photo's user-owned label/notes (AI fields are untouched)."""
+    async with get_db_context() as db:
+        await _require_photo(db, device_id, photo_id)
+        await db.execute(
+            "UPDATE device_photos SET label = ?, notes = ?, "
+            "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (
+                (update.label or "").strip() or None,
+                (update.notes or "").strip() or None,
+                photo_id,
+            ),
+        )
+        await db.commit()
+        cursor = await db.execute(
+            f"SELECT {PHOTO_COLUMNS} FROM device_photos WHERE id = ?", (photo_id,)
+        )
+        return _photo_to_model(await cursor.fetchone())
+
+
+@router.delete("/{device_id}/photos/{photo_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_device_photo(device_id: int, photo_id: int):
+    """Delete a photo: file on disk and DB row."""
+    async with get_db_context() as db:
+        photo = await _require_photo(db, device_id, photo_id)
+        try:
+            Path(photo["filepath"]).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(f"Could not delete photo file {photo['filepath']}: {exc}")
+        await db.execute("DELETE FROM device_photos WHERE id = ?", (photo_id,))
+        await db.commit()
+
+
+@router.get("/{device_id}/photos/{photo_id}/file")
+async def get_device_photo_file(device_id: int, photo_id: int):
+    """Serve the stored image inline (thumbnails and lightbox both use it).
+
+    Same containment guard as the manual file endpoint: only files inside
+    the managed devices directory are served.
+    """
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT filepath, mime_type FROM device_photos WHERE id = ? AND device_id = ?",
+            (photo_id, device_id),
+        )
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Photo {photo_id} not found for device {device_id}",
+        )
+
+    path = Path(row["filepath"])
+    try:
+        resolved = path.resolve()
+        allowed_root = settings.DEVICES_DIR.resolve()
+        if not str(resolved).startswith(str(allowed_root)) or not resolved.is_file():
+            raise ValueError("outside devices dir")
+    except (OSError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo file not found on disk",
+        )
+
+    return FileResponse(
+        str(resolved),
+        media_type=row["mime_type"],
+        content_disposition_type="inline",
+    )
+
+
+@router.post("/{device_id}/photos/{photo_id}/analyze", response_model=DevicePhoto)
+async def analyze_device_photo(device_id: int, photo_id: int):
+    """Run a vision pass on a photo now (the "process later" checkbox).
+
+    The result is stored as a pending suggestion; the response returns the
+    updated row so the UI can render the confirm/decline card immediately.
+    """
+    if not settings.LLM_SUPPORTS_VISION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vision is not enabled in Settings > LLM.",
+        )
+    async with get_db_context() as db:
+        await _require_photo(db, device_id, photo_id)
+
+    from homestew.services.photo_analyzer import analyze_photo
+
+    try:
+        result = await analyze_photo(photo_id, device_id)
+    except Exception as exc:
+        logger.error(f"Photo analysis failed for photo {photo_id}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Vision analysis failed: {exc}",
+        )
+
+    async with get_db_context() as db:
+        if result.changed and result.notes:
+            await db.execute(
+                "UPDATE device_photos SET pending_ai_notes = ?, pending_reason = ?, "
+                "proposed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (result.notes, result.reason, photo_id),
+            )
+            await db.commit()
+        cursor = await db.execute(
+            f"SELECT {PHOTO_COLUMNS} FROM device_photos WHERE id = ?", (photo_id,)
+        )
+        return _photo_to_model(await cursor.fetchone())
+
+
+@router.post("/{device_id}/photos/{photo_id}/suggestion", response_model=DevicePhoto)
+async def decide_photo_suggestion(
+    device_id: int, photo_id: int, decision: DevicePhotoSuggestionDecision
+):
+    """Accept or decline a pending AI-notes suggestion.
+
+    Accept copies the proposal into ``ai_notes`` (the only way that field is
+    ever written) and timestamps it; decline just clears the pending fields.
+    """
+    async with get_db_context() as db:
+        photo = await _require_photo(db, device_id, photo_id)
+        if not photo["pending_ai_notes"]:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="This photo has no pending suggestion.",
+            )
+        if decision.accept:
+            await db.execute(
+                "UPDATE device_photos SET ai_notes = pending_ai_notes, "
+                "ai_analyzed_at = CURRENT_TIMESTAMP, pending_ai_notes = NULL, "
+                "pending_reason = NULL, proposed_at = NULL, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (photo_id,),
+            )
+        else:
+            await db.execute(
+                "UPDATE device_photos SET pending_ai_notes = NULL, "
+                "pending_reason = NULL, proposed_at = NULL WHERE id = ?",
+                (photo_id,),
+            )
+        await db.commit()
+        cursor = await db.execute(
+            f"SELECT {PHOTO_COLUMNS} FROM device_photos WHERE id = ?", (photo_id,)
+        )
+        return _photo_to_model(await cursor.fetchone())
+
+
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_device(device_id: int):
     """Delete a device and all its manuals."""
@@ -504,6 +863,10 @@ async def delete_device(device_id: int):
         # Delete device (cascades to manuals and attributes)
         await db.execute("DELETE FROM devices WHERE id = ?", (device_id,))
 
+        # Runtime connections don't enable foreign keys, so photo rows are
+        # removed explicitly (their files go with the directory below).
+        await db.execute("DELETE FROM device_photos WHERE device_id = ?", (device_id,))
+
         # Drop the device's full-text index rows so search results don't keep
         # pointing at now-deleted manuals.
         cursor = await db.execute(
@@ -514,6 +877,15 @@ async def delete_device(device_id: int):
             await db.execute("DELETE FROM pdf_index WHERE rowid = ?", (r["rowid"],))
 
         await db.commit()
+
+    # The whole per-device directory (manuals + photos) is disposable once
+    # the rows are gone; without this, files leak on disk after deletes.
+    device_dir = settings.DEVICES_DIR / str(device_id)
+    try:
+        if device_dir.is_dir():
+            shutil.rmtree(device_dir)
+    except OSError as exc:
+        logger.warning(f"Could not remove device directory {device_dir}: {exc}")
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -538,6 +910,25 @@ def _unique_filename(device_dir: Path, filename: str) -> str:
     while (device_dir / f"{stem}_{counter}{suffix}").exists():
         counter += 1
     return f"{stem}_{counter}{suffix}"
+
+
+_PHOTO_MIME_EXT = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
+def _sanitize_photo_filename(filename: str, mime_type: str) -> str:
+    """Safe basename for an uploaded photo, extension from the sniffed type.
+
+    The client's declared name is only a label; the extension always comes
+    from what the bytes actually are so stored files match their MIME.
+    """
+    name = Path(filename).name
+    stem = re.sub(r"[^\w.\- ]+", "_", Path(name).stem).strip() or "photo"
+    return f"{stem}{_PHOTO_MIME_EXT.get(mime_type, '.bin')}"
 
 
 @router.post("/{device_id}/manuals/upload", response_model=Manual, status_code=status.HTTP_201_CREATED)

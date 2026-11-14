@@ -2299,6 +2299,55 @@ body.no-vision .chat-input-wrap textarea {
     width: min(360px, calc(100vw - 40px));
 }
 
+/* Warning toasts (the notification framework's condition alerts): solid amber
+   so white text stays legible in both themes. Fixed width like .toast.info so
+   the action row and long messages wrap inside the card. */
+.toast.warn {
+    background: #b45309;
+    color: white;
+    position: relative;
+    width: min(360px, calc(100vw - 40px));
+}
+
+/* Action button row for notification cards (Go To / Dismiss). Sits under the
+   message; the ✕ close button stays absolute top-right above it. */
+.toast-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.toast-btn {
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.toast-btn.primary {
+    background: white;
+    color: #334155;
+    border-color: white;
+}
+
+.toast-btn.primary:hover {
+    background: rgba(255, 255, 255, 0.85);
+}
+
+.toast-btn.ghost {
+    background: transparent;
+    color: white;
+}
+
+.toast-btn.ghost:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
 .toast-message {
     padding-right: 35px;
     word-wrap: break-word;
@@ -2573,6 +2622,251 @@ body.no-vision .chat-input-wrap textarea {
 .attributes-list .empty-state {
     padding: 12px;
     font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Device photos (edit modal Photos section + lightbox)
+   --------------------------------------------------------------------------- */
+
+.photos-grid {
+    max-height: 420px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.photos-grid .empty-state,
+.photos-grid .loading {
+    padding: 12px;
+    font-size: 0.85rem;
+}
+
+.photo-card {
+    background: var(--bg-light);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+}
+
+.photo-card-main {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.photo-thumb {
+    width: 96px;
+    height: 96px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    cursor: zoom-in;
+    flex-shrink: 0;
+    background: var(--surface);
+}
+
+.photo-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.photo-label-input,
+.photo-notes-input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.photo-label-input:focus,
+.photo-notes-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: var(--ring);
+}
+
+.photo-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* AI-owned notes: visually distinct from the user's editable fields. */
+.photo-ai-notes {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    background: var(--surface);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.photo-ai-label {
+    display: block;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.photo-ai-date {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.7rem;
+    opacity: 0.75;
+}
+
+.photo-ai-none {
+    font-style: italic;
+}
+
+/* Pending AI suggestion: proposal card with Accept/Decline. */
+.photo-suggestion {
+    border: 1px solid var(--primary-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.photo-suggestion-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.photo-suggestion-reason,
+.photo-suggestion-notes {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.photo-suggestion-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.photo-actions {
+    align-items: center;
+}
+
+.photo-analyze-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+/* The global input rule stretches fields to full width; without this reset
+   the checkbox balloons and wraps its label one word per line. */
+.photo-analyze-toggle input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
+
+/* Inline analysis feedback on a photo card (next to the trashcan). Shown
+   while "Analyze" runs instead of a toast - the user is looking at the card. */
+.photo-analyze-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.photo-analyze-status:empty {
+    display: none;
+}
+
+.photo-analyze-status.busy::before {
+    content: "";
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.photo-analyze-status.busy {
+    color: var(--text-secondary);
+}
+
+.photo-analyze-status.muted {
+    color: var(--text-secondary);
+}
+
+.photo-analyze-status.error {
+    color: var(--error);
+}
+
+/* Lightbox: above modals (2000) and popovers (2500), below toasts (3000). */
+.photo-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 2600;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+}
+
+.photo-lightbox[hidden] {
+    display: none;
+}
+
+.photo-lightbox img {
+    max-width: 92vw;
+    max-height: 82vh;
+    object-fit: contain;
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.photo-lightbox-caption {
+    color: #e5e7eb;
+    font-size: 0.9rem;
+}
+
+.photo-lightbox-close {
+    position: absolute;
+    top: 12px;
+    right: 18px;
+    background: none;
+    border: none;
+    color: #f3f4f6;
+    font-size: 2rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.photo-lightbox-close:hover {
+    color: #fff;
 }
 
 /* Read-only audit timestamps at the bottom of the edit-device modal. */
@@ -4548,5 +4842,197 @@ body.is-dragging * {
 @media (max-width: 560px) {
     .new-device-options {
         grid-template-columns: 1fr;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   Notification Events table (Settings > Notifications). One row per event:
+   Event | Status | Interval (min) | Notify before due (hrs) | Notify via |
+   Check Now | Test. No Enable column - ticking a "Notify via" checkbox is
+   what enables an event. Mirrors .manuals-index-table (same padding/borders/
+   header tint) so the two Settings tables read as one family. The status
+   badge reuses the dashboard colours (--success / --warn-text / secondary),
+   brightened in dark mode.
+   --------------------------------------------------------------------------- */
+/* Surface + frame around the table, exactly like .manuals-index-wrap. The
+   table itself is transparent, so without this the body cells show the page
+   background through and the header tint floats with no card behind it. */
+.ui-notify-wrap {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    /* Horizontal scroll on narrow screens: the table keeps a usable minimum
+       width (below) instead of squishing every column into unreadability. On
+       wide viewports nothing scrolls; on phones you swipe the table sideways. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.ui-notify-table {
+    width: 100%;
+    /* Fit-first sizing: the floor sits just above the table's natural
+       min-content width (~625px at this text size), so the table fills the
+       settings measure (see .settings-panels max-width) and only scrolls once
+       the viewport truly cannot fit it - columns are fully dynamic above. */
+    min-width: 630px;
+    border-collapse: collapse;
+    /* Same text size as the Settings > Search table (.manuals-index-table). */
+    font-size: 0.85rem;
+}
+
+.ui-notify-table th,
+.ui-notify-table td {
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.ui-notify-table thead th {
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.ui-notify-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Column widths: fully dynamic. No fixed px widths - every column sizes to
+   its own content and shares any leftover table width proportionally, so no
+   column hoards empty space while another wraps mid-word. Headers wrap onto
+   two lines when their caption is longer than the cell's fair share. */
+
+/* "Notify via": one compact stacked checkbox per delivery channel inside a
+   single cell. Stacked (not inline) so adding channels server-side never
+   overflows the table, and each label stays clickable. */
+
+.notify-channel-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.notify-channel-option + .notify-channel-option {
+    margin-top: 4px;
+}
+
+.ui-notify-table .col-check,
+.ui-notify-table .col-test {
+    text-align: center;
+}
+
+/* Action buttons/labels never wrap mid-word; the column just takes the width
+   of its widest button plus padding. */
+.ui-notify-table .col-check .card-icon-btn,
+.ui-notify-table .col-test .btn {
+    white-space: nowrap;
+}
+
+/* Inputs live directly in cells here (no .settings-field wrapper), so they
+   need their own sizing - the checkbox must not inherit a full-width rule and
+   the interval field is deliberately narrow. */
+.ui-notify-table input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    accent-color: var(--primary-color);
+}
+
+.ui-notify-table input[type="number"] {
+    width: 84px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.ui-notify-table input[type="number"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: var(--ring);
+}
+
+.ui-notify-status {
+    display: inline-flex;
+    /* Always two lines: badge on top, relative timestamp under it. Never
+       forces the Status column wide, so the table keeps fitting its measure. */
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    min-width: 0;
+    font-size: 0.8rem;
+}
+
+/* The timestamp line under the badge sits flush with it (the global
+   .settings-hint margin is for stacked form fields, not table cells). */
+.ui-notify-status .settings-hint {
+    margin-top: 0;
+}
+
+/* Placeholder for a column that doesn't apply to a row (Status on the rule
+   event, "Notify before due" on condition checks). Muted so it reads as an
+   absence of data. */
+.ui-notify-na {
+    color: var(--text-secondary);
+    /* Rendered as two lines via <br> in notifications.js ("Not" /
+       "Applicable"), so no nowrap - it must break where the markup breaks. */
+    font-size: 0.8rem;
+    line-height: 1.35;
+}
+
+.ui-notify-badge {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.ui-notify-badge.status-ok {
+    color: var(--success);
+}
+
+.ui-notify-badge.status-problem {
+    color: var(--warn-text);
+}
+
+.ui-notify-badge.status-dismissed,
+.ui-notify-badge.status-unknown {
+    color: var(--text-secondary);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ui-notify-badge.status-ok {
+        color: #4ade80;
+    }
+}
+
+[data-theme="dark"] .ui-notify-badge.status-ok {
+    color: #4ade80;
+}
+
+/* The Check-now button spins its refresh glyph while the request is in flight. */
+.card-icon-btn.ui-notify-check-btn.spinning svg {
+    animation: spin 0.9s linear infinite;
+}
+
+/* Narrow screens: tighten padding and fixed columns so the table needs less
+   sideways scroll (the wrapper still scrolls if it must - see .ui-notify-wrap). */
+@media (max-width: 640px) {
+    .ui-notify-table {
+        min-width: 550px;
+        font-size: 0.8rem;
+    }
+
+    .ui-notify-table th,
+    .ui-notify-table td {
+        padding: 6px 7px;
+    }
+
+    .ui-notify-table input[type="number"] {
+        width: 68px;
     }
 }

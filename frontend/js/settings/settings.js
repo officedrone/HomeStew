@@ -174,7 +174,7 @@ async function loadSettingsPage() {
         settings = await response.json();
     } catch (error) {
         console.error('Failed to load settings:', error);
-        showToast('Failed to load settings', 'error');
+        notifyError('Failed to load settings');
         pendingSettingsSection = null;
         return;
     }
@@ -261,14 +261,9 @@ async function loadSettingsPage() {
         settings.calendar_tool_description || '';
     document.getElementById('settings-device-tool-description').value =
         settings.device_tool_description || '';
-    // Notifications: enable toggle, cadence, lead time and webhook fields.
-    document.getElementById('settings-notify-enabled').checked = !!settings.notify_enabled;
-    document.getElementById('settings-notify-interval').value =
-        settings.notify_check_interval_minutes ?? 15;
-    document.getElementById('settings-notify-lead-value').value =
-        settings.notify_lead_value ?? 24;
-    document.getElementById('settings-notify-lead-unit').value =
-        settings.notify_lead_unit === 'days' ? 'days' : 'hours';
+    // Notifications: webhook fields only. The old global enable/cadence/lead
+    // controls are gone - per-event cadence, lead and enablement (via the
+    // Notify-via checkboxes) live in the events table below.
     document.getElementById('settings-notify-webhook-enabled').checked =
         !!settings.notify_webhook_enabled;
     // Anything unknown (or an old install without the key) lands on "None" -
@@ -328,8 +323,11 @@ async function loadSettingsPage() {
     document.getElementById('backup-hint').textContent = '';
     document.getElementById('restore-hint').textContent = '';
 
-    // Advanced: master-key status + create/delete buttons.
+    // Advanced: master-key status + create/delete buttons, then the Health
+    // Notifications rows (built from the server's check registry so new
+    // checks appear here without any frontend change).
     renderAdvancedKeyPanel(settings);
+    renderUINotificationSettings(settings);
 
     // Always land on the General tab with the prompt accordion collapsed -
     // unless a deep link (dashboard status strip) asked for another section.
@@ -717,7 +715,10 @@ async function createBackup() {
 
         const info = await response.json();
         const parts = [`${info.devices} device(s)`, `${info.calendar_events} calendar event(s)`];
-        if (includeManuals) parts.push(`${info.manuals} manual(s)`);
+        if (includeManuals) {
+            parts.push(`${info.manuals} manual(s)`);
+            parts.push(`${info.photos || 0} photo(s)`);
+        }
 
         // Kick off the download; the server sends Content-Disposition: attachment.
         const link = document.createElement('a');
@@ -729,18 +730,17 @@ async function createBackup() {
 
         hint.textContent = `Backup ready (${parts.join(', ')}). Your browser should start the download.`;
         if (info.missing_files && info.missing_files.length) {
-            showToast(
+            notifyError(
                 `${info.missing_files.length} manual file(s) were missing on disk and are not in the backup`,
-                'error',
                 info.missing_files.join('\n'),
             );
         } else {
-            showToast('Backup created', 'success');
+            notifySuccess('Backup created');
         }
     } catch (error) {
         console.error('Backup failed:', error);
         hint.textContent = '';
-        showToast(error.message || 'Backup failed', 'error');
+        notifyError(error.message || 'Backup failed');
     } finally {
         btn.disabled = false;
         endOp('backup-create');
@@ -816,7 +816,9 @@ async function postRestoreFile(file, mode) {
 
         const result = await response.json();
         restoreSummaryText = `Restored ${result.devices_created} device(s), ` +
-            `${result.manuals_restored} manual(s), ${result.events_restored} event(s)` +
+            `${result.manuals_restored} manual(s)` +
+            (result.photos_restored ? `, ${result.photos_restored} photo(s)` : '') +
+            `, ${result.events_restored} event(s)` +
             (result.skipped ? ` (${result.skipped} already present, skipped)` : '') + '.';
 
         // Refresh everything the restore may have changed. The bar keeps
@@ -1017,7 +1019,7 @@ function failRestoreBar(message) {
 
     const hint = document.getElementById('restore-hint');
     if (hint) hint.textContent = '';
-    showToast(message || 'Restore failed', 'error');
+    notifyError(message || 'Restore failed');
     setRestoreControls(false);
 }
 
@@ -1087,8 +1089,7 @@ function monitorIndexJob() {
             const message = `Indexing... ${status.done}/${status.total} (${pct}%)${file}`;
             let toast = indexToastEl();
             if (!toast) {
-                showToast(message, 'info', null,
-                    { persistent: true, progress: true, id: INDEX_TOAST_ID });
+                notifyInfo(message, { persistent: true, progress: true, id: INDEX_TOAST_ID });
             } else {
                 // Reusing a finished summary toast (new job started without
                 // dismissing the old one): reset it to the in-progress look.
@@ -1219,12 +1220,12 @@ async function deleteOrphanManual(btn) {
         const response = await fetch(`/api/devices/${deviceId}/manuals/${manualId}`,
             { method: 'DELETE' });
         if (!response.ok) throw new Error(await errorDetailFrom(response, 'Failed to delete manual'));
-        showToast('Orphaned manual deleted', 'success');
+        notifySuccess('Orphaned manual deleted');
         loadSearchIndexStats();
         await loadSearchManuals(); // repaints the table without the row
     } catch (error) {
         console.error('Failed to delete orphaned manual:', error);
-        showToast(error.message || 'Failed to delete manual', 'error');
+        notifyError(error.message || 'Failed to delete manual');
         btn.disabled = false;
     } finally {
         endOp(`delete-orphan-${manualId}`);
@@ -1242,7 +1243,7 @@ async function reindexOneManual(btn) {
     try {
         const response = await fetch(`/api/search/manuals/${id}/reindex`, { method: 'POST' });
         if (response.status === 409) {
-            showToast('An indexing job is already running', 'error');
+            notifyError('An indexing job is already running');
             monitorIndexJob();
             btn.disabled = false;
             return;
@@ -1251,7 +1252,7 @@ async function reindexOneManual(btn) {
         monitorIndexJob();
     } catch (error) {
         console.error('Failed to queue manual re-index:', error);
-        showToast(error.message || 'Failed to start re-index', 'error');
+        notifyError(error.message || 'Failed to start re-index');
         btn.disabled = false;
     } finally {
         endOp(`search-reindex-${id}`);
@@ -1269,7 +1270,7 @@ async function startIndexJob(path, btn, doneHint) {
     try {
         const response = await fetch(`/api/search/${path}`, { method: 'POST' });
         if (response.status === 409) {
-            showToast('An indexing job is already running', 'error');
+            notifyError('An indexing job is already running');
             monitorIndexJob();
             return;
         }
@@ -1280,7 +1281,7 @@ async function startIndexJob(path, btn, doneHint) {
         monitorIndexJob();
     } catch (error) {
         console.error('Failed to queue index job:', error);
-        showToast(error.message || 'Failed to start indexing', 'error');
+        notifyError(error.message || 'Failed to start indexing');
     } finally {
         btn.disabled = false;
         endOp('search-index-job');
@@ -1359,12 +1360,6 @@ async function handleSettingsSave(event) {
         search_tool_description: document.getElementById('settings-search-tool-description').value.trim(),
         calendar_tool_description: document.getElementById('settings-calendar-tool-description').value.trim(),
         device_tool_description: document.getElementById('settings-device-tool-description').value.trim(),
-        notify_enabled: document.getElementById('settings-notify-enabled').checked,
-        notify_check_interval_minutes:
-            clampInt(document.getElementById('settings-notify-interval').value, 1, 1440, 15),
-        notify_lead_value:
-            clampInt(document.getElementById('settings-notify-lead-value').value, 1, 365, 24),
-        notify_lead_unit: document.getElementById('settings-notify-lead-unit').value,
         notify_webhook_enabled: document.getElementById('settings-notify-webhook-enabled').checked,
         notify_webhook_type: document.getElementById('settings-notify-webhook-type').value,
         notify_webhook_verify_ssl:
@@ -1379,6 +1374,12 @@ async function handleSettingsSave(event) {
             clampInt(document.getElementById('settings-index-chunk-size').value, 200, 20000, 4000),
         index_auto_on_upload: document.getElementById('settings-index-auto-on-upload').checked,
     };
+    // Notification events (Settings > Notifications): per-event channels
+    // (+ interval / lead hours) collected from the dynamically rendered
+    // rows - ticking a channel enables the event. Omitted when the host is
+    // missing or empty so a broken render never wipes stored overrides.
+    const uiNotifSettings = collectUINotificationSettings();
+    if (uiNotifSettings) payload.notify_subscriptions = uiNotifSettings;
     // The webhook URL is write-only like the key: only a freshly typed value
     // is sent; blank keeps the stored one (removal goes through clear_secrets).
     const webhookUrl = document.getElementById('settings-notify-webhook-url').value.trim();
@@ -1415,7 +1416,7 @@ async function handleSettingsSave(event) {
         // Apply the (possibly changed) theme immediately so the new colors are
         // visible without a reload.
         setThemePref(payload.theme);
-        showToast('Settings saved');
+        notifySuccess('Settings saved');
         // Reflect a vision-toggle change in the chat right away: the attach /
         // camera buttons appear or disappear without waiting for a reload.
         chatVisionEnabled = payload.llm_supports_vision;
@@ -1427,7 +1428,7 @@ async function handleSettingsSave(event) {
         }
     } catch (error) {
         console.error('Failed to save settings:', error);
-        showToast('Failed to save settings', 'error', error.message);
+        notifyError('Failed to save settings', error.message);
     } finally {
         saveBtn.disabled = false;
     }
@@ -1536,10 +1537,10 @@ async function handleCreateKeyFromSettings() {
     btn.disabled = true;
     try {
         await postSecretsKeyAction('secrets-key/create');
-        showToast('Master key created \u2014 secrets are encrypted at rest');
+        notifySuccess('Master key created \u2014 secrets are encrypted at rest');
         await refreshSettingsKeyState();
     } catch (error) {
-        showToast('Could not create the key', 'error', error.message);
+        notifyError('Could not create the key', error.message);
     } finally {
         btn.disabled = false;
     }
@@ -1553,10 +1554,10 @@ async function handleDeleteKeyFromSettings() {
     btn.disabled = true;
     try {
         await postSecretsKeyAction('secrets-key/delete');
-        showToast('Master key deleted \u2014 re-enter your secrets after creating a new one', 'error');
+        notifyError('Master key deleted \u2014 re-enter your secrets after creating a new one');
         await refreshSettingsKeyState();
     } catch (error) {
-        showToast('Could not delete the key', 'error', error.message);
+        notifyError('Could not delete the key', error.message);
     } finally {
         btn.disabled = false;
     }

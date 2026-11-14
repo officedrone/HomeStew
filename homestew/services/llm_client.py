@@ -883,6 +883,8 @@ def create_device_tool() -> Dict[str, Any]:
                             "rename_category",
                             "add_attribute",
                             "remove_attribute",
+                            "photo_notes",
+                            "propose_photo_notes",
                             "delete",
                         ],
                         "description": (
@@ -901,9 +903,13 @@ def create_device_tool() -> Dict[str, Any]:
                             "section (category='Kitchen') when the user asks "
                             "for one, rename_category renames a section "
                             "(category=old name + new_name), add or remove a "
-                            "custom attribute, or delete - which is refused "
-                            "and returns a link for the user to delete it "
-                            "themselves."
+                            "custom attribute, photo_notes reads a device's "
+                            "photo labels/notes/AI notes (call it only when "
+                            "photos are relevant - they are NOT in any list "
+                            "by default), propose_photo_notes records an AI-"
+                            "notes suggestion for the user to confirm, or "
+                            "delete - which is refused and returns a link "
+                            "for the user to delete it themselves."
                         ),
                     },
                     "query": {
@@ -1029,6 +1035,42 @@ def create_device_tool() -> Dict[str, Any]:
                             "For action='rename_category' only: the name the "
                             "category should get, e.g. 'Workshop'. The "
                             "section to rename is named by 'category'."
+                        ),
+                    },
+                    "photo_id": {
+                        "type": "integer",
+                        "description": (
+                            "Photo id for action='propose_photo_notes'. Get "
+                            "it from action='photo_notes' - never invent one."
+                        ),
+                    },
+                    "changed": {
+                        "type": "boolean",
+                        "description": (
+                            "For action='propose_photo_notes': true when you "
+                            "re-examined the photo and found a MATERIAL "
+                            "difference from the notes on file; false when "
+                            "nothing changed (then nothing is written)."
+                        ),
+                    },
+                    "notes": {
+                        "type": "string",
+                        "maxLength": 4000,
+                        "description": (
+                            "For action='propose_photo_notes' with "
+                            "changed=true: the FULL updated notes for the "
+                            "photo (what still holds plus your correction). "
+                            "Stored as a suggestion the user must confirm - "
+                            "it does not replace the AI notes by itself."
+                        ),
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "description": (
+                            "For action='propose_photo_notes': one sentence "
+                            "on what differs and why, shown to the user with "
+                            "the suggestion."
                         ),
                     },
                 },

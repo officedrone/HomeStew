@@ -16,7 +16,7 @@ from homestew.config import (
     save_settings_overrides,
     settings,
 )
-from homestew.services import auth
+from homestew.services import auth, dispatch
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
@@ -107,10 +107,6 @@ def _current_settings() -> SettingsResponse:
         search_tool_description_default=DEFAULT_SEARCH_TOOL_DESCRIPTION,
         calendar_tool_description_default=DEFAULT_CALENDAR_TOOL_DESCRIPTION,
         device_tool_description_default=DEFAULT_DEVICE_TOOL_DESCRIPTION,
-        notify_enabled=settings.NOTIFY_ENABLED,
-        notify_check_interval_minutes=settings.NOTIFY_CHECK_INTERVAL_MINUTES,
-        notify_lead_value=settings.NOTIFY_LEAD_VALUE,
-        notify_lead_unit=settings.NOTIFY_LEAD_UNIT,
         notify_webhook_enabled=settings.NOTIFY_WEBHOOK_ENABLED,
         notify_webhook_type=getattr(settings, "NOTIFY_WEBHOOK_TYPE", "none"),
         notify_webhook_url_set=bool(settings.NOTIFY_WEBHOOK_URL),
@@ -134,6 +130,14 @@ def _current_settings() -> SettingsResponse:
         auth_lockout_minutes=settings.AUTH_LOCKOUT_MINUTES,
         index_max_chunk_size=settings.INDEX_MAX_CHUNK_SIZE,
         index_auto_on_upload=settings.INDEX_AUTO_ON_UPLOAD,
+        # Notification event subscriptions (Settings > Notifications):
+        # effective per-event values merged from the dispatch registry
+        # (condition checks + rule events), plus the selectable channel list,
+        # so the UI never hardcodes defaults, events, or channels.
+        notify_subscriptions=dispatch.subscriptions_payload(),
+        notification_channels=[
+            {"name": c.name, "label": c.label} for c in dispatch.CHANNEL_DEFS
+        ],
     )
 
 
@@ -234,16 +238,10 @@ async def update_settings(update: SettingsUpdate):
             update.device_tool_description.strip() or DEFAULT_DEVICE_TOOL_DESCRIPTION
         )
 
-    # Notifications: the notifier loop re-reads these each tick, so saving is
-    # enough - no restart or client reset needed.
-    if update.notify_enabled is not None:
-        changes["NOTIFY_ENABLED"] = update.notify_enabled
-    if update.notify_check_interval_minutes is not None:
-        changes["NOTIFY_CHECK_INTERVAL_MINUTES"] = update.notify_check_interval_minutes
-    if update.notify_lead_value is not None:
-        changes["NOTIFY_LEAD_VALUE"] = update.notify_lead_value
-    if update.notify_lead_unit is not None:
-        changes["NOTIFY_LEAD_UNIT"] = update.notify_lead_unit
+    # Notifications: the webhook channel knobs. The old global enabled /
+    # cadence / lead fields moved into the per-event notify_subscriptions
+    # map below; the notifier loop re-reads everything each wake, so saving
+    # is enough - no restart or client reset needed.
     if update.notify_webhook_enabled is not None:
         changes["NOTIFY_WEBHOOK_ENABLED"] = update.notify_webhook_enabled
     # Webhook kind (generic JSON vs Synology Chat): validated by the schema.
@@ -292,7 +290,22 @@ async def update_settings(update: SettingsUpdate):
     for name in update.clear_secrets or []:
         changes[_CLEARABLE_SECRETS[name]] = ""
 
-    if not changes:
+    # Notification event subscriptions: handled by dispatch (it validates
+    # event keys and channel names against its registries and persists the
+    # merged dict itself), so it runs outside the plain `changes` map. An
+    # unknown event or channel is a client bug, not a server error -> 422.
+    if update.notify_subscriptions:
+        try:
+            dispatch.update_subscriptions(
+                {k: dict(v or {}) for k, v in update.notify_subscriptions.items()}
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            )
+
+    if not changes and not update.notify_subscriptions:
         return _current_settings()
 
     # Apply to the live singleton so changes take effect immediately.

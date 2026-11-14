@@ -197,6 +197,59 @@ async def init_db():
             ON device_attributes(device_id)
         """)
 
+        # Device photos: pictures the user attaches to a device (the HVAC
+        # filter that fits it, a nameplate, a wiring label) with text about
+        # them. Deliberately NOT a custom attribute: attributes are consumed
+        # as plain text by the chat roster note, the search entry blob and the
+        # manage_devices reports, so an image reference in there would have to
+        # be parsed apart by every one of those readers and could not hold
+        # more than one picture.
+        #
+        # Text lives in three columns with different owners:
+        #   label / notes      - written by the user (short caption + free text)
+        #   ai_notes           - what a vision pass recorded, only ever written
+        #                        after the user confirmed it. NULL = never
+        #                        analyzed, which is what drives the "N
+        #                        unanalyzed" flag in the chat roster and the
+        #                        on-demand analysis offer.
+        #   pending_ai_notes   - a proposal awaiting confirmation. The LLM may
+        #                        write this but never ai_notes itself, so an
+        #                        analysis can never silently overwrite what
+        #                        the model previously recorded (same
+        #                        refuse-and-confirm convention as device
+        #                        deletion). pending_reason is a one-line
+        #                        summary of what differs; proposed_at orders
+        #                        suggestions and detects stale ones.
+        # width/height/size_bytes are read from the file header at upload so
+        # the UI can lay out thumbnails before fetching them.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS device_photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                filepath TEXT NOT NULL,
+                label TEXT,
+                notes TEXT,
+                ai_notes TEXT,
+                ai_analyzed_at TIMESTAMP,
+                pending_ai_notes TEXT,
+                pending_reason TEXT,
+                proposed_at TIMESTAMP,
+                mime_type TEXT NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                size_bytes INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+            )
+        """)
+
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_device_photos_device 
+            ON device_photos(device_id)
+        """)
+
         # Create calendar events table - periodic maintenance reminders tied
         # (usually) to a device. device_id is nullable so an event can exist
         # without one; when set it cascades on device delete. The schedule is
@@ -225,23 +278,91 @@ async def init_db():
             ON calendar_events(device_id)
         """)
 
-        # Notification ledger - one row per (event, occurrence, kind) already
-        # delivered. The background loop re-scans every tick, so this is what
-        # makes a due/overdue alert fire exactly once; recurring events re-alert
-        # on future occurrences because the due date differs. Rows cascade with
-        # their event. See services/notifier.py.
+        # Notification ledger - one row per (event, occurrence, kind, channel)
+        # already delivered. The background loop re-scans every tick, so this
+        # is what makes a due/overdue alert fire exactly once PER CHANNEL;
+        # recurring events re-alert on future occurrences because the due date
+        # differs. The channel column is what lets one occurrence be
+        # delivered to several channels independently: 'webhook' rows track
+        # outbound posts, 'ui' rows back in-app toast delivery - a Dismissed
+        # calendar toast writes a 'ui' row so the card never resurrects.
+        # Rows cascade with their event. See services/notifier.py.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS notification_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id INTEGER NOT NULL,
                 due_date DATE NOT NULL,
                 kind TEXT NOT NULL,
+                channel TEXT NOT NULL DEFAULT 'webhook',
                 sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(event_id, due_date, kind),
+                UNIQUE(event_id, due_date, kind, channel),
                 FOREIGN KEY (event_id) REFERENCES calendar_events(id) ON DELETE CASCADE
             )
         """)
-        
+
+        # Upgrade migration (webhook-only releases): their ledger was keyed
+        # on (event_id, due_date, kind) only, which cannot hold one row per
+        # channel. SQLite cannot alter a UNIQUE constraint, so rebuild the
+        # table in place when the channel column is missing. Existing rows
+        # keep their identity as 'webhook' deliveries (the only channel that
+        # existed), so upgraded installs never re-post old alerts.
+        cursor = await db.execute("PRAGMA table_info(notification_log)")
+        ledger_cols = {row[1] for row in await cursor.fetchall()}
+        if "channel" not in ledger_cols:
+            await db.execute("""
+                CREATE TABLE notification_log_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id INTEGER NOT NULL,
+                    due_date DATE NOT NULL,
+                    kind TEXT NOT NULL,
+                    channel TEXT NOT NULL DEFAULT 'webhook',
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(event_id, due_date, kind, channel),
+                    FOREIGN KEY (event_id) REFERENCES calendar_events(id) ON DELETE CASCADE
+                )
+            """)
+            await db.execute("""
+                INSERT OR IGNORE INTO notification_log_new
+                    (id, event_id, due_date, kind, channel, sent_at)
+                SELECT id, event_id, due_date, kind, 'webhook', sent_at
+                FROM notification_log
+            """)
+            await db.execute("DROP TABLE notification_log")
+            await db.execute("ALTER TABLE notification_log_new RENAME TO notification_log")
+
+        # UI notification state - one row per in-app condition check (the
+        # registry in services/ui_notifications.py). This is what makes a
+        # Dismissed notification stay dismissed: an "occurrence" is one
+        # continuous episode where the condition holds, so dismissal lasts
+        # until the condition goes false and a later recurrence re-notifies.
+        # last_checked_at drives the per-check interval; details caches the
+        # evaluator's payload (e.g. {"count": 3}) between checks. Timestamps
+        # are ISO-8601 UTC strings. notified_channels is a JSON object
+        # {"targets": [...], "done": [...]}: the current episode's frozen
+        # delivery targets and the channels already delivered, so a
+        # webhook-subscribed check alerts once per episode even though the
+        # condition keeps re-evaluating. See services/ui_notifications.py.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS ui_notification_state (
+                check_key TEXT PRIMARY KEY,
+                last_checked_at TEXT,
+                condition_true INTEGER NOT NULL DEFAULT 0,
+                episode_started_at TEXT,
+                dismissed_at TEXT,
+                details TEXT NOT NULL DEFAULT '{}',
+                notified_channels TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
+
+        # Upgrade migration: add notified_channels to pre-existing installs.
+        try:
+            await db.execute(
+                "ALTER TABLE ui_notification_state ADD COLUMN"
+                " notified_channels TEXT NOT NULL DEFAULT '[]'"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Create FTS5 virtual table for PDF content search.
         #
         # The `trigram` tokenizer indexes every 3-character sequence, which

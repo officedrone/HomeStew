@@ -35,6 +35,7 @@ function wireAll() {
     wireChatEvents();
     wireSearchEvents();
     wireSettingsEvents();
+    wireNotificationEvents();
     wireAuthEvents();
     wireWizardEvents();
     wireMarkdownLinks();
@@ -58,6 +59,10 @@ async function initializeApp() {
     // Same for a restore in flight: reattach the bottom status bar so its
     // progress survives F5 or a second tab.
     resumeRestoreMonitorIfRunning();
+    // In-app notification framework (condition checks -> toasts): starts the
+    // poll loop that renders active notifications and reconciles them as the
+    // server's checks resolve. First poll is immediate, then every minute.
+    startUINotificationMonitor();
     // One-time setup wizard (encryption key / AI model / first device).
     // Runs after loadDevices() so the "first device" step can see whether
     // any devices exist yet; skipped/saved steps are persisted server-side.

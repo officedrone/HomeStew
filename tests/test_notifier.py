@@ -23,7 +23,7 @@ import pytest
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services import notifier
+from homestew.services import notify_channels, notifier
 
 
 @pytest.fixture
@@ -99,9 +99,20 @@ def _ledger_rows():
 
 # --- run_tick ordering (issue #9) ------------------------------------------
 
+# run_tick resolves the calendar event's SUBSCRIBED channels (via
+# services/dispatch.py, which looks instances up on notify_channels.CHANNELS
+# at call time), so tests patch that registry plus settings.NOTIFY_SUBSCRIPTIONS
+# directly - update_subscriptions() validates names against CHANNEL_DEFS and
+# would reject the fake channel names used here.
+_CALENDAR_SUB = lambda *names: {
+    "calendar_reminders": {"enabled": True, "channels": list(names)}
+}
+
+
 def test_run_tick_does_no_db_work_without_enabled_channels(monkeypatch):
-    """No enabled channel -> return 0 BEFORE any calendar scan."""
-    monkeypatch.setattr(notifier, "CHANNELS", [])
+    """Toast-only subscription -> return 0 BEFORE any calendar scan."""
+    monkeypatch.setattr(notify_channels, "CHANNELS", [])
+    monkeypatch.setattr(cfg.settings, "NOTIFY_SUBSCRIPTIONS", _CALENDAR_SUB("ui"))
 
     calls = []
 
@@ -124,7 +135,10 @@ def test_run_tick_does_no_db_work_when_only_disabled_channels(monkeypatch):
         def enabled(self):
             return False
 
-    monkeypatch.setattr(notifier, "CHANNELS", [DisabledChannel()])
+    monkeypatch.setattr(notify_channels, "CHANNELS", [DisabledChannel()])
+    monkeypatch.setattr(
+        cfg.settings, "NOTIFY_SUBSCRIPTIONS", _CALENDAR_SUB("recorder")
+    )
 
     calls = []
 
@@ -144,7 +158,10 @@ def test_run_tick_does_no_db_work_when_only_disabled_channels(monkeypatch):
 
 def test_run_tick_delivers_and_ledgers(db_env, monkeypatch):
     channel = RecordingChannel()
-    monkeypatch.setattr(notifier, "CHANNELS", [channel])
+    monkeypatch.setattr(notify_channels, "CHANNELS", [channel])
+    monkeypatch.setattr(
+        cfg.settings, "NOTIFY_SUBSCRIPTIONS", _CALENDAR_SUB("recorder")
+    )
 
     event_id = asyncio.run(_seed_event())
 
@@ -168,7 +185,10 @@ def test_run_tick_delivers_and_ledgers(db_env, monkeypatch):
 def test_run_tick_failed_send_writes_no_ledger(db_env, monkeypatch):
     """Delivery failure must not mark the occurrence as sent (retry next tick)."""
     channel = ExplodingChannel()
-    monkeypatch.setattr(notifier, "CHANNELS", [channel])
+    monkeypatch.setattr(notify_channels, "CHANNELS", [channel])
+    monkeypatch.setattr(
+        cfg.settings, "NOTIFY_SUBSCRIPTIONS", _CALENDAR_SUB("exploder")
+    )
 
     asyncio.run(_seed_event())
 

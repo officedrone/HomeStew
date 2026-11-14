@@ -1,15 +1,32 @@
-"""Background notifications: watch calendar events and dispatch alerts.
+"""Background notifications: the single tick that drives every event source.
 
-A single asyncio task (started from the FastAPI lifespan in main.py) wakes up
-every NOTIFY_CHECK_INTERVAL_MINUTES minutes, looks for calendar events that
-are overdue or coming due within the configured lead time, and sends one
-notification per event through every enabled channel.
+One asyncio task (started from the FastAPI lifespan in main.py) wakes up
+every minute and runs two passes:
 
-Dedupe: after all channels succeed, a row is written to notification_log
-keyed on (event_id, due_date, kind), so each occurrence of an event alerts at
-most once for "due" and once for "overdue". Recurring events re-alert on their
-next occurrence because the due date changes. A failed send writes no ledger
-row, so it is retried automatically on the following tick.
+1. Calendar reminders (this module): once per the calendar event's own
+   "Interval (min)" (Settings > Notifications table), scan for events
+   overdue or coming due within the event's "Notify before due (hrs)" lead
+   window and deliver each occurrence to the channels SUBSCRIBED for the
+   ``calendar_reminders`` event (services/dispatch.py). An event with no
+   subscribed channel is simply off - enablement is per event via its
+   channel checkboxes, there is no master switch any more.
+2. Health checks (services/ui_notifications.run_due_checks): evaluate every
+   condition check whose own interval elapsed, maintaining the episode state
+   machine and delivering new/undelivered episodes to their subscribed
+   channels (webhook etc.). Runs on every wake-up - each check's own
+   interval gates it, exactly as before.
+
+Dedupe: a notification_log row is written per (event_id, due_date, kind,
+channel) after that channel's send succeeds, so each occurrence alerts at
+most once PER CHANNEL. Recurring events re-alert on their next occurrence
+because the due date changes. A failed send writes no ledger row for that
+channel, so it is retried automatically on the following tick without
+re-sending to channels that already succeeded.
+
+The idle-CPU guarantee (issue #9) survives the fan-out: a tick resolves the
+subscribed-and-available channels BEFORE touching the database, so an install
+that only subscribes events to in-app toasts does zero calendar work per tick
+(the frontend poll remains the sole driver).
 
 All settings are read from the live singleton every tick, so changes made in
 Settings > Notifications apply without restarting the container.
@@ -20,105 +37,60 @@ import math
 from datetime import datetime, time, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from fastapi.concurrency import run_in_threadpool
-
-from homestew.config import settings
 from homestew.db import get_db_context
-from homestew.services import calendar_service
-from homestew.services.notify_channels import CHANNELS
+from homestew.services import calendar_service, dispatch, ui_notifications
+from homestew.services.dispatch import CALENDAR_EVENT_KEY, UI_CHANNEL
 
 logger = logging.getLogger(__name__)
 
 
-def lead_timedelta() -> timedelta:
-    """The configured lead time (value + hours/days unit) as a timedelta."""
-    value = max(1, int(settings.NOTIFY_LEAD_VALUE or 1))
-    if (settings.NOTIFY_LEAD_UNIT or "hours").lower() == "days":
-        return timedelta(days=value)
-    return timedelta(hours=value)
-
-
-def _due_datetime(event: Dict[str, Any]) -> Optional[datetime]:
-    """Combine an event's next due date with its optional time of day."""
-    due = event.get("next_due_date")
-    if due is None:
-        return None
-    return datetime.combine(due, event.get("start_time") or time.min)
-
-
-def build_payload(
-    event: Dict[str, Any], kind: str, now: Optional[datetime] = None
-) -> Dict[str, Any]:
-    """Generic JSON notification body for one calendar event.
-
-    ``kind`` is "due" (coming up within the lead window) or "overdue". The
-    shape is deliberately plain so any webhook receiver can pick the fields
-    it cares about without a per-service formatter.
-    """
-    now = now or datetime.now()
-    due_dt = _due_datetime(event)
-    hours_until_due: Optional[float] = None
-    if due_dt is not None:
-        hours_until_due = round((due_dt - now).total_seconds() / 3600.0, 2)
-
-    return {
-        "source": settings.APP_NAME,
-        "type": "calendar_overdue" if kind == "overdue" else "calendar_due",
-        "event_id": event.get("id"),
-        "title": event.get("title"),
-        "description": event.get("description"),
-        "device_name": event.get("device_name"),
-        "due_date": due_dt.date().isoformat() if due_dt else None,
-        "due_time": (
-            due_dt.strftime("%H:%M") if due_dt and event.get("start_time") else None
-        ),
-        "recurrence": event.get("recurrence_label"),
-        "status": event.get("status"),
-        "hours_until_due": hours_until_due,
-        "sent_at": now.isoformat(timespec="seconds"),
-    }
-
-
-def build_test_payload() -> Dict[str, Any]:
-    """Sample payload for the Settings > Notifications "Send Test" button."""
-    now = datetime.now()
-    sample = {
-        "id": 0,
-        "title": "Test notification",
-        "description": "This is a test of the HomeStew webhook channel.",
-        "device_name": None,
-        "next_due_date": (now + timedelta(days=1)).date(),
-        "start_time": time(9, 0),
-        "recurrence_label": "One-time",
-        "status": "upcoming",
-    }
-    payload = build_payload(sample, kind="due", now=now)
-    payload["test"] = True
-    return payload
-
-
-async def _already_sent() -> Set[Tuple[int, str, str]]:
-    """Ledger of (event_id, due_date, kind) tuples already notified."""
+async def _already_sent() -> Set[Tuple[int, str, str, str]]:
+    """Ledger of (event_id, due_date, kind, channel) tuples already notified."""
     async with get_db_context() as db:
         cursor = await db.execute(
-            "SELECT event_id, due_date, kind FROM notification_log"
+            "SELECT event_id, due_date, kind, channel FROM notification_log"
         )
         rows = await cursor.fetchall()
-    return {(r["event_id"], str(r["due_date"])[:10], r["kind"]) for r in rows}
+    return {
+        (r["event_id"], str(r["due_date"])[:10], r["kind"], r["channel"])
+        for r in rows
+    }
+
+
+def subscribed_external_channels(sub: Dict[str, Any]) -> List[str]:
+    """Subscribed non-UI channels that could deliver right now.
+
+    The UI pseudo-channel needs no send (the frontend poll renders it), so a
+    subscription list of just ["ui"] means this tick has nothing to push and
+    must not touch the database at all - preserving the idle-CPU guarantee.
+    """
+    return [
+        name for name in sub["channels"]
+        if name != UI_CHANNEL and dispatch.channel_available(name)
+    ]
 
 
 async def run_tick(now: Optional[datetime] = None) -> int:
-    """One scan-and-notify pass. Returns the number of notifications sent."""
-    # Resolve channels FIRST (issue #9): with nothing enabled no alert can be
-    # delivered, so return before touching the database at all. The old order
-    # ran a full calendar scan on every tick even when notifications could
-    # never fire (e.g. NOTIFY_ENABLED on but no webhook URL configured).
-    channels: List[Any] = [c for c in CHANNELS if c.enabled()]
+    """One calendar scan-and-notify pass. Returns occurrences newly delivered.
+
+    Delivers each due/overdue occurrence to the external channels subscribed
+    for the calendar event (services/dispatch.py), writing one ledger row per
+    successfully delivered channel. Channels that already have a ledger row
+    for this occurrence are skipped, so a partial failure retries only the
+    failed channel on the next tick. Also backs the Settings "Check Now"
+    button for the calendar row (POST /ui/calendar_reminders/check).
+    """
+    # Resolve channels FIRST (issue #9): with nothing subscribed-and-enabled
+    # no alert can be pushed, so return before touching the database at all.
+    sub = dispatch.effective_subscription(CALENDAR_EVENT_KEY)
+    if not sub["enabled"]:
+        return 0
+    channels = subscribed_external_channels(sub)
     if not channels:
         return 0
 
     now = now or datetime.now()
-    lead = lead_timedelta()
+    lead = dispatch.lead_timedelta()
 
     # list_notify_candidates keeps overdue + due-on-or-before today+N (and,
     # unlike the calendar tab's view, also missed one-time events - they are
@@ -130,7 +102,7 @@ async def run_tick(now: Optional[datetime] = None) -> int:
     sent = await _already_sent()
     fired = 0
     for event in events:
-        due_dt = _due_datetime(event)
+        due_dt = dispatch.due_datetime(event)
         if due_dt is None:
             continue
 
@@ -138,58 +110,77 @@ async def run_tick(now: Optional[datetime] = None) -> int:
         if kind == "due" and (due_dt - now) > lead:
             continue  # still outside the lead window
 
-        key = (event["id"], due_dt.date().isoformat(), kind)
-        if key in sent:
-            continue  # this occurrence already alerted
+        due_str = due_dt.date().isoformat()
+        todo = [c for c in channels if (event["id"], due_str, kind, c) not in sent]
+        if not todo:
+            continue  # every subscribed channel already delivered this occurrence
 
-        payload = build_payload(event, kind, now)
-        delivered = True
-        for channel in channels:
-            try:
-                await run_in_threadpool(channel.send, payload)
-            except Exception as exc:
-                delivered = False
-                logger.warning(
-                    "Notification channel %s failed for event %s (%s): %s",
-                    channel.name, event["id"], kind, exc,
+        payload = dispatch.build_calendar_payload(event, kind, now)
+        results = await dispatch.deliver(payload, todo)
+
+        newly = False
+        for name, ok in results.items():
+            if not ok:
+                continue  # no ledger row -> only this channel retries next tick
+            async with get_db_context() as db:
+                await db.execute(
+                    "INSERT OR IGNORE INTO notification_log"
+                    " (event_id, due_date, kind, channel) VALUES (?, ?, ?, ?)",
+                    (event["id"], due_str, kind, name),
                 )
-                break  # no ledger row -> the whole alert retries next tick
-        if not delivered:
-            continue
-
-        async with get_db_context() as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO notification_log (event_id, due_date, kind)"
-                " VALUES (?, ?, ?)",
-                key,
+                await db.commit()
+            sent.add((event["id"], due_str, kind, name))
+            newly = True
+        if newly:
+            fired += 1
+            logger.info(
+                "Notified (%s) via %s: %r due %s",
+                kind, ",".join(n for n, ok in results.items() if ok),
+                event["title"], due_dt.date(),
             )
-            await db.commit()
-        sent.add(key)
-        fired += 1
-        logger.info(
-            "Notified (%s): %r due %s", kind, event["title"], due_dt.date()
-        )
 
     return fired
+
+
+#: How often the loop wakes to compare per-event intervals (seconds). The
+#: events' own "Interval (min)" values do the real gating; this only sets
+#: their resolution, and a wake with nothing due costs no database work.
+_LOOP_WAKE_SECONDS = 60
 
 
 async def notification_loop() -> None:
     """Long-running background task; runs until the app shuts down.
 
     Sleeps first so a container restart never fires an immediate burst (the
-    ledger would dedupe it anyway). The interval is re-read every iteration,
-    and a failing tick is logged but never kills the loop.
+    ledger would dedupe it anyway). Every wake compares the calendar event's
+    per-event interval against the last scan, so changing "Interval (min)"
+    in Settings applies without a restart; a failing pass is logged but
+    never kills the loop. Health checks run on every wake-up (their own
+    per-event interval gates them).
     """
     logger.info("Notification loop started")
+    # Seed with "now" so the first calendar scan happens one full interval
+    # after startup, mirroring the old sleep-first behaviour.
+    last_calendar_scan = datetime.now()
     while True:
-        interval = min(max(int(settings.NOTIFY_CHECK_INTERVAL_MINUTES or 15), 1), 1440)
-        await asyncio.sleep(interval * 60)
+        await asyncio.sleep(_LOOP_WAKE_SECONDS)
         try:
-            if not settings.NOTIFY_ENABLED:
-                continue
-            count = await run_tick()
-            if count:
-                logger.info("Notification tick sent %d alert(s)", count)
+            interval = (
+                dispatch.effective_subscription(CALENDAR_EVENT_KEY)[
+                    "interval_minutes"
+                ]
+                or 15
+            )
+            now = datetime.now()
+            if (now - last_calendar_scan).total_seconds() >= interval * 60:
+                last_calendar_scan = now
+                count = await run_tick()
+                if count:
+                    logger.info("Notification tick sent %d alert(s)", count)
+            # Health checks: evaluate due conditions and push new episodes to
+            # their subscribed channels. Cheap by design - each check only
+            # re-evaluates once its own interval elapsed.
+            await ui_notifications.run_due_checks()
         except asyncio.CancelledError:
             raise
         except Exception:

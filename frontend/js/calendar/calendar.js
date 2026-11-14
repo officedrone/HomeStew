@@ -134,12 +134,12 @@ async function completeEvent(eventId) {
     try {
         const response = await fetch(`/api/calendar/${eventId}/complete`, { method: 'POST' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        showToast('Marked as done');
+        notifySuccess('Marked as done');
         loadCalendarEvents();
         loadUpcomingEvents();
         loadDashboardStats();
     } catch (error) {
-        showToast(`Failed to update event: ${error.message}`, 'error');
+        notifyError(`Failed to update event: ${error.message}`);
     } finally {
         endOp(`complete-event-${eventId}`);
     }
@@ -151,12 +151,12 @@ async function deleteCalendarEvent(eventId) {
     try {
         const response = await fetch(`/api/calendar/${eventId}`, { method: 'DELETE' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        showToast('Event deleted');
+        notifySuccess('Event deleted');
         loadCalendarEvents();
         loadUpcomingEvents();
         loadDashboardStats();
     } catch (error) {
-        showToast(`Failed to delete event: ${error.message}`, 'error');
+        notifyError(`Failed to delete event: ${error.message}`);
     } finally {
         endOp(`delete-event-${eventId}`);
     }
@@ -217,7 +217,7 @@ async function handleSaveEvent(e) {
     };
 
     if (!payload.title || !payload.start_date) {
-        showToast('Title and date are required', 'error');
+        notifyError('Title and date are required');
         return;
     }
     if (!beginOp('save-event')) return;
@@ -241,12 +241,12 @@ async function handleSaveEvent(e) {
         }
 
         closeEventModal();
-        showToast(eventId ? 'Event updated' : 'Event created');
+        notifySuccess(eventId ? 'Event updated' : 'Event created');
         loadCalendarEvents();
         loadUpcomingEvents();
         loadDashboardStats();
     } catch (error) {
-        showToast(`Failed to save event: ${error.message}`, 'error');
+        notifyError(`Failed to save event: ${error.message}`);
     } finally {
         endOp('save-event');
     }
