@@ -332,10 +332,31 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
                         <span>New Category</span>
                     </button>
-                    <label class="devices-collapse-toggle" title="Show every device card expanded with its details">
+                    <label class="devices-collapse-toggle" title="Show every device card open with its details">
                         <input type="checkbox" id="devices-expanded-toggle">
-                        <span>Expanded Device Cards</span>
+                        <span>Open Device Cards</span>
                     </label>
+                </div>
+                <!-- Live filter for the grid below. Filtering is pure client-side
+                     over the already-loaded device list, so every keystroke is
+                     instant (see applyDeviceGridFilter in devices/devices.js). -->
+                <div class="devices-filter-row">
+                    <!-- The field is its own positioning context so the clear button
+                         stays pinned to the input's right edge when the counter
+                         beside it appears and narrows the box. -->
+                    <div class="devices-filter-field">
+                        <span class="devices-filter-icon" aria-hidden="true">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        </span>
+                        <input type="search" id="devices-filter-input" class="devices-filter-input"
+                               placeholder="Filter devices... (name, brand or model)"
+                               autocomplete="off" spellcheck="false" aria-label="Filter devices">
+                        <button type="button" id="devices-filter-clear" class="devices-filter-clear" hidden
+                                title="Clear filter" aria-label="Clear filter" onclick="clearDeviceGridFilter()">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <span id="devices-filter-count" class="devices-filter-count"></span>
                 </div>
                 <div id="devices-grid" class="category-sections"></div>
             </div>

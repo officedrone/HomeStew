@@ -500,6 +500,9 @@ function renderDevicesGrid() {
     container.innerHTML = sections.map(categorySectionHtml).join('');
     renderLucideIcons();
     syncDevicesExpandedCheckbox();
+    // A re-render paints the whole list, so a filter that is still in the box
+    // has to be re-applied or the next add/edit/drag would undo it.
+    applyDeviceGridFilter();
 }
 
 // One collapsible section: header (grip, caret, name, count, edit / delete)
@@ -610,6 +613,104 @@ function syncDevicesExpandedCheckbox() {
     const checkbox = document.getElementById('devices-expanded-toggle');
     if (!checkbox) return;
     checkbox.checked = devices.length > 0 && devices.every(device => gridExpandedIds.has(device.id));
+}
+
+// ---------------------------------------------------------------------------
+// Devices-tab live filter.
+//
+// Filtering hides nodes instead of re-rendering: every keystroke would
+// otherwise rebuild the grid and re-run renderLucideIcons() over the whole
+// document, and it would throw away the card/section open state mid-typing.
+// Much more importantly, drag.js reads the grid's DOM to build its
+// /api/devices/reorder payload - dropping a card while filtered must still
+// report every device in the bucket, so hidden cards stay in the DOM.
+// ---------------------------------------------------------------------------
+
+// Words typed in the box; AND-ed together, so "lg wash" finds "LG Washmaster".
+function deviceGridQueryWords() {
+    const input = document.getElementById('devices-filter-input');
+    return input ? input.value.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
+}
+
+// Name, brand and model all count as matches.
+function deviceMatchesWords(device, words) {
+    const haystack = [device.name, device.brand, device.model]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+    return words.every(word => haystack.includes(word));
+}
+
+// Apply the current box contents to the rendered grid. Called on every
+// keystroke and after every grid re-render (see renderDevicesGrid).
+function applyDeviceGridFilter() {
+    const container = document.getElementById('devices-grid');
+    if (!container) return;
+    const words = deviceGridQueryWords();
+    const filtering = words.length > 0;
+
+    const byId = new Map(devices.map(device => [device.id, device]));
+    let shown = 0;
+
+    container.querySelectorAll('.category-section').forEach(section => {
+        // A section whose own name matches keeps all of its devices.
+        const titleEl = section.querySelector('.category-title');
+        const title = (titleEl ? titleEl.textContent : '').toLowerCase();
+        const sectionMatch = words.every(word => title.includes(word));
+
+        let visible = 0;
+        section.querySelectorAll('.device-card').forEach(card => {
+            const device = byId.get(Number(card.dataset.id));
+            const show = !filtering || sectionMatch || (device && deviceMatchesWords(device, words));
+            card.classList.toggle('filter-hide', !show);
+            if (show) visible++;
+        });
+
+        // Keep the section when it matched by name or still holds a match.
+        const keep = !filtering || sectionMatch || visible > 0;
+        section.classList.toggle('filter-hide', !keep);
+        shown += visible;
+    });
+
+    renderDeviceGridFilterEmpty(container, filtering && shown === 0, words.join(' '));
+
+    const count = document.getElementById('devices-filter-count');
+    if (count) count.textContent = filtering ? `${shown} of ${devices.length}` : '';
+
+    const clearBtn = document.getElementById('devices-filter-clear');
+    if (clearBtn) clearBtn.hidden = !filtering;
+
+    // Reordering while filtered would let a card land in a position the user
+    // cannot see, so the grips are hidden until the filter is cleared.
+    container.classList.toggle('devices-filtering', filtering);
+}
+
+// "Nothing matches" notice, injected next to the (all-hidden) sections and
+// removed again as soon as something matches. Re-created after each grid
+// re-render because renderDevicesGrid() replaces the container's contents.
+function renderDeviceGridFilterEmpty(container, show, queryText) {
+    let notice = document.getElementById('devices-filter-empty');
+    if (!show) {
+        if (notice) notice.remove();
+        return;
+    }
+    if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'devices-filter-empty';
+        notice.className = 'empty-state';
+        container.appendChild(notice);
+    }
+    notice.textContent = `No devices match "${queryText}".`;
+}
+
+// Clear button / Escape: empty the box, repaint the grid, keep focus so the
+// user can immediately type a new search.
+function clearDeviceGridFilter() {
+    const input = document.getElementById('devices-filter-input');
+    if (!input) return;
+    input.value = '';
+    applyDeviceGridFilter();
+    input.focus();
 }
 
 function updateDeviceFilter() {
@@ -2238,6 +2339,18 @@ function wireDevicesEvents() {
     // handles both create and rename (see openCategoryModal).
     document.getElementById('add-category-btn').addEventListener('click', () => openCategoryModal(null));
     document.getElementById('category-form').addEventListener('submit', handleSaveCategory);
+
+    // Live device filter: re-filters on every keystroke (client-side only).
+    const filterInput = document.getElementById('devices-filter-input');
+    filterInput.addEventListener('input', applyDeviceGridFilter);
+    filterInput.addEventListener('keydown', (e) => {
+        // Escape clears the query first and only bubbles (closing a modal)
+        // when the box is already empty - same convention as the icon picker.
+        if (e.key === 'Escape' && e.target.value) {
+            e.stopPropagation();
+            clearDeviceGridFilter();
+        }
+    });
 
     // "Expanded" checkbox: expand or collapse every grid card at once and
     // persist the choice for the next page load.

@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.7]
+
+- ADD: **Find a device by typing.** The Devices tab gains a filter box under *New Device* / *New Category*. Start typing and the grid narrows live, on every keystroke — no button, no waiting, nothing leaves your browser. It matches each word against the device's **name, brand and model**, so `lg` finds *Living Room TV* by its brand and `nespresso pixie` narrows to the coffee machine. Words combine (all must match), order doesn't matter, and case is ignored. A matching **category name** reveals that whole section with all of its devices — type `kitchen` to see the Kitchen group in full. A counter beside the box reports `N of 12`, an empty result says so plainly instead of leaving a blank page, and the *×* button (or Escape) puts everything back. Drag handles are hidden while a filter is active, because dropping a card into a list you can't fully see would park it in an invisible spot; clearing the filter brings them back.
+
 ## [0.2.6]
 
 - ADD: **Take a photo, don't just upload one.** The Photos section gains a camera button next to *Upload Photo*: on a phone it opens the rear camera directly (the same `capture="environment"` trick AI Chat uses), on a desktop it falls back to a file picker. The shot follows the identical downscale-and-upload path, so labels, notes and *Analyze with AI now* all work the same.
