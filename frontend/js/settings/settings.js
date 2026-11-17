@@ -304,6 +304,9 @@ async function loadSettingsPage() {
     document.getElementById('search-rebuild-confirm').hidden = true;
     loadSearchIndexStats();
     loadSearchManuals();
+    // Online search engines + test panel state (server list is authoritative).
+    renderManualSearchEngines(settings.manual_search_engines);
+    resetSearchTestPanel();
 
 
     // Webhook bearer token: same placeholder treatment as the LLM API key -
@@ -1203,6 +1206,158 @@ async function loadSearchManuals() {
     empty.hidden = rows.length !== 0;
 }
 
+// ---------------------------------------------------------------------------
+// Online search engines (Settings > Search "Search Online for Manuals")
+// ---------------------------------------------------------------------------
+// The server list is authoritative: GET /api/settings returns the effective
+// engine order (defaults applied server-side when nothing usable is stored).
+// Rows are plain DOM - checkboxes/up/down mutate them in place and the global
+// Save button reads the current rows back via collectManualSearchEngines().
+
+function renderManualSearchEngines(engines) {
+    const list = document.getElementById('search-engine-list');
+    if (!list) return;
+    const rows = Array.isArray(engines) ? engines : [];
+    list.innerHTML = rows.map((e) => {
+        const name = String(e.name || '');
+        return `<div class="search-engine-row" data-engine="${escapeHtml(name)}">
+            <label class="checkbox-option" for="engine-enabled-${escapeHtml(name)}">
+                <input type="checkbox" class="engine-enabled-checkbox" id="engine-enabled-${escapeHtml(name)}"
+                    ${e.enabled !== false ? 'checked' : ''}>
+                <span class="search-engine-name">${escapeHtml(name)}</span>
+            </label>
+            <div class="search-engine-actions">
+                <button type="button" class="card-icon-btn engine-up-btn" title="Move up" aria-label="Move up">&#9650;</button>
+                <button type="button" class="card-icon-btn engine-down-btn" title="Move down" aria-label="Move down">&#9660;</button>
+                <button type="button" class="btn btn-secondary engine-test-btn">Test</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// Current rows as [{name, enabled}] in DOM order; null when the list is
+// empty/unrendered so a save never wipes stored engines on a broken render.
+function collectManualSearchEngines() {
+    const rows = document.querySelectorAll('#search-engine-list .search-engine-row');
+    if (!rows.length) return null;
+    const engines = [];
+    rows.forEach((row) => {
+        const name = row.dataset.engine || '';
+        if (!name) return;
+        const checkbox = row.querySelector('.engine-enabled-checkbox');
+        engines.push({ name, enabled: !!(checkbox && checkbox.checked) });
+    });
+    return engines.length ? engines : null;
+}
+
+function moveSearchEngine(btn, up) {
+    const row = btn.closest('.search-engine-row');
+    if (!row) return;
+    if (up && row.previousElementSibling) {
+        row.parentNode.insertBefore(row, row.previousElementSibling);
+    } else if (!up && row.nextElementSibling) {
+        row.parentNode.insertBefore(row.nextElementSibling, row);
+    }
+}
+
+function resetSearchTestPanel() {
+    const results = document.getElementById('search-test-results');
+    if (results) { results.hidden = true; results.innerHTML = ''; }
+    const status = document.getElementById('search-test-status');
+    if (status) status.textContent = '';
+}
+
+// Runs POST /api/settings/search-test for one engine (row Test button) or
+// all configured engines (Test All Engines). Per-engine failures come back
+// in the response body, so only transport/HTTP errors take the catch path.
+async function runSearchTest(engineName, triggerBtn) {
+    const queryInput = document.getElementById('search-test-query');
+    const statusEl = document.getElementById('search-test-status');
+    const resultsEl = document.getElementById('search-test-results');
+    // Empty query: run the example search instead of erroring, and put it in
+    // the input so the user sees exactly what was searched.
+    const query = (queryInput.value || '').trim() || (queryInput.placeholder || '').trim();
+    if (!query) {
+        notifyError('Enter a search query first');
+        queryInput.focus();
+        return;
+    }
+    queryInput.value = query;
+    const buttons = document.querySelectorAll(
+        '#search-test-all-btn, #search-engine-list .engine-test-btn'
+    );
+    buttons.forEach((b) => { b.disabled = true; });
+    statusEl.textContent = engineName
+        ? `Testing ${engineName}...`
+        : 'Testing all engines (each can take up to ~10s)...';
+    resultsEl.hidden = true;
+    try {
+        const response = await fetch('/api/settings/search-test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, engines: engineName ? [engineName] : null }),
+        });
+        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Search test failed'));
+        const data = await response.json();
+        renderSearchTestResults(data.results || []);
+        const okCount = (data.results || []).filter((r) => r.ok && r.result_count > 0).length;
+        statusEl.textContent = `${okCount} of ${(data.results || []).length} engine(s) returned results.`;
+    } catch (error) {
+        console.error('Search test failed:', error);
+        statusEl.textContent = '';
+        notifyError(error.message || 'Search test failed');
+    } finally {
+        buttons.forEach((b) => { b.disabled = false; });
+        if (triggerBtn) triggerBtn.blur();
+    }
+}
+
+// One block per engine showing exactly what the engine returned: its HTTP
+// status, a plain-English explanation of what that means (throttled / blocked
+// / needs an API key / answered but found nothing), and the raw library text
+// under "raw response" for troubleshooting.
+function renderSearchTestResults(results) {
+    const el = document.getElementById('search-test-results');
+    el.innerHTML = results.map((r) => {
+        const count = Number(r.result_count) || 0;
+        const statusLabel = r.http_status ? `HTTP ${r.http_status}` : 'no HTTP status';
+        let chip;
+        if (!r.ok) {
+            chip = `<span class="idx-chip idx-missing">${escapeHtml(statusLabel)}</span>`;
+        } else if (count > 0) {
+            chip = `<span class="idx-chip idx-ok">${escapeHtml(statusLabel)} · ${count.toLocaleString()} result(s)</span>`;
+        } else {
+            chip = `<span class="idx-chip idx-warn">${escapeHtml(statusLabel)} · no results</span>`;
+        }
+
+        const samples = (r.results || []).map((s) => {
+            const title = s.title || s.url;
+            return `<li><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a></li>`;
+        }).join('');
+
+        const message = r.ok ? (r.note || '') : (r.error || 'Unknown error');
+        const messageClass = r.ok ? 'search-test-note' : 'search-test-error';
+        const detail = r.detail
+            ? `<details class="search-test-detail"><summary>raw response</summary><pre>${escapeHtml(r.detail)}</pre></details>`
+            : '';
+
+        // The exact URL we queried, so the user can open it in their own
+        // browser and see whether the engine answers them too.
+        const triedUrl = r.url
+            ? `<p class="search-test-url"><span>Tried:</span> <a href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.url)}</a></p>`
+            : '';
+
+        return `<div class="search-test-engine-result">
+            <div class="search-test-engine-head"><strong>${escapeHtml(r.engine)}</strong>${chip}</div>
+            ${message ? `<p class="${messageClass}">${escapeHtml(message)}</p>` : ''}
+            ${samples ? `<ul class="search-test-samples">${samples}</ul>` : ''}
+            ${detail}
+            ${triedUrl}
+        </div>`;
+    }).join('');
+    el.hidden = results.length === 0;
+}
+
 // Delete an orphaned manual (its device row is gone, so nothing links to it
 // any more). Reuses the same DELETE /api/devices/{device_id}/manuals/{id}
 // endpoint as the Edit Device modal - it matches on the manual's stored
@@ -1374,6 +1529,11 @@ async function handleSettingsSave(event) {
             clampInt(document.getElementById('settings-index-chunk-size').value, 200, 20000, 4000),
         index_auto_on_upload: document.getElementById('settings-index-auto-on-upload').checked,
     };
+    // Online search engines (Settings > Search): rows in DOM order with their
+    // checkbox state. Omitted when the list is empty so a broken render never
+    // wipes the stored engine order.
+    const engineRows = collectManualSearchEngines();
+    if (engineRows) payload.manual_search_engines = engineRows;
     // Notification events (Settings > Notifications): per-event channels
     // (+ interval / lead hours) collected from the dynamically rendered
     // rows - ticking a channel enables the event. Omitted when the host is
@@ -1623,6 +1783,22 @@ function wireSettingsEvents() {
         const del = e.target.closest('.delete-orphan-btn');
         if (del && !del.disabled) deleteOrphanManual(del);
     });
+
+    // Online search engines: rows are re-rendered from server data, so all
+    // interactions (up/down/per-engine test) are delegated from the list.
+    document.getElementById('search-engine-list').addEventListener('click', (e) => {
+        const up = e.target.closest('.engine-up-btn');
+        if (up) { moveSearchEngine(up, true); return; }
+        const down = e.target.closest('.engine-down-btn');
+        if (down) { moveSearchEngine(down, false); return; }
+        const test = e.target.closest('.engine-test-btn');
+        if (test && !test.disabled) {
+            const row = test.closest('.search-engine-row');
+            runSearchTest(row ? row.dataset.engine : null, test);
+        }
+    });
+    document.getElementById('search-test-all-btn').addEventListener(
+        'click', () => runSearchTest(null, document.getElementById('search-test-all-btn')));
 
     // "Remove" buttons next to the write-only secret fields schedule deletion
     // for save; typing into a cleared field cancels that removal (without

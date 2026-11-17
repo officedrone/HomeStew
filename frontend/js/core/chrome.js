@@ -35,6 +35,13 @@ function switchTab(tabName, pushHistory = true) {
         content.classList.toggle('active', content.id === `${tabName}-tab`);
     });
 
+    // Leaving Settings puts back any device dialogs that "Search Settings"
+    // hid on their way to the engine configuration (their state, results and
+    // op lock were preserved while away).
+    if (tabName !== 'settings' && typeof restorePendingDeviceModals === 'function') {
+        restorePendingDeviceModals();
+    }
+
     // The Dashboard recomputes its stat cards on every visit so the numbers
     // never go stale between device/event changes made elsewhere in the app.
     if (tabName === 'dashboard') {

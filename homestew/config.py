@@ -95,6 +95,34 @@ EDITABLE_SETTINGS = (
     # keys; services/dispatch.py owns the valid channel names. Anything
     # unknown in settings.json is dropped at load.
     "NOTIFY_SUBSCRIPTIONS",
+    # Ordered online manual-search engines (Settings > Search "Search Online
+    # for Manuals"): [{"name": str, "enabled": bool}, ...]. Searches try the
+    # enabled engines top-down and stop at the first engine that returns
+    # results, so a blocked engine only costs its own timeout. Sanitized by
+    # normalize_search_engines() on load. Replaces the old env-only
+    # MANUAL_SEARCH_BACKENDS comma-list.
+    "MANUAL_SEARCH_ENGINES",
+)
+
+# Engine names accepted in MANUAL_SEARCH_ENGINES. "bing" is HomeStew's own
+# scraper (services/web_search.py); every other name is passed through to
+# ddgs as a backend id. The pattern (rather than a closed set) lets a future
+# ddgs engine be enabled by editing settings.json without a code change,
+# while still rejecting junk that would just waste a request.
+SEARCH_ENGINE_NAME_PATTERN = r"^[a-z][a-z0-9_-]{0,31}$"
+
+# Default engine order: Bing first (the only engine verified to answer
+# reliably from residential/container IPs - the ddgs engines are variously
+# 403/429-blocked or return a JavaScript challenge), then the ddgs engines in
+# observed order of usefulness. All enabled: an engine that fails costs one
+# timeout, and users prune what does not work for them in the UI.
+DEFAULT_MANUAL_SEARCH_ENGINES = (
+    {"name": "bing", "enabled": True},
+    {"name": "yahoo", "enabled": True},
+    {"name": "brave", "enabled": True},
+    {"name": "duckduckgo", "enabled": True},
+    {"name": "startpage", "enabled": True},
+    {"name": "mojeek", "enabled": True},
 )
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
@@ -249,12 +277,13 @@ class Settings(BaseSettings):
     NOTIFY_SUBSCRIPTIONS: dict = {}
     
     # Manual fetching (services/manual_finder.py + manual_downloader.py).
-    # Env-only knobs (not UI-editable): MANUAL_SEARCH_BACKENDS is a comma-list
-    # of ddgs engines ("auto" when empty - the library picks and rotates, so a
-    # single blocked engine no longer fails the search); MANUAL_SEARCH_REGION
-    # e.g. "us-en"/"de-de" (library default when empty); caps for results,
-    # downloads and per-file size (the container is memory-limited).
-    MANUAL_SEARCH_BACKENDS: str = ""
+    # MANUAL_SEARCH_ENGINES is the UI-editable ordered engine list (see
+    # EDITABLE_SETTINGS above); normalize_search_engines() sanitizes it on
+    # load and search_web() falls back to DEFAULT_MANUAL_SEARCH_ENGINES when
+    # nothing enabled survives. The remaining knobs are env-only:
+    # MANUAL_SEARCH_REGION e.g. "us-en"/"de-de" (library default when empty);
+    # caps for results, downloads and per-file size (memory-limited host).
+    MANUAL_SEARCH_ENGINES: list = [dict(e) for e in DEFAULT_MANUAL_SEARCH_ENGINES]
     MANUAL_SEARCH_REGION: str = ""
     MANUAL_MAX_RESULTS: int = 15
     MANUAL_MAX_DOWNLOADS: int = 5
@@ -346,6 +375,11 @@ def load_settings_overrides() -> None:
     if "NOTIFY_SUBSCRIPTIONS" in data:
         data["NOTIFY_SUBSCRIPTIONS"] = normalize_notify_subscriptions(
             data["NOTIFY_SUBSCRIPTIONS"]
+        )
+    # And for the ordered manual-search engine list.
+    if "MANUAL_SEARCH_ENGINES" in data:
+        data["MANUAL_SEARCH_ENGINES"] = normalize_search_engines(
+            data["MANUAL_SEARCH_ENGINES"]
         )
     unreadable: list[str] = []
     migrate = False  # plaintext secrets found while a key is available
@@ -512,6 +546,38 @@ def normalize_notify_subscriptions(value) -> dict:
             clean["channels"] = seen
         if clean:
             out[key] = clean
+    return out
+
+
+def normalize_search_engines(value) -> list:
+    """Coerce a stored MANUAL_SEARCH_ENGINES value to a clean ordered list.
+
+    Shape: ``[{"name": str, "enabled": bool}, ...]``. Entries must be dicts
+    with a lowercase engine name matching SEARCH_ENGINE_NAME_PATTERN; the
+    first occurrence of a name wins (duplicates dropped), and a missing
+    ``enabled`` key means enabled. Junk from a hand-edited settings.json is
+    dropped rather than crashing the load of every other setting. An empty
+    result is meaningful ("no engines configured") - callers fall back to
+    DEFAULT_MANUAL_SEARCH_ENGINES when they need a working list.
+    """
+    import re  # noqa: PLC0415 (only needed by this sanitizer)
+
+    if not isinstance(value, list):
+        return []
+    pattern = re.compile(SEARCH_ENGINE_NAME_PATTERN)
+    out: list = []
+    seen: set = set()
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if not isinstance(name, str):
+            continue
+        name = name.strip().lower()
+        if not pattern.match(name) or name in seen:
+            continue
+        seen.add(name)
+        out.append({"name": name, "enabled": bool(entry.get("enabled", True))})
     return out
 
 

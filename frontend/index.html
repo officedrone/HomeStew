@@ -778,6 +778,37 @@
                                 <p class="settings-hint manuals-index-empty" id="search-manuals-empty" hidden>
                                     No manuals indexed yet.</p>
                             </div>
+
+                            <!-- Online manual search engines (Settings > Search).
+                                 Searches walk this list top-to-bottom and stop at the
+                                 first engine that returns results, so a blocked engine
+                                 only costs its own timeout. Rows are rendered by
+                                 renderManualSearchEngines() from
+                                 GET /api/settings (manual_search_engines); checkboxes,
+                                 up/down and per-engine test buttons are delegated from
+                                 the container. Order/enablement persist with the global
+                                 Save button (PUT /api/settings). -->
+                            <h4 class="settings-subheading">Search Online for Manuals</h4>
+                            <p class="settings-hint">Engines are tried in order until one returns results. "bing" is
+                                HomeStew's built-in scraper and usually the most reliable; the others run through ddgs
+                                and may be blocked or rate-limited depending on your network.</p>
+                            <div class="search-engine-list" id="search-engine-list"></div>
+
+                            <!-- Test Search: runs the query against every engine (or a
+                                 single one via its row button) without saving anything.
+                                 Results render into #search-test-results below. -->
+                            <div class="settings-field">
+                                <label for="search-test-query">Test Search</label>
+                                <input type="text" id="search-test-query" class="llm-model-input" maxlength="200"
+                                    placeholder="Shark HZ 700C filetype:pdf">
+                                <p class="settings-hint">The query is searched as-is. Manual lookups append
+                                    "manual filetype:pdf", e.g. "Shark HZ 700C manual filetype:pdf".</p>
+                                <div class="model-row">
+                                    <button type="button" class="btn btn-secondary" id="search-test-all-btn">Test All Engines</button>
+                                    <span class="settings-hint" id="search-test-status"></span>
+                                </div>
+                                <div class="search-test-results" id="search-test-results" hidden></div>
+                            </div>
                         </section>
 
                         <!-- Backups: create/download backups and restore from archive. -->
@@ -1248,12 +1279,22 @@
                 <button type="button" id="fetch-change-terms-btn" class="btn btn-secondary btn-small" data-dedupe onclick="startChangeSearchTerms()">Change Search Terms</button>
                 <button type="button" id="fetch-apply-terms-btn" class="btn btn-primary btn-small" data-dedupe style="display: none;" onclick="applyNewSearchTerms()">Search</button>
                 <button type="button" id="fetch-cancel-terms-btn" class="btn btn-secondary btn-small" data-dedupe style="display: none;" onclick="cancelChangeSearchTerms()">Cancel</button>
+                <!-- Opens Settings > Search (engine configuration) without
+                     closing the device dialogs - returning to the Devices tab
+                     restores this dialog with its results intact. -->
+                <button type="button" id="fetch-search-settings-btn" class="btn btn-secondary btn-small" data-dedupe onclick="openSearchSettingsFromFetch()" title="Configure which search engines are used">Search Settings</button>
             </div>
             <div id="fetch-manuals-status" class="progress-status">
                 <div id="fetch-manuals-spinner" class="spinner"></div>
                 <span id="fetch-manuals-message">Searching...</span>
             </div>
             <div id="fetch-manuals-results" class="fetch-results" hidden></div>
+            <!-- Per-engine report. While a search runs it is the live progress
+                 list (the results table above is still empty, so it sits right
+                 under the status line); once the search finishes it becomes the
+                 expandable "which engine returned what" summary below the
+                 manuals table. -->
+            <div id="fetch-engine-summary" hidden></div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeFetchManualsModal()">Close</button>
                 <button type="button" id="download-all-btn" class="btn btn-primary" data-dedupe style="display: none;" onclick="downloadAllManuals()">Download All</button>

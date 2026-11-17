@@ -421,9 +421,17 @@ pytest tests/
   image (the search library and its HTTP client `primp` disagree on browser profiles),
   not a network problem. Rebuild with fresh layers:
   `docker-compose build --no-cache && docker-compose up -d`
-- Tunables are env vars (see `homestew/config.py`): `MANUAL_SEARCH_BACKENDS`
-  (comma-list of engines, empty = auto), `MANUAL_SEARCH_REGION`, `MANUAL_MAX_DOWNLOADS`,
-  `MANUAL_MAX_PDF_MB`, `MANUAL_PROXY`
+- **Search engines are blocked / return nothing?** Manual searches walk the
+  engine list in Settings > Search ("Search Online for Manuals") top-to-bottom
+  and stop at the first engine that returns results. From datacenter/container
+  IPs many ddgs engines answer 403/429/202 (anti-bot); the built-in `bing`
+  scraper is usually the most reliable one. Use **Test All Engines** there to
+  see exactly which engines work from your network, then reorder/enable rows
+  accordingly (order and checkboxes persist with Save).
+- Tunables are env vars (see `homestew/config.py`): `MANUAL_SEARCH_ENGINES`
+  is UI-managed (Settings > Search; stored in `/data/settings.json`), while
+  `MANUAL_SEARCH_REGION`, `MANUAL_MAX_DOWNLOADS`, `MANUAL_MAX_PDF_MB`,
+  `MANUAL_PROXY` and `MANUAL_SEARCH_TIMEOUT` remain env vars.
 - Dependencies in `requirements.txt` are range-pinned on purpose: an unpinned
   transitive bump silently broke manual fetching once (primp 2.x dropping browser
   profiles the old search library hardcoded). Keep upper bounds when updating.

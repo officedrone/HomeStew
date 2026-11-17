@@ -49,9 +49,46 @@ def _host_of(url: str) -> str:
     return (urlparse(url).hostname or "").lower()
 
 
-def build_query(brand: str, model: str) -> str:
-    """Search query for a device manual PDF."""
-    return f"{brand} {model} manual filetype:pdf"
+def build_query(brand: str, model: str, search_terms: Optional[str] = None) -> str:
+    """Search query for a device manual PDF.
+
+    ``search_terms`` (user-edited terms in the UI) replaces the brand + model
+    part; the manual/filetype hints are still appended.
+    """
+    terms = (search_terms or "").strip()
+    base = terms if terms else f"{brand} {model}"
+    return f"{base} manual filetype:pdf"
+
+
+def relaxed_query(brand: str, model: str, search_terms: Optional[str] = None) -> str:
+    """Fallback query without the ``filetype:`` operator.
+
+    Engines treat ``filetype:pdf`` inconsistently - Bing ignores it outright
+    and Yahoo often finds nothing with it while returning PDFs for the same
+    words without it. Dropping the operator (and using the broader "user
+    guide pdf" phrasing) recovers those documents; :func:`looks_like_pdf`
+    still filters the results down to actual PDFs afterwards.
+    """
+    terms = (search_terms or "").strip()
+    base = terms if terms else f"{brand} {model}"
+    return f"{base} user guide pdf"
+
+
+def _decode_base64_url(raw: str) -> str:
+    """Decode a padding-stripped, url-safe base64 URL (Bing's encoding).
+
+    The decoded text may itself still be percent-encoded, so it is unquoted
+    before being validated. Returns "" for anything that isn't an http(s) URL.
+    """
+    if not raw:
+        return ""
+    try:
+        padded = unquote(raw)
+        padded += "=" * (-len(padded) % 4)
+        decoded = unquote(b64decode(padded, altchars="-_", validate=False).decode("utf-8", "ignore"))
+    except Exception:  # noqa: BLE001 - any decoding weirdness -> no target
+        return ""
+    return decoded if decoded.lower().startswith(("http://", "https://")) else ""
 
 
 def unwrap_redirect(url: str) -> str:
@@ -90,6 +127,15 @@ def unwrap_redirect(url: str) -> str:
                 pass
         return url
 
+    if host.endswith("bing.com") and parsed.path.startswith("/aclick"):
+        # Sponsored-result wrapper: `u=` holds a padding-stripped base64 of the
+        # (still percent-encoded) destination. Ad landing pages are usually not
+        # the document we want, but unwrapping lets the filters judge the real
+        # URL instead of Bing's tracking link.
+        raw = parse_qs(parsed.query).get("u", [""])[0]
+        target = _decode_base64_url(raw)
+        return target or url
+
     params = parse_qs(parsed.query)
     for key in ("u", "url", "target", "dest"):
         target = params.get(key, [""])[0]
@@ -112,6 +158,68 @@ def looks_like_pdf(url: str, title: str = "") -> bool:
     if ".pdf" in url.lower():
         return True
     return bool(re.search(r"\bpdf\b", title or "", re.I))
+
+
+def _is_engine_tracking_url(url: str) -> bool:
+    """True for search-engine redirect/ad wrappers we could not resolve.
+
+    An unresolved wrapper tells us nothing about the document behind it (and
+    often leads to a sponsored landing page), so such results are dropped
+    rather than offered as manuals.
+    """
+    host = _host_of(url)
+    path = urlparse(url).path.lower()
+    if host.endswith("bing.com") and path.startswith(("/ck/", "/aclick")):
+        return True
+    if host.endswith("duckduckgo.com") and path.startswith("/l/"):
+        return True
+    return False
+
+
+def _normalize_result(item) -> Optional[Tuple[str, str, str]]:
+    """Normalize one raw search result to ``(url, title, engine)``.
+
+    Accepts normalized :class:`web_search.WebResult` objects and raw ddgs
+    dicts (which use ``href``). Returns ``None`` when no URL survives the
+    redirect unwrap; otherwise the URL is absolute (https-resolved).
+    """
+    url = getattr(item, "url", None)
+    if url is None and isinstance(item, dict):
+        # Raw ddgs result dicts use "href"; normalized WebResult has .url.
+        url = item.get("url") or item.get("href")
+    url = unwrap_redirect(url or "")
+    if not url:
+        return None
+    # Resolve protocol-relative leftovers against https.
+    url = urljoin("https://", url)
+    if _is_engine_tracking_url(url):
+        return None
+    title = getattr(item, "title", None) or (item.get("title", "") if isinstance(item, dict) else "")
+    engine = getattr(item, "engine", None) or (item.get("engine", "") if isinstance(item, dict) else "")
+    return url, title, engine
+
+
+def _result_is_manual(item) -> bool:
+    """True when one raw search result is a usable manual PDF candidate.
+
+    Applies the same redirect-unwrap + negative/PDF filters that
+    :func:`find_manual_links` applies downstream, so it can be handed to
+    :func:`web_search.search_web` as its ``accept`` predicate: an engine whose
+    results all fail this check (e.g. Bing answering a ``filetype:pdf`` query
+    with brand landing pages) is skipped instead of ending the search.
+    """
+    normalized = _normalize_result(item)
+    if normalized is None:
+        return False
+    url, title, _engine = normalized
+    if _NEGATIVE_TITLE_RE.search(f"{title} {url}"):
+        return False
+    return looks_like_pdf(url, title)
+
+
+def has_manual_results(results) -> bool:
+    """``accept`` predicate for search_web: does any result look like a PDF?"""
+    return any(_result_is_manual(item) for item in (results or []))
 
 
 def _rank(candidate: ManualCandidate, brand: str, model: str) -> int:
@@ -141,6 +249,9 @@ def find_manual_links(
     max_results: Optional[int] = None,
     search: Optional[Callable[..., List]] = None,
     search_terms: Optional[str] = None,
+    use_filetype_operator: bool = True,
+    outcomes: Optional[List[dict]] = None,
+    on_progress: Optional[Callable[[dict], None]] = None,
 ) -> Tuple[List[ManualCandidate], Optional[str]]:
     """Find ranked PDF manual candidates for a device.
 
@@ -151,8 +262,16 @@ def find_manual_links(
         search: Injectable search callable matching
             :func:`web_search.search_web`'s signature (tests pass a fake).
         search_terms: Optional user-supplied terms replacing brand + model in
-            the query; the manual/filetype hints are still appended so results
-            stay PDF manuals. Blank/None keeps the default brand/model query.
+            the query; the manual hints are still appended so results stay
+            manuals. Blank/None keeps the default brand/model query.
+        use_filetype_operator: Append ``filetype:pdf`` to the query (default).
+            Pass ``False`` on a retry when the operator found nothing - some
+            engines return zero results with it and good PDFs without it.
+        outcomes: Optional list receiving the per-engine walk records from the
+            search layer (see :func:`web_search.search_web`), so the UI can
+            show which engines answered and which are broken.
+        on_progress: Optional live per-engine progress callback forwarded to
+            the search layer; reporting cannot change the results.
 
     Returns:
         ``(candidates, error_message_or_None)``. An empty candidate list with
@@ -170,12 +289,25 @@ def find_manual_links(
 
         search = search_web
 
-    terms = (search_terms or "").strip()
-    # Custom terms replace the brand + model part of the query; the PDF hints
-    # stay so a user retyping the terms still gets manual PDFs.
-    query = f"{terms} manual filetype:pdf" if terms else build_query(brand, model)
+    query = (
+        build_query(brand, model, search_terms)
+        if use_filetype_operator
+        else relaxed_query(brand, model, search_terms)
+    )
     try:
-        raw_results = search(query, max_results=max(10, max_results * 2))
+        raw_results = search(
+            query,
+            max_results=max(10, max_results * 2),
+            # Engines disagree on `filetype:pdf`. Bing frequently answers with
+            # HTTP 200 and a page of brand landing pages (no PDFs); without
+            # this predicate the chain would stop there and every real manual
+            # offered by a later engine would go unqueried.
+            accept=has_manual_results,
+            # Only real search_web supports these; injectable test fakes may
+            # not, so pass them only when the caller actually wants them.
+            **({"outcomes": outcomes} if outcomes is not None else {}),
+            **({"on_progress": on_progress} if on_progress is not None else {}),
+        )
     except SearchUnavailableError as exc:
         # Already a human-facing message from the search layer.
         return [], str(exc)
@@ -186,17 +318,10 @@ def find_manual_links(
     seen: set = set()
     candidates: List[ManualCandidate] = []
     for item in raw_results or []:
-        url = getattr(item, "url", None)
-        if url is None and isinstance(item, dict):
-            # Raw ddgs result dicts use "href"; normalized WebResult has .url.
-            url = item.get("url") or item.get("href")
-        url = unwrap_redirect(url or "")
-        title = getattr(item, "title", None) or (item.get("title", "") if isinstance(item, dict) else "")
-        engine = getattr(item, "engine", None) or (item.get("engine", "") if isinstance(item, dict) else "")
-        if not url:
+        normalized = _normalize_result(item)
+        if normalized is None:
             continue
-        # Resolve protocol-relative leftovers against https.
-        url = urljoin("https://", url)
+        url, title, engine = normalized
         if _NEGATIVE_TITLE_RE.search(f"{title} {url}"):
             continue
         if not looks_like_pdf(url, title):

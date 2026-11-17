@@ -14,16 +14,19 @@ The manual-listing and inline file-serving endpoints keep their exact old
 paths (``/{device_id}/manuals``, ``/manuals/{manual_id}/file``) because
 search-result links, chat citations and the edit modal all point at them.
 """
+import asyncio
+import json
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from homestew.config import settings
 from homestew.db import get_db_context
 from homestew.models.schemas import (
+    EngineWalkOutcome,
     Manual,
     ManualCandidate,
     ManualSearchResponse,
@@ -42,13 +45,106 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/downloads", tags=["downloads"])
 
 
+async def _load_device_for_search(device_id: int) -> dict:
+    async with get_db_context() as db:
+        cursor = await db.execute(
+            "SELECT id, brand, model FROM devices WHERE id = ?", (device_id,)
+        )
+        device = await cursor.fetchone()
+
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Device {device_id} not found",
+        )
+    return device
+
+
+@router.get("/{device_id}/search-stream")
+async def search_manuals_stream(device_id: int, q: Optional[str] = Query(None)):
+    """Server-sent-events variant of ``/search`` that reports engines live.
+
+    The plain endpoint can only answer once the whole engine chain has walked,
+    so the dialog sits on a spinner with no idea which engine is being queried
+    or which ones already failed. This stream emits one ``engine`` event per
+    engine as it starts and finishes, then a single ``result`` event carrying
+    exactly what ``/search`` would have returned::
+
+        data: {"type": "engine", "phase": "start", "engine": "bing", "index": 1, "total": 6}
+        data: {"type": "engine", "phase": "end", "engine": "bing", "status": "error", ...}
+        data: {"type": "result", "candidates": [...], "error_detail": null, "engines": [...]}
+
+    A ``{"phase": "retry"}`` engine event marks the start of the relaxed-query
+    second pass, so the UI can say so instead of looking like it restarted.
+    The unknown-device 404 is raised before streaming starts; once headers are
+    out, failures arrive as an ``error`` event.
+    """
+    device = await _load_device_for_search(device_id)
+
+    loop = asyncio.get_running_loop()
+    queue: "asyncio.Queue[dict]" = asyncio.Queue()
+
+    def on_progress(record: dict) -> None:
+        # Runs on the search worker thread; hop back onto the event loop.
+        asyncio.run_coroutine_threadsafe(queue.put({"type": "engine", **record}), loop)
+
+    async def run_search() -> None:
+        outcomes: list[dict] = []
+        try:
+            candidates, error = await find_manual_candidates(
+                device_id,
+                device["brand"],
+                device["model"],
+                search_terms=q,
+                outcomes=outcomes,
+                on_progress=on_progress,
+            )
+            payload = {
+                "type": "result",
+                "candidates": candidates,
+                "error_detail": error,
+                "engines": outcomes,
+            }
+        except Exception as exc:  # headers are already sent - report as an event
+            logger.exception("Streaming manual search failed")
+            payload = {"type": "error", "message": str(exc)}
+        await queue.put(payload)
+
+    async def generate() -> AsyncGenerator[str, None]:
+        task = asyncio.create_task(run_search())
+        try:
+            while True:
+                record = await queue.get()
+                # json.dumps keeps each frame on a single line, as SSE requires.
+                yield f"data: {json.dumps(record, ensure_ascii=False)}\n\n"
+                if record.get("type") in ("result", "error"):
+                    break
+        finally:
+            # Reached on a terminal event or when the client navigates away;
+            # an abandoned search should not keep hammering the engines.
+            task.cancel()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/{device_id}/search", response_model=ManualSearchResponse)
 async def search_manuals(device_id: int, q: Optional[str] = Query(None)):
     """Find manual PDF candidates for a device without downloading anything.
 
-    Each candidate carries the display name, source domain and an
-    ``already_downloaded`` flag so the UI can highlight what is stored and
-    only offer fresh downloads for the rest.
+    Each candidate carries the display name, source domain, originating search
+    engine and an ``already_downloaded`` flag so the UI can group results by
+    engine and highlight what is stored while only offering fresh downloads
+    for the rest. ``engines`` reports every engine the chain walked -
+    including ones that answered empty or errored - so a broken engine is
+    visible in the dialog instead of silently skipped.
 
     ``q`` optionally replaces the device's brand + model as the search terms
     (the "Change Search Terms" box in the Fetch Manuals dialog); blank or
@@ -66,12 +162,14 @@ async def search_manuals(device_id: int, q: Optional[str] = Query(None)):
             detail=f"Device {device_id} not found",
         )
 
+    outcomes: list[dict] = []
     candidates, error = await find_manual_candidates(
-        device_id, device["brand"], device["model"], search_terms=q
+        device_id, device["brand"], device["model"], search_terms=q, outcomes=outcomes
     )
     return ManualSearchResponse(
         candidates=[ManualCandidate(**c) for c in candidates],
         error_detail=error,
+        engines=[EngineWalkOutcome(**o) for o in outcomes],
     )
 
 
