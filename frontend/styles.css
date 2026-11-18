@@ -4766,6 +4766,36 @@ body.is-dragging * {
     font-size: 0.78rem;
 }
 
+/* Engines ddgs ships disabled (google, yandex): shown greyed-out for
+   completeness, with the reason below the row. No checkbox/reorder/Test. */
+.search-engine-unsupported {
+    opacity: 0.55;
+    background: transparent;
+}
+
+.search-engine-disabled-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: not-allowed;
+}
+
+.search-engine-badge {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+
+.search-engine-note {
+    margin: -2px 0 4px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
 /* Test Search outcomes: one block per engine with a status chip, optional
    error line and up to 5 sample result links. */
 .search-test-results {

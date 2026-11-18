@@ -1220,6 +1220,21 @@ function renderManualSearchEngines(engines) {
     const rows = Array.isArray(engines) ? engines : [];
     list.innerHTML = rows.map((e) => {
         const name = String(e.name || '');
+        // ddgs ships some engines disabled (google, yandex). Asking ddgs for
+        // one silently runs every engine instead, so these are shown for
+        // completeness but cannot be toggled, reordered or tested - and
+        // collectManualSearchEngines() leaves them out of the saved list.
+        if (e.supported === false) {
+            const note = String(e.note || 'Not supported by the current ddgs library.');
+            return `<div class="search-engine-row search-engine-unsupported" data-engine="${escapeHtml(name)}" data-supported="false">
+            <span class="checkbox-option search-engine-disabled-label" title="${escapeHtml(note)}">
+                <span class="search-engine-name">${escapeHtml(name)}</span>
+                <span class="search-engine-badge">unavailable</span>
+            </span>
+            <div class="search-engine-actions"></div>
+        </div>
+        <p class="field-hint search-engine-note">${escapeHtml(note)}</p>`;
+        }
         return `<div class="search-engine-row" data-engine="${escapeHtml(name)}">
             <label class="checkbox-option" for="engine-enabled-${escapeHtml(name)}">
                 <input type="checkbox" class="engine-enabled-checkbox" id="engine-enabled-${escapeHtml(name)}"
@@ -1242,6 +1257,8 @@ function collectManualSearchEngines() {
     if (!rows.length) return null;
     const engines = [];
     rows.forEach((row) => {
+        // Unsupported (ddgs-disabled) engines are display-only and never saved.
+        if (row.dataset.supported === 'false') return;
         const name = row.dataset.engine || '';
         if (!name) return;
         const checkbox = row.querySelector('.engine-enabled-checkbox');

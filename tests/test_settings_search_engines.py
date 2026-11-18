@@ -65,11 +65,43 @@ def client(db_env):
 def test_get_settings_returns_default_engine_order(client):
     engines = client.get("/api/settings").json()["manual_search_engines"]
     names = [e["name"] for e in engines]
-    # Bing first (built-in scraper is the most reliable engine), and the
-    # built-in default set exactly.
+    # Bing first (built-in scraper is the most reliable engine), then the
+    # default set, then catalog-only engines ddgs ships disabled.
     assert names[0] == "bing"
-    assert names == [e["name"] for e in cfg.DEFAULT_MANUAL_SEARCH_ENGINES]
-    assert all(e["enabled"] for e in engines)
+    assert names[: len(cfg.DEFAULT_MANUAL_SEARCH_ENGINES)] == [
+        e["name"] for e in cfg.DEFAULT_MANUAL_SEARCH_ENGINES
+    ]
+    # Newly exposed working engines are present but off by default; the
+    # ddgs-disabled engines appear last, unsupported and disabled.
+    by_name = {e["name"]: e for e in engines}
+    assert by_name["grokipedia"]["enabled"] is False
+    assert by_name["wikipedia"]["enabled"] is False
+    for name in ("google", "yandex"):
+        assert by_name[name]["supported"] is False
+        assert by_name[name]["enabled"] is False
+        assert "ddgs" in by_name[name]["note"].lower()
+    # The curated default engines are all enabled.
+    assert all(by_name[e["name"]]["enabled"] for e in cfg.DEFAULT_MANUAL_SEARCH_ENGINES
+               if e["enabled"])
+
+
+def test_get_settings_catalog_includes_all_ddgs_text_engines(client):
+    names = {e["name"] for e in client.get("/api/settings").json()["manual_search_engines"]}
+    assert set(cfg.SEARCH_ENGINE_CATALOG) <= names
+
+
+def test_put_cannot_enable_unsupported_engine(client):
+    # google is ddgs-disabled; enabling it would make ddgs silently run every
+    # engine, so the server forces it off even though the name is well-formed.
+    r = client.put("/api/settings", json={"manual_search_engines": [
+        {"name": "google", "enabled": True},
+        {"name": "brave", "enabled": True},
+    ]})
+    assert r.status_code == 200
+    by_name = {e["name"]: e for e in r.json()["manual_search_engines"]}
+    assert by_name["google"]["enabled"] is False
+    assert by_name["google"]["supported"] is False
+    assert web_search.enabled_engines() == ["brave"]
 
 
 def test_put_engines_roundtrips_and_persists(client, env):
@@ -82,7 +114,10 @@ def test_put_engines_roundtrips_and_persists(client, env):
     }
     r = client.put("/api/settings", json=payload)
     assert r.status_code == 200
-    assert [(e["name"], e["enabled"]) for e in r.json()["manual_search_engines"]] == [
+    # The configured engines lead the response in order; catalog-only engines
+    # (google, mojeek, ...) are appended after them as disabled rows.
+    engines = r.json()["manual_search_engines"]
+    assert [(e["name"], e["enabled"]) for e in engines[:3]] == [
         ("yahoo", True), ("bing", False), ("brave", True),
     ]
     # Live singleton updated immediately (searches use it without restart).
@@ -104,10 +139,12 @@ def test_put_engines_sanitizes_junk(client):
     r = client.put("/api/settings", json=payload)
     assert r.status_code == 200
     engines = r.json()["manual_search_engines"]
-    assert [(e["name"], e["enabled"]) for e in engines] == [
+    # Configured rows lead (catalog-only engines are appended after them).
+    assert [(e["name"], e["enabled"]) for e in engines[:2]] == [
         ("bing", True),      # first entry wins; `enabled` defaulted to True
         ("mojeek", False),
     ]
+    assert web_search.enabled_engines() == ["bing"]
 
 
 # ---------------------------------------------------------------------------
@@ -207,10 +244,14 @@ def test_put_engines_rejects_overlong_name(client):
 def test_put_empty_engine_list_falls_back_to_defaults(client):
     r = client.put("/api/settings", json={"manual_search_engines": []})
     assert r.status_code == 200
-    # GET shows the effective list: defaults, since an empty stored list is
-    # unusable (web_search.configured_engines() substitutes them).
+    # GET shows the effective list: defaults (since an empty stored list is
+    # unusable, web_search.configured_engines() substitutes them), followed by
+    # any catalog-only engines ddgs ships disabled.
     names = [e["name"] for e in r.json()["manual_search_engines"]]
-    assert names == [e["name"] for e in cfg.DEFAULT_MANUAL_SEARCH_ENGINES]
+    assert names[: len(cfg.DEFAULT_MANUAL_SEARCH_ENGINES)] == [
+        e["name"] for e in cfg.DEFAULT_MANUAL_SEARCH_ENGINES
+    ]
+    assert set(names) >= set(cfg.SEARCH_ENGINE_CATALOG)
 
 
 def test_search_test_endpoint_reports_every_engine(client, monkeypatch):

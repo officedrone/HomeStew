@@ -123,7 +123,49 @@ DEFAULT_MANUAL_SEARCH_ENGINES = (
     {"name": "duckduckgo", "enabled": True},
     {"name": "startpage", "enabled": True},
     {"name": "mojeek", "enabled": True},
+    # Newly exposed ddgs text engines. Added disabled so an existing install's
+    # behaviour is unchanged until the user opts in; they are verified to work
+    # from a normal network but were not part of the original curated set.
+    {"name": "grokipedia", "enabled": False},
+    {"name": "wikipedia", "enabled": False},
 )
+
+# Engines ddgs ships but has disabled in the library (google, yandex carry
+# ``disabled=True``). Passing one as a backend does NOT error: ddgs' engine
+# resolver finds no class, logs a warning and silently falls back to "auto"
+# (runs every engine), mislabelling the results. So these are shown in the UI
+# greyed-out with an explanation and can never be enabled - normalize_search_
+# engines() forces them off even if settings.json is hand-edited. ``reason`` is
+# the note the Settings > Search row displays.
+UNSUPPORTED_SEARCH_ENGINES = {
+    "google": "Not supported by the current ddgs library (disabled upstream); enabling it would silently run all engines.",
+    "yandex": "Not supported by the current ddgs library (disabled upstream); enabling it would silently run all engines.",
+}
+
+# Every engine HomeStew surfaces in Settings > Search, in display order: the
+# built-in Bing scraper plus every text-category engine ddgs 9.16.1 exposes
+# (enabled or not). GET /api/settings merges this with the configured list so
+# newly added and unsupported engines always appear, even for an install whose
+# stored list predates them. Engines absent from here are still accepted if
+# they match SEARCH_ENGINE_NAME_PATTERN (a future ddgs engine enabled by
+# editing settings.json).
+SEARCH_ENGINE_CATALOG = (
+    "bing",
+    "google",
+    "yahoo",
+    "brave",
+    "duckduckgo",
+    "startpage",
+    "mojeek",
+    "grokipedia",
+    "wikipedia",
+    "yandex",
+)
+
+
+def search_engine_supported(name: str) -> bool:
+    """False for engines ddgs ships disabled (google, yandex)."""
+    return name not in UNSUPPORTED_SEARCH_ENGINES
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
 # AES-256-GCM (services/secret_store.py) before being written to
@@ -577,7 +619,11 @@ def normalize_search_engines(value) -> list:
         if not pattern.match(name) or name in seen:
             continue
         seen.add(name)
-        out.append({"name": name, "enabled": bool(entry.get("enabled", True))})
+        # ddgs ships some engines disabled (google, yandex); asking for one
+        # makes ddgs fall back to "auto" and run every engine, so they can
+        # never be enabled here regardless of what settings.json says.
+        enabled = bool(entry.get("enabled", True)) and search_engine_supported(name)
+        out.append({"name": name, "enabled": enabled})
     return out
 
 

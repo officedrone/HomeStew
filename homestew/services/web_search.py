@@ -324,6 +324,37 @@ def enabled_engines(engines: Optional[Iterable[dict]] = None) -> List[str]:
     ]
 
 
+def engine_catalog() -> List[dict]:
+    """Every engine the Settings > Search UI should show, in display order.
+
+    Shape: ``[{"name", "enabled", "supported", "note"}, ...]``. Merges the
+    configured list with SEARCH_ENGINE_CATALOG so engines added in a newer
+    release (and ones ddgs ships disabled) appear even when the stored list
+    predates them. Configured engines keep their position and enablement;
+    catalog-only engines are appended in catalog order, disabled.
+
+    ``supported`` is False for engines ddgs has disabled upstream (google,
+    yandex); ``note`` explains why, and such an engine is always reported with
+    ``enabled`` False so the UI cannot offer it as a working toggle.
+    """
+    from homestew.config import (  # noqa: PLC0415 (settings singleton cycle)
+        SEARCH_ENGINE_CATALOG,
+        UNSUPPORTED_SEARCH_ENGINES,
+    )
+
+    configured = {str(e["name"]): e for e in configured_engines()}
+    ordered = list(configured) + [n for n in SEARCH_ENGINE_CATALOG if n not in configured]
+    return [
+        {
+            "name": name,
+            "enabled": bool(configured.get(name, {}).get("enabled", False)),
+            "supported": name not in UNSUPPORTED_SEARCH_ENGINES,
+            "note": UNSUPPORTED_SEARCH_ENGINES.get(name, ""),
+        }
+        for name in ordered
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Bing scraper (built-in engine)
 # ---------------------------------------------------------------------------
@@ -338,13 +369,16 @@ def _bing_fetch_html(query: str, timeout: int) -> str:
     what keeps Bing from answering 403. ``random`` picks a current profile so
     the fingerprint rotates per request; family names ("chrome") stay valid
     across primp upgrades, unlike pinned versioned profiles.
+
+    ``primp.Client.timeout`` is in *seconds* (primp 2.x), same unit as the
+    ddgs constructor, so the value passes through without scaling.
     """
     import primp  # noqa: PLC0415
 
     client = primp.Client(
         impersonate="random",
         verify=False,
-        timeout=max(1, timeout) * 1000,
+        timeout=max(1, timeout),
         referer=True,
     )
     url = _BING_URL.format(query=query, count=20)
@@ -491,7 +525,9 @@ def search_ddgs_engine(
             WebResult(
                 title=(item.get("title") or "").strip(),
                 url=url,
-                engine=str(item.get("engine") or item.get("source") or engine),
+                # ddgs text results only carry title/href/body; the engine
+                # name is the backend we asked for.
+                engine=engine,
             )
         )
     return results
@@ -749,19 +785,25 @@ def search_engine_report(
 
     Unlike :func:`search_web` this never stops at the first hit - every
     requested engine is queried so the user sees exactly which ones work from
-    this network. Engines are run in configured order; ``engines`` filters to
-    a subset by name. Never raises: per-engine failures come back as
-    ``EngineOutcome(ok=False, error=...)``.
+    this network. With no ``engines`` filter it tests every *supported* engine
+    in the catalog (not just the enabled/stored ones), so newly exposed
+    engines show up in "Test All Engines" before they are saved into settings.
+    Unsupported engines (ddgs-disabled google/yandex) are excluded from the
+    default set - asking ddgs for one silently runs every engine, which would
+    make a meaningless test result. ``engines`` filters to a subset by name;
+    names outside the catalog still get tested on an explicit request.
+    Never raises: per-engine failures come back as ``EngineOutcome(ok=False,
+    error=...)``.
     """
-    configured = configured_engines()
+    catalog = engine_catalog()
+    supported = [str(e["name"]) for e in catalog if e.get("supported", True)]
     wanted = [str(n).strip().lower() for n in (engines or []) if str(n).strip()]
-    ordered = [
-        str(e["name"])
-        for e in configured
-        if not wanted or str(e["name"]) in wanted
-    ]
-    # Names requested but not in the configured list still get tested (the
-    # UI only sends configured names, but an ad-hoc API call should work).
+    if wanted:
+        ordered = [n for n in supported if n in wanted]
+    else:
+        ordered = list(supported)
+    # Names requested but not in the supported catalog still get tested (the
+    # UI only sends supported names, but an ad-hoc API call should work).
     for name in wanted:
         if name not in ordered:
             ordered.append(name)

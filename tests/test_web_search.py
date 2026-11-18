@@ -462,7 +462,7 @@ def test_report_tests_every_engine_independently(monkeypatch):
 
     monkeypatch.setattr(web_search, "_run_engine", fake_run)
     monkeypatch.setattr(
-        web_search, "configured_engines", lambda: _engines(("bing", True), ("brave", True))
+        web_search, "engine_catalog", lambda: _engines(("bing", True), ("brave", True))
     )
     report = web_search.search_engine_report("q")
     assert [(r.engine, r.ok, len(r.results)) for r in report] == [
@@ -472,12 +472,24 @@ def test_report_tests_every_engine_independently(monkeypatch):
     assert "blocked" in report[1].error
 
 
+def test_report_default_tests_all_supported_catalog_engines(monkeypatch):
+    """No engine filter (the UI's "Test All Engines") must cover every
+    supported catalog engine - including newly exposed ones not yet saved in
+    settings - and must skip the ddgs-disabled engines (google, yandex)."""
+    from homestew.services import web_search
+
+    monkeypatch.setattr(web_search, "_run_engine", lambda name, query, **kw: [])
+    tested = [r.engine for r in web_search.search_engine_report("q")]
+    assert "grokipedia" in tested and "wikipedia" in tested
+    assert "google" not in tested and "yandex" not in tested
+
+
 def test_report_filters_to_requested_subset(monkeypatch):
     from homestew.services import web_search
 
     monkeypatch.setattr(web_search, "_run_engine", lambda name, query, **kw: [])
     monkeypatch.setattr(
-        web_search, "configured_engines", lambda: _engines(("bing", True), ("brave", True))
+        web_search, "engine_catalog", lambda: _engines(("bing", True), ("brave", True))
     )
     report = web_search.search_engine_report("q", engines=["brave"])
     assert [r.engine for r in report] == ["brave"]
@@ -487,7 +499,7 @@ def test_report_includes_requested_but_unconfigured(monkeypatch):
     from homestew.services import web_search
 
     monkeypatch.setattr(web_search, "_run_engine", lambda name, query, **kw: [])
-    monkeypatch.setattr(web_search, "configured_engines", lambda: _engines(("bing", True)))
+    monkeypatch.setattr(web_search, "engine_catalog", lambda: _engines(("bing", True)))
     report = web_search.search_engine_report("q", engines=["mojeek"])
     assert [r.engine for r in report] == ["mojeek"]
 
@@ -603,7 +615,7 @@ def test_report_uses_captured_status_for_unexpected_errors(monkeypatch):
 
     monkeypatch.setattr(web_search, "_run_engine", fake_run)
     monkeypatch.setattr(
-        web_search, "configured_engines", lambda: _engines(("mojeek", True))
+        web_search, "engine_catalog", lambda: _engines(("mojeek", True))
     )
     row = web_search.search_engine_report("q")[0]
     assert not row.ok
@@ -624,7 +636,7 @@ def test_report_success_path_reports_captured_url(monkeypatch):
 
     monkeypatch.setattr(web_search, "_run_engine", fake_run)
     monkeypatch.setattr(
-        web_search, "configured_engines", lambda: _engines(("bing", True))
+        web_search, "engine_catalog", lambda: _engines(("bing", True))
     )
     row = web_search.search_engine_report("q")[0]
     assert row.ok
@@ -642,7 +654,7 @@ def test_report_empty_success_notes_actual_status(monkeypatch):
 
     monkeypatch.setattr(web_search, "_run_engine", fake_run)
     monkeypatch.setattr(
-        web_search, "configured_engines", lambda: _engines(("mojeek", True))
+        web_search, "engine_catalog", lambda: _engines(("mojeek", True))
     )
     row = web_search.search_engine_report("q")[0]
     assert row.ok
@@ -697,7 +709,7 @@ def test_report_exposes_http_status_and_notes(monkeypatch):
     monkeypatch.setattr(web_search, "_run_engine", fake_run)
     monkeypatch.setattr(
         web_search,
-        "configured_engines",
+        "engine_catalog",
         lambda: _engines(("bing", True), ("yahoo", True), ("mojeek", True)),
     )
     report = {r.engine: r for r in web_search.search_engine_report("q")}
@@ -740,6 +752,32 @@ def test_bing_http_error_carries_status(monkeypatch):
         web_search._bing_fetch_html("q", 10)
     assert exc.value.http_status == 403
     assert exc.value.detail == "Bing returned HTTP 403"
+
+
+def test_bing_fetch_passes_timeout_in_seconds(monkeypatch):
+    # primp 2.x Client.timeout is in seconds; multiplying by 1000 (an old
+    # bug) silently disabled the Bing timeout (~2.8 hours).
+    from homestew.services import web_search
+
+    class FakeResp:
+        status_code = 200
+        text = "<html></html>"
+
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+        def get(self, url):
+            return FakeResp()
+
+    primp = types.ModuleType("primp")
+    primp.Client = FakeClient
+    monkeypatch.setitem(sys.modules, "primp", primp)
+
+    assert web_search._bing_fetch_html("q", 10) == "<html></html>"
+    assert seen["timeout"] == 10
 
 
 def test_missing_library_reports_actionably(monkeypatch):

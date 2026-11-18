@@ -144,11 +144,18 @@ def _current_settings() -> SettingsResponse:
             {"name": c.name, "label": c.label} for c in dispatch.CHANNEL_DEFS
         ],
         # Online search engines (Settings > Search Online for Manuals) in
-        # priority order; web_search applies the default list when nothing
-        # usable is configured so the UI always shows the effective order.
+        # priority order. The catalog merges the configured list with every
+        # engine ddgs exposes so newly added and unsupported (ddgs-disabled)
+        # engines always appear; web_search applies the default list when
+        # nothing usable is configured so the UI shows the effective order.
         manual_search_engines=[
-            SearchEngineConfig(name=e["name"], enabled=bool(e["enabled"]))
-            for e in web_search.configured_engines()
+            SearchEngineConfig(
+                name=e["name"],
+                enabled=bool(e["enabled"]),
+                supported=bool(e["supported"]),
+                note=e["note"],
+            )
+            for e in web_search.engine_catalog()
         ],
     )
 

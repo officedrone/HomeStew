@@ -586,10 +586,17 @@ class StoreManualResponse(BaseModel):
 
 
 class SearchEngineConfig(BaseModel):
-    """One online-search engine row (Settings > Search Online for Manuals)."""
+    """One online-search engine row (Settings > Search Online for Manuals).
+
+    ``supported`` is False for engines ddgs ships disabled upstream (google,
+    yandex); such a row is always reported with ``enabled`` False and ``note``
+    explains why. These fields are output-only - PUT reads name/enabled only.
+    """
 
     name: str = Field(..., min_length=1, max_length=32)
     enabled: bool = True
+    supported: bool = True
+    note: str = ""
 
 
 class SettingsResponse(BaseModel):
