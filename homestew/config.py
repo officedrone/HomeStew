@@ -136,7 +136,7 @@ DEFAULT_MANUAL_SEARCH_ENGINES = (
 # (runs every engine), mislabelling the results. So these are shown in the UI
 # greyed-out with an explanation and can never be enabled - normalize_search_
 # engines() forces them off even if settings.json is hand-edited. ``reason`` is
-# the note the Settings > Search row displays.
+# the note the Settings > Search row shows as a tooltip.
 UNSUPPORTED_SEARCH_ENGINES = {
     "google": "Not supported by the current ddgs library (disabled upstream); enabling it would silently run all engines.",
     "yandex": "Not supported by the current ddgs library (disabled upstream); enabling it would silently run all engines.",

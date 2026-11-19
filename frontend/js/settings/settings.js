@@ -1232,8 +1232,7 @@ function renderManualSearchEngines(engines) {
                 <span class="search-engine-badge">unavailable</span>
             </span>
             <div class="search-engine-actions"></div>
-        </div>
-        <p class="field-hint search-engine-note">${escapeHtml(note)}</p>`;
+        </div>`;
         }
         return `<div class="search-engine-row" data-engine="${escapeHtml(name)}">
             <label class="checkbox-option" for="engine-enabled-${escapeHtml(name)}">

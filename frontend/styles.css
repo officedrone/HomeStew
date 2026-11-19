@@ -4767,7 +4767,7 @@ body.is-dragging * {
 }
 
 /* Engines ddgs ships disabled (google, yandex): shown greyed-out for
-   completeness, with the reason below the row. No checkbox/reorder/Test. */
+   completeness; the reason is only in the row's tooltip. No checkbox/reorder/Test. */
 .search-engine-unsupported {
     opacity: 0.55;
     background: transparent;
@@ -4787,12 +4787,6 @@ body.is-dragging * {
     padding: 1px 7px;
     border-radius: 999px;
     border: 1px solid var(--border-color);
-    color: var(--text-muted);
-}
-
-.search-engine-note {
-    margin: -2px 0 4px;
-    font-size: 0.78rem;
     color: var(--text-muted);
 }
 
