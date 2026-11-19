@@ -66,6 +66,14 @@ class TestUnwrapRedirect:
         url = f"https://www.bing.com/ck/a?!&&p=xyz&u=a1{encoded}"
         assert unwrap_redirect(url) == target
 
+    def test_bing_aclick_ad_wrapper_base64(self):
+        from homestew.services.manual_finder import unwrap_redirect
+
+        target = "https://www.find-my-manual.com/register?utm_campaign=x"
+        encoded = urlsafe_b64encode(quote(target, safe="").encode()).decode().rstrip("=")
+        url = f"https://www.bing.com/aclick?ld=abc&u={encoded}&rlid=123"
+        assert unwrap_redirect(url) == target
+
     def test_generic_url_param(self):
         from homestew.services.manual_finder import unwrap_redirect
 
@@ -130,6 +138,124 @@ def test_filters_ranks_and_dedupes(monkeypatch):
     assert urls[0] == "https://www.nespresso.com/docs/c62-manual.pdf"
     assert len(urls) == len(set(urls))
     assert all("youtube" not in u and "shop.example" not in u for u in urls)
+
+
+def test_relaxed_query_drops_filetype_operator():
+    """Retry query must drop `filetype:pdf`, which some engines can't answer."""
+    from homestew.services.manual_finder import relaxed_query
+
+    assert relaxed_query("Lenovo", "Legion 5") == "Lenovo Legion 5 user guide pdf"
+    assert "filetype" not in relaxed_query("Lenovo", "Legion 5")
+    # Custom terms still replace brand+model in the relaxed form.
+    assert relaxed_query("Lenovo", "Legion 5", "Ideapad Slim 3") == "Ideapad Slim 3 user guide pdf"
+
+
+def test_find_manual_links_can_skip_filetype_operator():
+    from homestew.services.manual_finder import find_manual_links
+
+    calls: list = []
+    find_manual_links(
+        "Lenovo",
+        "Legion 5",
+        search=_capturing_search(calls),
+        use_filetype_operator=False,
+    )
+    assert calls == ["Lenovo Legion 5 user guide pdf"]
+
+
+def test_find_manual_links_threads_outcomes_to_search():
+    """The outcomes list must reach the injected search callable so the walk
+    report flows up to the API; a search that ignores it still works."""
+    from homestew.services.manual_finder import find_manual_links
+
+    seen: dict = {}
+
+    def search(query, **kwargs):
+        seen.update(kwargs)
+        return []
+
+    outcomes: list = [{"engine": "bing", "status": "empty", "results": 0, "error": ""}]
+    find_manual_links("Nespresso", "PIXIE C62", search=search, outcomes=outcomes)
+    assert seen.get("outcomes") is outcomes
+
+
+def test_find_manual_links_omits_outcomes_kwarg_when_none():
+    """Custom callables without an `outcomes` kwarg keep working (no pass)."""
+    from homestew.services.manual_finder import find_manual_links
+
+    seen: dict = {}
+
+    def strict_search(query, *, max_results=None, accept=None):
+        seen["ok"] = True
+        return []
+
+    find_manual_links("Nespresso", "PIXIE C62", search=strict_search)
+    assert seen.get("ok") is True
+
+
+def test_downloader_retries_with_relaxed_query(monkeypatch):
+    """Empty first pass must retry without the operator (Yahoo flakiness)."""
+    from homestew.services import downloader, manual_finder
+
+    monkeypatch.setattr(downloader.time, "sleep", lambda *_: None)
+
+    queries: list = []
+
+    def fake_find(brand, model, **kwargs):
+        queries.append(manual_finder.build_query(brand, model)
+                       if kwargs.get("use_filetype_operator", True)
+                       else manual_finder.relaxed_query(brand, model))
+        if kwargs.get("use_filetype_operator", True):
+            return [], None  # operator found nothing
+        return [manual_finder.ManualCandidate(title="M", url="https://x.com/m.pdf", engine="yahoo")], None
+
+    monkeypatch.setattr(manual_finder, "find_manual_links", fake_find)
+
+    results, error = downloader.search_for_manuals("Lenovo", "Legion 5")
+    assert error is None
+    assert [r["url"] for r in results] == ["https://x.com/m.pdf"]
+    assert len(queries) == 2 and "filetype" not in queries[1]
+
+
+def test_find_manual_links_passes_pdf_accept_predicate():
+    """The search chain must be told to skip engines with no PDF in the answer.
+
+    Regression: Bing answers `filetype:pdf` queries with brand landing pages
+    (HTTP 200, zero PDFs). Passing no predicate let that answer end the search,
+    so every candidate was filtered out and the dialog showed nothing.
+    """
+    from homestew.services.manual_finder import find_manual_links
+
+    captured = {}
+
+    def spy_search(query, **kwargs):
+        captured.update(kwargs)
+        return [{"title": "Manual", "url": "https://brand.com/m.pdf"}]
+
+    find_manual_links("Nespresso", "C62", search=spy_search)
+
+    accept = captured.get("accept")
+    assert callable(accept)
+    assert accept([{"title": "Buy now", "url": "https://shop.example.com/nespresso"}]) is False
+    assert accept([{"title": "Manual", "url": "https://brand.com/m.pdf"}]) is True
+    # A redirect-wrapped PDF still counts, and a filtered-out page does not.
+    assert accept(
+        [{"title": "Manual", "url": "https://duckduckgo.com/l/?uddg=" + quote("https://x.com/m.pdf", safe="")}]
+    ) is True
+    assert accept([{"title": "Video review pdf", "url": "https://youtube.com/watch?v=1.pdf"}]) is False
+
+
+def test_unresolved_engine_wrapper_is_dropped():
+    """A Bing ad link we cannot decode must not be offered as a manual."""
+    from homestew.services.manual_finder import find_manual_links
+
+    raw = [
+        {"title": "Manual", "url": "https://www.bing.com/aclick?ld=abc&rlid=123"},
+        {"title": "Real manual", "url": "https://brand.com/m.pdf"},
+    ]
+    candidates, error = find_manual_links("Brand", "X1", search=_fake_search(raw))
+    assert error is None
+    assert [c.url for c in candidates] == ["https://brand.com/m.pdf"]
 
 
 def test_search_error_is_reported_not_raised(monkeypatch):

@@ -462,16 +462,42 @@ class ManualCandidate(BaseModel):
     title: str = Field("", description="Search result title (tooltip)")
     url: str = Field(..., description="Direct URL of the PDF")
     domain: str = Field("", description="Top-level domain the PDF comes from")
+    engine: str = Field(
+        "",
+        description="Search engine that surfaced this candidate (e.g. 'yahoo')",
+    )
     already_downloaded: bool = Field(
         False,
         description="True when this exact URL is already stored for the device",
     )
 
 
+class EngineWalkOutcome(BaseModel):
+    """What one search engine did during a manual search's engine chain walk.
+
+    Lets the Fetch Manuals dialog show every configured engine - including the
+    ones that returned nothing or errored - so a broken engine is visible
+    instead of silently skipped.
+    """
+    engine: str = Field(..., description="Engine name (bing, yahoo, brave, ...)")
+    status: str = Field(
+        ...,
+        description="accepted | unaccepted (answered with no usable PDFs) | "
+        "empty (answered, found nothing) | error",
+    )
+    results: int = Field(0, description="Number of raw results the engine returned")
+    error: str = Field("", description="Human-readable failure guidance when status=error")
+
+
 class ManualSearchResponse(BaseModel):
     """Candidate list returned by the manual search endpoint."""
     candidates: list[ManualCandidate] = []
     error_detail: Optional[str] = None
+    engines: list[EngineWalkOutcome] = Field(
+        [],
+        description="Per-engine outcome of the search (in attempted order); "
+        "empty when the server recorded none",
+    )
 
 
 # Vision support: user messages may carry inline images as data URLs.
@@ -557,6 +583,20 @@ class StoreManualResponse(BaseModel):
     filename: str
     replaced: bool = False
     indexed: bool = False
+
+
+class SearchEngineConfig(BaseModel):
+    """One online-search engine row (Settings > Search Online for Manuals).
+
+    ``supported`` is False for engines ddgs ships disabled upstream (google,
+    yandex); such a row is always reported with ``enabled`` False and ``note``
+    explains why. These fields are output-only - PUT reads name/enabled only.
+    """
+
+    name: str = Field(..., min_length=1, max_length=32)
+    enabled: bool = True
+    supported: bool = True
+    note: str = ""
 
 
 class SettingsResponse(BaseModel):
@@ -715,6 +755,42 @@ class SettingsResponse(BaseModel):
         "checkboxes, in display order (registry-driven: new channels need "
         "no frontend change).",
     )
+    manual_search_engines: list[SearchEngineConfig] = Field(
+        default_factory=list,
+        description="Online search engines in priority order (Settings > "
+        "Search Online for Manuals). Searches try each enabled engine until "
+        "one returns results; 'bing' is HomeStew's built-in scraper, the "
+        "rest run through ddgs.",
+    )
+
+
+class SearchTestRequest(BaseModel):
+    """Ad-hoc search used to test which engines work from this network."""
+
+    query: str = Field(..., min_length=1, max_length=200)
+    # Optional subset of engine names; all configured engines when omitted.
+    engines: Optional[list[str]] = None
+
+
+class SearchEngineTestResult(BaseModel):
+    """Outcome of testing one engine."""
+
+    engine: str
+    ok: bool
+    error: str = ""  # human-readable guidance when the engine failed
+    http_status: int = 0  # engine's HTTP status; 0 = unknown/not applicable
+    detail: str = ""  # raw engine/library response text for troubleshooting
+    note: str = ""  # non-error explanation, e.g. "answered but found nothing"
+    url: str = ""  # actual search URL queried, clickable for manual testing
+    result_count: int = 0
+    results: list[dict] = Field(default_factory=list)  # up to 5 {"title","url"} samples
+
+
+class SearchTestResponse(BaseModel):
+    """Per-engine outcomes for a test search."""
+
+    query: str
+    results: list[SearchEngineTestResult]
 
 
 class SecretsKeyActionResponse(BaseModel):
@@ -846,6 +922,12 @@ class SettingsUpdate(BaseModel):
         "Notifications). Unknown event keys or channel ids are rejected with "
         "422 by the route; omitted fields inside an entry keep their current "
         "value.",
+    )
+    manual_search_engines: Optional[list[SearchEngineConfig]] = Field(
+        None,
+        description="Online search engines in priority order (Settings > "
+        "Search Online for Manuals). Replaces the stored list; invalid or "
+        "duplicate names are dropped on save.",
     )
 
 

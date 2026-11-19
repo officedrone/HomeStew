@@ -17,11 +17,12 @@ what the approval UI needs on top:
 Blocking work (web search, ``requests.get``) runs through
 ``run_in_threadpool`` so the FastAPI event loop stays responsive.
 """
+import functools
 import logging
 import re
 import time
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import Callable, List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 import requests
@@ -95,6 +96,8 @@ def search_for_manuals(
     model: str,
     max_results: Optional[int] = None,
     search_terms: Optional[str] = None,
+    outcomes: Optional[List[dict]] = None,
+    on_progress: Optional[Callable[[dict], None]] = None,
 ) -> Tuple[List[dict], Optional[str]]:
     """Search the web for device manual PDFs.
 
@@ -102,6 +105,10 @@ def search_for_manuals(
     list without an error means the search worked but nothing plausible was
     found; empty list WITH an error explains why. ``search_terms`` optionally
     replaces brand + model in the query (user-edited terms in the UI).
+    ``outcomes`` optionally collects the per-engine walk records (merged over
+    both passes) so the UI can show which engines answered and which failed.
+    ``on_progress`` optionally receives live per-engine events from each pass
+    (an engine may therefore be reported twice when the relaxed retry runs).
     """
     from homestew.config import settings  # noqa: PLC0415 (settings singleton cycle)
     from homestew.services.manual_finder import find_manual_links
@@ -111,21 +118,42 @@ def search_for_manuals(
     logger.info(f"Searching for manuals: {search_terms or brand + ' ' + model}")
 
     candidates, error = find_manual_links(
-        brand, model, max_results=max_results, search_terms=search_terms
+        brand, model, max_results=max_results, search_terms=search_terms,
+        outcomes=outcomes, on_progress=on_progress,
     )
     results = [{"title": c.title, "url": c.url, "source": c.engine or "web"} for c in candidates]
 
-    if not results and error:
-        # One retry: ddgs rotates engines per call, so a single blocked or
-        # rate-limited engine may succeed on the second pass.
-        logger.info("Retrying search once after error: %s", error)
+    if not results:
+        # One retry with a relaxed query (no `filetype:pdf`). Two reasons:
+        # ddgs rotates engines per call and Yahoo - the engine that usually
+        # has real PDFs here - answers empty on roughly a third of requests;
+        # and some models simply have no PDF indexed under the operator, while
+        # the same words without it do. A chain walk costs ~2s, cheap next to
+        # a wrong "no manuals found".
+        logger.info("Retrying search with relaxed query (%s)", error or "no candidates found")
+        if on_progress is not None:
+            try:
+                on_progress({"phase": "retry"})
+            except Exception:  # reporting must never break a search
+                logger.debug("Search progress callback failed", exc_info=True)
         time.sleep(1)
         candidates, error = find_manual_links(
-            brand, model, max_results=max_results, search_terms=search_terms
+            brand,
+            model,
+            max_results=max_results,
+            search_terms=search_terms,
+            use_filetype_operator=False,
+            outcomes=outcomes,
+            on_progress=on_progress,
         )
         results = [{"title": c.title, "url": c.url, "source": c.engine or "web"} for c in candidates]
 
     logger.info(f"Found {len(results)} potential manuals")
+    if outcomes is not None:
+        # Both passes wrote into the same list; collapse to one row per engine.
+        from homestew.services.web_search import merge_engine_outcomes
+
+        outcomes[:] = merge_engine_outcomes(outcomes)
     if not results:
         return [], error or "No manuals found. Try a different brand/model or search terms."
     return results, None
@@ -148,6 +176,7 @@ def enrich_candidates(results: List[dict], existing_urls: Set[str]) -> List[dict
                 "title": title[:200],
                 "url": url,
                 "domain": domain_of(url),
+                "engine": item.get("source") or "",
                 "already_downloaded": bool(url) and url in existing_urls,
             }
         )
@@ -292,18 +321,30 @@ async def find_manual_candidates(
     brand: str,
     model: str,
     search_terms: Optional[str] = None,
+    outcomes: Optional[List[dict]] = None,
+    on_progress: Optional[Callable[[dict], None]] = None,
 ) -> Tuple[List[dict], Optional[str]]:
     """Search for candidates and flag the ones already stored for the device.
 
     ``search_terms`` optionally replaces brand + model as the query terms
-    (the Fetch Manuals dialog's "Change Search Terms" box).
+    (the Fetch Manuals dialog's "Change Search Terms" box). ``outcomes``
+    optionally receives the merged per-engine walk records. ``on_progress``
+    optionally receives live per-engine events while the search runs.
     """
     from fastapi.concurrency import run_in_threadpool
 
     from homestew.db import get_db_context
 
     results, error = await run_in_threadpool(
-        search_for_manuals, brand, model, None, search_terms
+        functools.partial(
+            search_for_manuals,
+            brand,
+            model,
+            None,
+            search_terms,
+            outcomes,
+            on_progress=on_progress,
+        )
     )
     if not results:
         return [], error or f"No manuals found for {brand} {model}"

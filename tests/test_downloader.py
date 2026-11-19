@@ -145,6 +145,8 @@ def test_enrich_candidates_flags_existing_urls():
     assert [c["name"] for c in enriched] == ["c62.pdf", "1.pdf"]
     assert [c["domain"] for c in enriched] == ["nespresso.com", "manualslib.com"]
     assert [c["already_downloaded"] for c in enriched] == [True, False]
+    # Originating engine flows through so the dialog can group by it.
+    assert [c["engine"] for c in enriched] == ["bing", "brave"]
 
 
 def test_stored_filename_prefers_pdf_basename():

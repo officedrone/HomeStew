@@ -500,6 +500,9 @@ function renderDevicesGrid() {
     container.innerHTML = sections.map(categorySectionHtml).join('');
     renderLucideIcons();
     syncDevicesExpandedCheckbox();
+    // A re-render paints the whole list, so a filter that is still in the box
+    // has to be re-applied or the next add/edit/drag would undo it.
+    applyDeviceGridFilter();
 }
 
 // One collapsible section: header (grip, caret, name, count, edit / delete)
@@ -610,6 +613,104 @@ function syncDevicesExpandedCheckbox() {
     const checkbox = document.getElementById('devices-expanded-toggle');
     if (!checkbox) return;
     checkbox.checked = devices.length > 0 && devices.every(device => gridExpandedIds.has(device.id));
+}
+
+// ---------------------------------------------------------------------------
+// Devices-tab live filter.
+//
+// Filtering hides nodes instead of re-rendering: every keystroke would
+// otherwise rebuild the grid and re-run renderLucideIcons() over the whole
+// document, and it would throw away the card/section open state mid-typing.
+// Much more importantly, drag.js reads the grid's DOM to build its
+// /api/devices/reorder payload - dropping a card while filtered must still
+// report every device in the bucket, so hidden cards stay in the DOM.
+// ---------------------------------------------------------------------------
+
+// Words typed in the box; AND-ed together, so "lg wash" finds "LG Washmaster".
+function deviceGridQueryWords() {
+    const input = document.getElementById('devices-filter-input');
+    return input ? input.value.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
+}
+
+// Name, brand and model all count as matches.
+function deviceMatchesWords(device, words) {
+    const haystack = [device.name, device.brand, device.model]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+    return words.every(word => haystack.includes(word));
+}
+
+// Apply the current box contents to the rendered grid. Called on every
+// keystroke and after every grid re-render (see renderDevicesGrid).
+function applyDeviceGridFilter() {
+    const container = document.getElementById('devices-grid');
+    if (!container) return;
+    const words = deviceGridQueryWords();
+    const filtering = words.length > 0;
+
+    const byId = new Map(devices.map(device => [device.id, device]));
+    let shown = 0;
+
+    container.querySelectorAll('.category-section').forEach(section => {
+        // A section whose own name matches keeps all of its devices.
+        const titleEl = section.querySelector('.category-title');
+        const title = (titleEl ? titleEl.textContent : '').toLowerCase();
+        const sectionMatch = words.every(word => title.includes(word));
+
+        let visible = 0;
+        section.querySelectorAll('.device-card').forEach(card => {
+            const device = byId.get(Number(card.dataset.id));
+            const show = !filtering || sectionMatch || (device && deviceMatchesWords(device, words));
+            card.classList.toggle('filter-hide', !show);
+            if (show) visible++;
+        });
+
+        // Keep the section when it matched by name or still holds a match.
+        const keep = !filtering || sectionMatch || visible > 0;
+        section.classList.toggle('filter-hide', !keep);
+        shown += visible;
+    });
+
+    renderDeviceGridFilterEmpty(container, filtering && shown === 0, words.join(' '));
+
+    const count = document.getElementById('devices-filter-count');
+    if (count) count.textContent = filtering ? `${shown} of ${devices.length}` : '';
+
+    const clearBtn = document.getElementById('devices-filter-clear');
+    if (clearBtn) clearBtn.hidden = !filtering;
+
+    // Reordering while filtered would let a card land in a position the user
+    // cannot see, so the grips are hidden until the filter is cleared.
+    container.classList.toggle('devices-filtering', filtering);
+}
+
+// "Nothing matches" notice, injected next to the (all-hidden) sections and
+// removed again as soon as something matches. Re-created after each grid
+// re-render because renderDevicesGrid() replaces the container's contents.
+function renderDeviceGridFilterEmpty(container, show, queryText) {
+    let notice = document.getElementById('devices-filter-empty');
+    if (!show) {
+        if (notice) notice.remove();
+        return;
+    }
+    if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'devices-filter-empty';
+        notice.className = 'empty-state';
+        container.appendChild(notice);
+    }
+    notice.textContent = `No devices match "${queryText}".`;
+}
+
+// Clear button / Escape: empty the box, repaint the grid, keep focus so the
+// user can immediately type a new search.
+function clearDeviceGridFilter() {
+    const input = document.getElementById('devices-filter-input');
+    if (!input) return;
+    input.value = '';
+    applyDeviceGridFilter();
+    input.focus();
 }
 
 function updateDeviceFilter() {
@@ -1401,11 +1502,20 @@ function closeEditModal() {
 
 let fetchManualsDeviceId = null;
 let fetchCandidates = [];
+// Per-engine walk report from the last search (GET .../search `engines`):
+// one entry per engine tried, with status accepted|unaccepted|empty|error.
+// Used to group results by engine so broken engines are visible, not silent.
+let fetchEngines = [];
 // Terms the current Fetch Manuals results were found with. Defaults to the
 // device's brand + model; "Change Search Terms" lets the user override them
 // and re-run the search without closing the dialog.
 let fetchSearchTerms = '';
 let _fetchSearchInFlight = false;
+// Guards against a search that was superseded (dialog closed, new device, or
+// re-search) still writing into the dialog: every run bumps the generation and
+// aborts the previous stream.
+let _fetchSearchGeneration = 0;
+let _fetchSearchAbort = null;
 
 function _defaultFetchTerms(deviceId) {
     const device = devices.find(d => d.id === deviceId);
@@ -1417,6 +1527,7 @@ async function openFetchManuals(deviceId) {
     if (!beginOp('fetch-manuals')) return;
     fetchManualsDeviceId = deviceId;
     fetchCandidates = [];
+    fetchEngines = [];
     fetchSearchTerms = _defaultFetchTerms(deviceId);
 
     const modal = document.getElementById('fetch-manuals-modal');
@@ -1443,22 +1554,132 @@ async function _runFetchSearch() {
     results.innerHTML = '';
     results.hidden = true;
     downloadAllBtn.style.display = 'none';
+    _resetEngineProgress();
+
+    // Identifies THIS search. Closing the dialog or starting another search
+    // bumps it, so a stream still in flight cannot render into (or report an
+    // error on) a dialog that has moved on.
+    const generation = ++_fetchSearchGeneration;
+    if (_fetchSearchAbort) _fetchSearchAbort.abort();
+    _fetchSearchAbort = new AbortController();
 
     _fetchSearchInFlight = true;
     try {
-        const qs = fetchSearchTerms ? `?q=${encodeURIComponent(fetchSearchTerms)}` : '';
-        const response = await fetch(`/api/downloads/${fetchManualsDeviceId}/search${qs}`);
-        if (!response.ok) throw new Error(await errorDetailFrom(response, 'Manual search failed.'));
-        const data = await response.json();
+        const data = await _searchManualsStreamed(message, _fetchSearchAbort.signal, generation);
+        if (generation !== _fetchSearchGeneration) return;
         fetchCandidates = data.candidates || [];
+        fetchEngines = data.engines || [];
         renderFetchResults(data.error_detail);
     } catch (error) {
+        if (generation !== _fetchSearchGeneration) return; // superseded/closed
         console.error('Failed to search manuals:', error);
         spinner.style.display = 'none';
         statusBox.classList.add('done-error');
         message.textContent = error.message || 'Manual search failed.';
     } finally {
-        _fetchSearchInFlight = false;
+        if (generation === _fetchSearchGeneration) _fetchSearchInFlight = false;
+    }
+}
+
+// The search runs as a server-sent-events stream so the dialog can show each
+// engine starting and finishing instead of one long spinner. If the stream
+// cannot be opened (older server, proxy buffering the response), fall back to
+// the plain JSON endpoint so searching still works - just without progress.
+async function _searchManualsStreamed(message, signal, generation) {
+    const qs = fetchSearchTerms ? `?q=${encodeURIComponent(fetchSearchTerms)}` : '';
+    let response;
+    try {
+        response = await fetch(`/api/downloads/${fetchManualsDeviceId}/search-stream${qs}`, { signal });
+    } catch (error) {
+        if (generation !== _fetchSearchGeneration) throw error;
+        console.warn('Streaming manual search unavailable, using plain search:', error);
+        return _searchManualsPlain(qs, signal, generation);
+    }
+    if (!response.ok) throw new Error(await errorDetailFrom(response, 'Manual search failed.'));
+
+    let result = null;
+    let streamError = null;
+    await readSseStream(response, (event) => {
+        if (generation !== _fetchSearchGeneration) return; // dialog moved on
+        if (event.type === 'engine') {
+            _applyEngineEvent(event);
+            _renderEngineProgress(message);
+        } else if (event.type === 'result') {
+            result = event;
+        } else if (event.type === 'error') {
+            streamError = event.message || 'Manual search failed.';
+        }
+    });
+
+    if (generation !== _fetchSearchGeneration) throw new DOMException('Aborted', 'AbortError');
+    // Stream closed without a result frame (server restarted, connection
+    // dropped): fall back so the user still gets an answer instead of a hang.
+    if (!result && !streamError) return _searchManualsPlain(qs, signal, generation);
+    if (!result) throw new Error(streamError);
+    return result;
+}
+
+async function _searchManualsPlain(qs, signal, generation) {
+    const response = await fetch(`/api/downloads/${fetchManualsDeviceId}/search${qs}`, { signal });
+    if (!response.ok) throw new Error(await errorDetailFrom(response, 'Manual search failed.'));
+    return await response.json();
+}
+
+// --- Live per-engine progress ---------------------------------------------
+// Engine records in first-seen order. The relaxed second pass re-queries the
+// same engines, so an engine already reported keeps its row and is updated
+// rather than duplicated.
+let fetchEngineProgress = [];
+let fetchSearchNote = '';
+
+function _resetEngineProgress() {
+    fetchEngineProgress = [];
+    fetchSearchNote = '';
+    const box = document.getElementById('fetch-engine-summary');
+    box.innerHTML = '';
+    box.hidden = true;
+}
+
+function _applyEngineEvent(event) {
+    if (event.phase === 'retry') {
+        fetchSearchNote = 'No usable manuals yet - retrying with a broader query.';
+        return;
+    }
+    let record = fetchEngineProgress.find(e => e.engine === event.engine);
+    if (!record) {
+        record = { engine: event.engine, status: 'searching', results: 0, error: '' };
+        fetchEngineProgress.push(record);
+    }
+    record.status = event.phase === 'start' ? 'searching' : (event.status || 'empty');
+    if (typeof event.results === 'number') record.results = event.results;
+    if (event.error) record.error = event.error;
+}
+
+function _renderEngineProgress(message) {
+    const box = document.getElementById('fetch-engine-summary');
+    if (fetchEngineProgress.length === 0) {
+        box.innerHTML = '';
+        box.hidden = true;
+        return;
+    }
+    box.hidden = false;
+    box.innerHTML = `
+        <div class="fetch-engines-title">Search engines</div>
+        ${fetchSearchNote ? `<div class="fetch-engines-note">${escapeHtml(fetchSearchNote)}</div>` : ''}
+        <ul class="fetch-engine-progress">
+            ${fetchEngineProgress.map(entry => `
+                <li class="fetch-engine-row engine-${escapeHtml(entry.status)}">
+                    <span class="fetch-engine-name">${escapeHtml(entry.engine)}</span>
+                    <span class="fetch-engine-status">${escapeHtml(_engineStatusText(entry, entry.results))}</span>
+                </li>`).join('')}
+        </ul>`;
+
+    // Keep the status line useful once the engines are all done querying.
+    if (message && fetchEngineProgress.every(e => e.status !== 'searching')) {
+        const failed = fetchEngineProgress.filter(e => e.status === 'error').length;
+        if (failed > 0) {
+            message.textContent = `${fetchEngineProgress.length} search engines tried (${failed} failed)...`;
+        }
     }
 }
 
@@ -1504,6 +1725,66 @@ async function applyNewSearchTerms() {
     await _runFetchSearch();
 }
 
+// Human-readable status for the per-engine report. `count` is only shown for
+// engines that actually returned candidates.
+function _engineStatusText(entry, count) {
+    if (entry.status === 'searching') return 'Searching...';
+    if (entry.status === 'error') return entry.error ? `Error: ${entry.error}` : 'Error';
+    if (entry.status === 'unaccepted') return 'Answered, but no usable manuals';
+    if (entry.status === 'empty') return 'No results';
+    return `${count} result${count === 1 ? '' : 's'}`;
+}
+
+// Merge the server-side walk report with the engines that actually produced
+// candidates. Report order wins (it lists engines in the order they were
+// queried, including ones that errored or came back empty); engines that
+// returned candidates but are missing from the report (older server response)
+// are appended so nothing disappears from the summary.
+function _mergedEngineReport(groups) {
+    const merged = new Map();
+    for (const entry of fetchEngines) {
+        if (!merged.has(entry.engine)) merged.set(entry.engine, { report: entry, entries: [] });
+    }
+    for (const [engine, entries] of groups) {
+        if (!merged.has(engine)) merged.set(engine, { report: null, entries: [] });
+        merged.get(engine).entries.push(...entries);
+    }
+    return merged;
+}
+
+// One collapsible section per engine in the below-the-table summary. Engines
+// come from the walk report so broken/empty ones are visible even when they
+// contributed no candidates. The expanded body lists that engine's manuals as
+// plain preview links - the Store buttons live only in the table above, so a
+// manual is never rendered twice (row ids must stay unique for storeManual).
+function _engineSummarySectionHtml(engine, report, entries) {
+    const count = entries.length;
+    const stored = entries.filter(e => e.candidate.already_downloaded).length;
+    const status = report ? report.status : (count > 0 ? 'accepted' : 'empty');
+    const statusText = report
+        ? _engineStatusText(report, count)
+        : `${count} result${count === 1 ? '' : 's'}`;
+    // A broken engine is the whole point of this panel: keep those open.
+    const open = status === 'error' || status === 'unaccepted';
+    const body = entries.length > 0
+        ? `<ul class="fetch-engine-hits">${entries.map(e => {
+            const href = safePreviewHref(e.candidate.url);
+            const label = `${escapeHtml(e.candidate.name)}${e.candidate.domain ? ` — ${escapeHtml(e.candidate.domain)}` : ''}${e.candidate.already_downloaded ? ' (stored)' : ''}`;
+            return `<li>${href
+                ? `<a class="fetch-preview-link" href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`
+                : `<span>${label}</span>`}</li>`;
+        }).join('')}</ul>`
+        : (report && report.error ? `<div class="fetch-engine-detail">${escapeHtml(report.error)}</div>` : '');
+    return `
+        <details class="fetch-engine-group${status === 'error' ? ' engine-error' : ''}${count > 0 ? ' engine-ok' : ' engine-empty'}"${open ? ' open' : ''}>
+            <summary class="fetch-engine-summary">
+                <span class="fetch-engine-name">${escapeHtml(engine)}</span>
+                <span class="fetch-engine-status">${escapeHtml(statusText)}${count > 0 && stored > 0 ? ` (${stored} stored)` : ''}</span>
+            </summary>
+            ${body}
+        </details>`;
+}
+
 function renderFetchResults(errorDetail) {
     const statusBox = document.getElementById('fetch-manuals-status');
     const spinner = document.getElementById('fetch-manuals-spinner');
@@ -1513,10 +1794,31 @@ function renderFetchResults(errorDetail) {
 
     spinner.style.display = 'none';
 
+    // Bucket candidate indices by engine, preserving search order.
+    const groups = new Map();
+    fetchCandidates.forEach((c, i) => {
+        const key = c.engine || 'Unknown engine';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push({ candidate: c, index: i });
+    });
+    const merged = _mergedEngineReport(groups);
+
+    // One flat table keeps storeManual/downloadAll's index-into-fetchCandidates
+    // contract intact; "which engine gave what" lives in the summary below.
+    results.innerHTML = fetchCandidates.length === 0 ? '' : `
+        <table class="fetch-table">
+            <thead>
+                <tr><th>Manual</th><th>Source</th><th>Store Manual</th></tr>
+            </thead>
+            <tbody>${fetchCandidates.map((c, i) => fetchRowHtml(c, i)).join('')}</tbody>
+        </table>`;
+    results.hidden = fetchCandidates.length === 0;
+
+    _renderEngineSummary(merged);
+
     if (fetchCandidates.length === 0) {
         statusBox.classList.add('done-error');
         message.textContent = errorDetail || 'No manuals found for this device.';
-        results.hidden = true;
         downloadAllBtn.style.display = 'none';
         return;
     }
@@ -1526,19 +1828,24 @@ function renderFetchResults(errorDetail) {
         ? `Found ${fetchCandidates.length} manual(s) - all are already stored.`
         : `Found ${fetchCandidates.length} manual(s). Review manuals by clicking on them and download the correct manual by clicking the download button next to it. There are(${freshCount} manuals not stored yet).`;
 
-    results.innerHTML = `
-        <table class="fetch-table">
-            <thead>
-                <tr><th>Manual</th><th>Source</th><th>Store Manual</th></tr>
-            </thead>
-            <tbody>
-                ${fetchCandidates.map((c, i) => fetchRowHtml(c, i)).join('')}
-            </tbody>
-        </table>`;
-    results.hidden = false;
-
     // Download All only makes sense while something new is left to fetch.
     downloadAllBtn.style.display = freshCount > 0 ? 'inline-block' : 'none';
+}
+
+// The finished per-engine report, rendered below the manuals table (during a
+// search the same container holds the live progress list instead).
+function _renderEngineSummary(merged) {
+    const box = document.getElementById('fetch-engine-summary');
+    if (merged.size === 0) {
+        box.innerHTML = '';
+        box.hidden = true;
+        return;
+    }
+    const failed = [...merged.values()].filter(g => g.report && g.report.status === 'error').length;
+    box.hidden = false;
+    box.innerHTML = `
+        <div class="fetch-engines-title">Search engines (${merged.size} tried${failed > 0 ? `, ${failed} failed` : ''})</div>
+        ${[...merged.entries()].map(([engine, g]) => _engineSummarySectionHtml(engine, g.report, g.entries)).join('')}`;
 }
 
 function fetchRowHtml(candidate, index) {
@@ -1700,8 +2007,50 @@ async function downloadAllManuals() {
 }
 
 function closeFetchManualsModal() {
+    // Abandon any search still streaming so it cannot render into a dialog
+    // that is gone (and the server cancels the engine walk with the stream).
+    _fetchSearchGeneration++;
+    if (_fetchSearchAbort) _fetchSearchAbort.abort();
+    _fetchSearchInFlight = false;
     document.getElementById('fetch-manuals-modal').style.display = 'none';
     endOp('fetch-manuals');
+}
+
+// ---------------------------------------------------------------------------
+// "Search Settings" from the Fetch Manuals dialog
+// ---------------------------------------------------------------------------
+// Engine configuration lives in Settings > Search, but closing the dialogs to
+// visit it would throw away the search results (and any half-filled device
+// form). So the open dialogs are only HIDDEN - their state and the
+// 'fetch-manuals' op lock stay alive - and are put back verbatim when the
+// user leaves the Settings tab. Escape cannot dismiss a hidden dialog, so no
+// lock can leak while away.
+let _hiddenModalsForSettings = [];
+
+function openSearchSettingsFromFetch() {
+    if (_hiddenModalsForSettings.length) return; // already on that trip
+    const hidden = [];
+    for (const id of ['fetch-manuals-modal', 'edit-device-modal', 'add-device-modal']) {
+        const modal = document.getElementById(id);
+        if (modal && modal.style.display === 'flex') {
+            modal.style.display = 'none';
+            hidden.push(id);
+        }
+    }
+    _hiddenModalsForSettings = hidden;
+    openSettingsSection('search');
+}
+
+// Called by switchTab() on every tab change except Settings: re-shows exactly
+// the dialogs that trip hid, in stacking order.
+function restorePendingDeviceModals() {
+    if (!_hiddenModalsForSettings.length) return;
+    const ids = _hiddenModalsForSettings;
+    _hiddenModalsForSettings = [];
+    for (const id of ids) {
+        const modal = document.getElementById(id);
+        if (modal) modal.style.display = 'flex';
+    }
 }
 
 // Candidate URLs come from web search results, so only http(s) may become a
@@ -2238,6 +2587,18 @@ function wireDevicesEvents() {
     // handles both create and rename (see openCategoryModal).
     document.getElementById('add-category-btn').addEventListener('click', () => openCategoryModal(null));
     document.getElementById('category-form').addEventListener('submit', handleSaveCategory);
+
+    // Live device filter: re-filters on every keystroke (client-side only).
+    const filterInput = document.getElementById('devices-filter-input');
+    filterInput.addEventListener('input', applyDeviceGridFilter);
+    filterInput.addEventListener('keydown', (e) => {
+        // Escape clears the query first and only bubbles (closing a modal)
+        // when the box is already empty - same convention as the icon picker.
+        if (e.key === 'Escape' && e.target.value) {
+            e.stopPropagation();
+            clearDeviceGridFilter();
+        }
+    });
 
     // "Expanded" checkbox: expand or collapse every grid card at once and
     // persist the choice for the next page load.

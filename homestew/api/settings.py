@@ -11,12 +11,13 @@ from homestew.config import (
     delete_master_key_runtime,
     effective_llm_base_url,
     llm_looks_configured,
+    normalize_search_engines,
     normalize_setup_steps,
     resolve_setup_step,
     save_settings_overrides,
     settings,
 )
-from homestew.services import auth, dispatch
+from homestew.services import auth, dispatch, web_search
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,
@@ -27,6 +28,10 @@ from homestew.models.schemas import (
     ModelListRequest,
     ModelListResponse,
     ModelStatusResponse,
+    SearchEngineConfig,
+    SearchEngineTestResult,
+    SearchTestRequest,
+    SearchTestResponse,
     SecretsKeyActionResponse,
     SettingsResponse,
     SettingsUpdate,
@@ -137,6 +142,20 @@ def _current_settings() -> SettingsResponse:
         notify_subscriptions=dispatch.subscriptions_payload(),
         notification_channels=[
             {"name": c.name, "label": c.label} for c in dispatch.CHANNEL_DEFS
+        ],
+        # Online search engines (Settings > Search Online for Manuals) in
+        # priority order. The catalog merges the configured list with every
+        # engine ddgs exposes so newly added and unsupported (ddgs-disabled)
+        # engines always appear; web_search applies the default list when
+        # nothing usable is configured so the UI shows the effective order.
+        manual_search_engines=[
+            SearchEngineConfig(
+                name=e["name"],
+                enabled=bool(e["enabled"]),
+                supported=bool(e["supported"]),
+                note=e["note"],
+            )
+            for e in web_search.engine_catalog()
         ],
     )
 
@@ -284,6 +303,13 @@ async def update_settings(update: SettingsUpdate):
         changes["INDEX_MAX_CHUNK_SIZE"] = update.index_max_chunk_size
     if update.index_auto_on_upload is not None:
         changes["INDEX_AUTO_ON_UPLOAD"] = update.index_auto_on_upload
+    if update.manual_search_engines is not None:
+        # Sanitize (lowercase, dedupe, drop junk names) before persisting. An
+        # empty result persists as [] - web_search falls back to the built-in
+        # default order at use time, so searches never end up engine-less.
+        changes["MANUAL_SEARCH_ENGINES"] = normalize_search_engines(
+            [e.model_dump() for e in update.manual_search_engines]
+        )
 
     # Explicit secret removal (UI Remove buttons). Applied after the updates
     # above; an empty string persists as "cleared" (load treats it as unset).
@@ -328,6 +354,48 @@ async def update_settings(update: SettingsUpdate):
 
     logger.info("Settings updated: %s", sorted(changes.keys()))
     return _current_settings()
+
+
+@router.post("/search-test", response_model=SearchTestResponse)
+async def test_search(request: SearchTestRequest):
+    """Test each online search engine with an ad-hoc query.
+
+    Every requested (or all configured) engine is queried independently -
+    unlike a real search, one engine returning results does not stop the
+    others - so the Settings UI can show exactly which engines work from
+    this network. Per-engine failures are reported in the response, never
+    as HTTP errors. The blocking searches run in a threadpool; each engine
+    is bounded by MANUAL_SEARCH_TIMEOUT.
+    """
+    query = request.query.strip()
+    if not query:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Search query is empty",
+        )
+
+    outcomes = await run_in_threadpool(
+        web_search.search_engine_report, query, engines=request.engines
+    )
+    return SearchTestResponse(
+        query=query,
+        results=[
+            SearchEngineTestResult(
+                engine=o.engine,
+                ok=o.ok,
+                error=o.error,
+                http_status=o.http_status,
+                detail=o.detail,
+                note=o.note,
+                url=o.url,
+                result_count=len(o.results),
+                results=[
+                    {"title": r.title, "url": r.url} for r in o.results[:5]
+                ],
+            )
+            for o in outcomes
+        ],
+    )
 
 
 @router.post("/secrets-key/create", response_model=SecretsKeyActionResponse)

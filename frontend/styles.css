@@ -1035,6 +1035,114 @@ body:not(.sidebar-collapsed) .side-tabs .add-device-btn {
     accent-color: var(--primary-color);
 }
 
+/* Devices tab: live filter row under the action buttons. The box and the
+   clear button sit inside one pill so the icon reads as part of the field. */
+.devices-filter-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    max-width: 420px;
+    margin-bottom: 14px;
+}
+
+/* Positioning context for the inset icon and the clear button, so both track
+   the field's own edges as it narrows to make room for the counter. */
+.devices-filter-field {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.devices-filter-icon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    color: var(--text-secondary);
+    pointer-events: none;
+}
+
+.devices-filter-input {
+    width: 100%;
+    min-width: 0;
+    padding: 9px 34px 9px 34px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.devices-filter-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: var(--ring);
+}
+
+.devices-filter-input::placeholder {
+    color: var(--text-secondary);
+}
+
+/* type="search" gets a native clear button in WebKit/Blink; we render our
+   own so the "N of M" counter and Escape behaviour stay in charge. */
+.devices-filter-input::-webkit-search-cancel-button,
+.devices-filter-input::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.devices-filter-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.devices-filter-clear:hover {
+    background: var(--bg-light);
+    color: var(--text-primary);
+}
+
+/* The `display: inline-flex` above would otherwise beat the UA rule for
+   [hidden], leaving the clear button visible on an empty box. */
+.devices-filter-clear[hidden] {
+    display: none;
+}
+
+/* "N of M" matches beside the box, matching the icon picker's counter. */
+.devices-filter-count {
+    flex-shrink: 0;
+    margin-left: 10px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Hidden by the live filter. Cards and sections keep their place in the DOM
+   on purpose - drag.js derives the reorder payload from the rendered grid, so
+   a filtered-out device must still be reported (see applyDeviceGridFilter). */
+.filter-hide {
+    display: none !important;
+}
+
+/* While filtering, dragging is disabled: a card dropped into a list the user
+   cannot fully see would land in an invisible position. */
+.devices-filtering .drag-grip {
+    display: none;
+}
+
 /* Devices tab: card grid */
 .devices-grid {
     display: grid;
@@ -4145,6 +4253,144 @@ body.restore-active .main-content {
     z-index: 1;
 }
 
+/* Per-engine report in the Fetch Manuals dialog. While a search runs it is a
+   live progress list (one row per engine, updating as each one starts and
+   finishes); once the search ends it becomes collapsible sections below the
+   manuals table. Either way every engine the chain walked is shown -
+   including ones that came back empty or errored - so a broken engine is
+   visible instead of silent. */
+#fetch-engine-summary {
+    margin-top: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.fetch-engines-title {
+    padding: 8px 12px;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.fetch-engines-note {
+    padding: 7px 12px;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-style: italic;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.fetch-engine-progress {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.fetch-engine-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.fetch-engine-row:last-child {
+    border-bottom: none;
+}
+
+.fetch-engine-row.engine-searching .fetch-engine-name::after {
+    content: '';
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-left: 6px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--text-secondary);
+    border-radius: 50%;
+    vertical-align: middle;
+    animation: spin 0.8s linear infinite;
+}
+
+.fetch-engine-row.engine-error .fetch-engine-status {
+    color: var(--error);
+}
+
+.fetch-engine-row.engine-accepted .fetch-engine-status {
+    color: var(--success);
+}
+
+.fetch-engine-hits {
+    margin: 0;
+    padding: 6px 12px 10px 34px;
+    font-size: 0.85rem;
+}
+
+.fetch-engine-hits li {
+    padding: 2px 0;
+}
+
+.fetch-engine-detail {
+    padding: 6px 12px 10px 34px;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+}
+
+.fetch-engine-group {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.fetch-engine-group:last-child {
+    border-bottom: none;
+}
+
+.fetch-engine-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    cursor: pointer;
+    user-select: none;
+    background: var(--bg-light);
+    list-style: none;
+}
+
+.fetch-engine-summary::-webkit-details-marker {
+    display: none;
+}
+
+.fetch-engine-summary::before {
+    content: '\25B8';
+    color: var(--text-secondary);
+    transition: transform 0.2s ease;
+}
+
+.fetch-engine-group[open] .fetch-engine-summary::before {
+    transform: rotate(90deg);
+}
+
+.fetch-engine-name {
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.fetch-engine-status {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+}
+
+.fetch-engine-group.engine-ok .fetch-engine-status {
+    color: var(--success);
+}
+
+.fetch-engine-group.engine-error .fetch-engine-status {
+    color: var(--error);
+}
+
 /* ==========================================================================
    Device categories (Devices page sections) + drag-and-drop.
    Sections collapse with the same grid-template-rows 0fr -> 1fr animation
@@ -4471,9 +4717,157 @@ body.is-dragging * {
     color: var(--error);
 }
 
+/* Engine answered normally but found nothing for the query (amber). */
+.idx-chip.idx-warn {
+    background: var(--warn-bg);
+    color: var(--warn-text);
+}
+
 .manuals-index-empty {
     padding: 14px;
     margin: 0;
+}
+
+/* Online search engines (Settings > Search "Search Online for Manuals").
+   One framed row per engine: enable checkbox on the left, reorder buttons and
+   a per-engine Test button on the right. Order is visual - DOM order is what
+   collectManualSearchEngines() saves. */
+.search-engine-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0 4px;
+}
+
+.search-engine-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+}
+
+.search-engine-name {
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+}
+
+.search-engine-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.search-engine-actions .btn {
+    padding: 4px 12px;
+    font-size: 0.78rem;
+}
+
+/* Engines ddgs ships disabled (google, yandex): shown greyed-out for
+   completeness; the reason is only in the row's tooltip. No checkbox/reorder/Test. */
+.search-engine-unsupported {
+    opacity: 0.55;
+    background: transparent;
+}
+
+.search-engine-disabled-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: not-allowed;
+}
+
+.search-engine-badge {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+
+/* Test Search outcomes: one block per engine with a status chip, optional
+   error line and up to 5 sample result links. */
+.search-test-results {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.search-test-engine-result {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    padding: 8px 12px;
+}
+
+.search-test-engine-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.search-test-error {
+    color: var(--error);
+    font-size: 0.8rem;
+    margin: 6px 0 0;
+}
+
+/* Non-error explanation (e.g. "engine responded but returned no results"). */
+.search-test-note {
+    color: var(--warn-text);
+    font-size: 0.8rem;
+    margin: 6px 0 0;
+}
+
+/* Collapsed raw engine/library response text for troubleshooting. */
+.search-test-detail {
+    margin: 6px 0 0;
+    font-size: 0.75rem;
+}
+
+.search-test-detail summary {
+    cursor: pointer;
+    color: var(--text-muted, #6b7280);
+    user-select: none;
+}
+
+.search-test-detail pre {
+    margin: 6px 0 0;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--error) 6%, transparent);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono, monospace);
+}
+
+.search-test-url {
+    margin: 6px 0 0;
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+}
+
+.search-test-url > span {
+    color: var(--text-muted, #6b7280);
+}
+
+.search-test-samples {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 0.82rem;
+}
+
+.search-test-samples li {
+    margin: 2px 0;
+    overflow-wrap: anywhere;
 }
 
 /* Narrow screens: reclaim horizontal space for the filename by shrinking the

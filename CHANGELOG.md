@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.7]
+
+- SECURITY: Bumped `pypdf` 6.19.0 → 6.21.4.
+- SECURITY: Pinned `zlib1g` to `1:1.3.dfsg+really1.3.1-1+deb13u1` in the runtime Docker image. The library is not installed by us directly — it comes from the `python:3.12-slim` base, so the image now pins the patched Debian build explicitly.
+- ADD: **See which search engines are working while manuals are fetched.** In the New/Edit device window, *Fetch Manuals* now reports the engine chain live: each configured engine appears in the dialog the moment it is queried (`Searching...` with a spinner) and updates as it answers — `N results`, `Answered, but no usable manuals`, `No results`, or `Error: <why>`. Previously the dialog showed one spinner until every engine had been tried, so a blocked engine was indistinguishable from a slow search. When the search finishes, the same panel becomes an expandable **Search engines** summary *below* the manuals table, headed with how many engines were tried and how many failed; engines that errored or answered with nothing usable start expanded so breakage is impossible to miss, and expanding one lists the manuals it found. The manuals themselves stay in one flat table with their Store buttons.
+- ADD: A **Search Settings** button next to the Fetch Manuals search bar jumps straight to Settings > Search, where engines can be reordered, enabled/disabled and tested. Your device form, search results and progress are untouched by the trip — the dialogs are only hidden and are restored exactly as they were when you leave Settings.
+- UPDATE: Manual searches stream over server-sent events (`GET /api/downloads/{id}/search-stream`); if a proxy or older server cannot stream, the dialog falls back to the plain JSON search endpoint automatically. Closing the dialog mid-search cancels the walk instead of letting a stale answer render into it.
+
+- ADD: **Find a device by typing.** The Devices tab gains a filter box under *New Device* / *New Category*. Start typing and the grid narrows live, on every keystroke — no button, no waiting, nothing leaves your browser. It matches each word against the device's **name, brand and model**, so `lg` finds *Living Room TV* by its brand and `nespresso pixie` narrows to the coffee machine. Words combine (all must match), order doesn't matter, and case is ignored. A matching **category name** reveals that whole section with all of its devices — type `kitchen` to see the Kitchen group in full. A counter beside the box reports `N of 12`, an empty result says so plainly instead of leaving a blank page, and the *×* button (or Escape) puts everything back. Drag handles are hidden while a filter is active, because dropping a card into a list you can't fully see would park it in an invisible spot; clearing the filter brings them back.
+
 ## [0.2.6]
 
 - ADD: **Take a photo, don't just upload one.** The Photos section gains a camera button next to *Upload Photo*: on a phone it opens the rear camera directly (the same `capture="environment"` trick AI Chat uses), on a desktop it falls back to a file picker. The shot follows the identical downscale-and-upload path, so labels, notes and *Analyze with AI now* all work the same.
