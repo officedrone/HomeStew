@@ -18,6 +18,16 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Pin zlib1g to the patched Debian build. It is not something we install
+# directly - it arrives transitively from the python:3.12-slim base, so an
+# exact version pin here is the only way to force the fixed build into the
+# shipped image (pinning in the builder stage would be pointless: that stage
+# is discarded). apt installs zlib1g as a dependency of the base image's own
+# packages, so this just upgrades it in place.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
+  && rm -rf /var/lib/apt/lists/*
+
 # Delete pip from the runtime image entirely — the app never installs
 # packages at runtime (deps are baked in via COPY below), and every pip
 # release drags its vendored tree into scan reports: pip itself
