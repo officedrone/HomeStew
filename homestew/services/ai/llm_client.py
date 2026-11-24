@@ -21,7 +21,7 @@ from homestew.default_prompts import (
     DEFAULT_DEVICE_TOOL_DESCRIPTION,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
-from homestew.services.device_icons import DEFAULT_DEVICE_ICON
+from homestew.services.devices.device_icons import DEFAULT_DEVICE_ICON
 
 logger = logging.getLogger(__name__)
 
@@ -857,7 +857,7 @@ def create_device_tool() -> Dict[str, Any]:
     list/add_attribute/remove_attribute) - same reasoning as
     create_calendar_tool: small local models choose an action from one well-
     described schema far more reliably than they juggle several tools.
-    Deletion is intentionally absent; see services/device_tool.py.
+    Deletion is intentionally absent; see services/devices/device_tool.py.
     """
     return {
         "type": "function",

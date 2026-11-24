@@ -7,7 +7,7 @@ every minute and runs two passes:
    "Interval (min)" (Settings > Notifications table), scan for events
    overdue or coming due within the event's "Notify before due (hrs)" lead
    window and deliver each occurrence to the channels SUBSCRIBED for the
-   ``calendar_reminders`` event (services/dispatch.py). An event with no
+   ``calendar_reminders`` event (services/notifications/dispatch.py). An event with no
    subscribed channel is simply off - enablement is per event via its
    channel checkboxes, there is no master switch any more.
 2. Health checks (services/ui_notifications.run_due_checks): evaluate every
@@ -38,8 +38,10 @@ from datetime import datetime, time, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from homestew.db import get_db_context
-from homestew.services import calendar_service, dispatch, ui_notifications
-from homestew.services.dispatch import CALENDAR_EVENT_KEY, UI_CHANNEL
+from homestew.services.calendar import calendar_service
+from homestew.services.notifications import dispatch
+from homestew.services.notifications import ui_notifications
+from homestew.services.notifications.dispatch import CALENDAR_EVENT_KEY, UI_CHANNEL
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +76,7 @@ async def run_tick(now: Optional[datetime] = None) -> int:
     """One calendar scan-and-notify pass. Returns occurrences newly delivered.
 
     Delivers each due/overdue occurrence to the external channels subscribed
-    for the calendar event (services/dispatch.py), writing one ledger row per
+    for the calendar event (services/notifications/dispatch.py), writing one ledger row per
     successfully delivered channel. Channels that already have a ledger row
     for this occurrence are skipped, so a partial failure retries only the
     failed channel on the next tick. Also backs the Settings "Check Now"

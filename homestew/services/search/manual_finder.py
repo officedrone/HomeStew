@@ -1,6 +1,6 @@
 """Turn a brand/model into ranked PDF manual candidates.
 
-Pure domain logic on top of :mod:`homestew.services.web_search`: builds the
+Pure domain logic on top of :mod:`homestew.services.search.web_search`: builds the
 query, unwraps search-engine redirect links, filters to plausible PDFs and
 ranks what remains. No I/O beyond the injected ``search`` callable (defaults
 to :func:`web_search.search_web`), which keeps this module unit-testable with
@@ -282,10 +282,10 @@ def find_manual_links(
     if max_results is None:
         max_results = settings.MANUAL_MAX_RESULTS
 
-    from homestew.services.web_search import SearchUnavailableError, friendly_search_error  # noqa: PLC0415
+    from homestew.services.search.web_search import SearchUnavailableError, friendly_search_error  # noqa: PLC0415
 
     if search is None:
-        from homestew.services.web_search import search_web  # noqa: PLC0415
+        from homestew.services.search.web_search import search_web  # noqa: PLC0415
 
         search = search_web
 

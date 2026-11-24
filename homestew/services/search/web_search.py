@@ -402,7 +402,7 @@ def _bing_parse(html: str) -> List[WebResult]:
     manual_finder.unwrap_redirect() decodes to the real target URL.
     """
     from lxml import html as lxml_html  # noqa: PLC0415 (ddgs dependency)
-    from homestew.services.manual_finder import unwrap_redirect  # noqa: PLC0415
+    from homestew.services.search.manual_finder import unwrap_redirect  # noqa: PLC0415
 
     try:
         document = lxml_html.fromstring(html or "")

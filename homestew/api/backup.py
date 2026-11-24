@@ -21,7 +21,7 @@ from homestew.models.schemas import (
     RestoreProgressResponse,
     RestoreResponse,
 )
-from homestew.services import backup as backup_service
+from homestew.services.system import backup as backup_service
 
 logger = logging.getLogger(__name__)
 

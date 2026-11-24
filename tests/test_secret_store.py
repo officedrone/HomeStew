@@ -1,4 +1,4 @@
-"""Tests for secret-at-rest encryption (services/secret_store.py + config glue).
+"""Tests for secret-at-rest encryption (services/system/secret_store.py + config glue).
 
 Run from the repo root:  pytest tests/ -q
 """
@@ -8,7 +8,7 @@ import json
 import pytest
 
 from homestew import config as cfg
-from homestew.services.secret_store import (
+from homestew.services.system.secret_store import (
     AUTO_KEY_FILENAME,
     SecretError,
     SecretStore,

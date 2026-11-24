@@ -10,8 +10,8 @@ from homestew.models.schemas import (
     SearchResponse,
     SearchResult,
 )
-from homestew.services.search_engine import search_manuals, count_indexed_documents
-from homestew.services.indexer import (
+from homestew.services.search.search_engine import search_manuals, count_indexed_documents
+from homestew.services.search.indexer import (
     count_manuals as indexer_count_manuals,
     get_index_status,
     get_manual_item,

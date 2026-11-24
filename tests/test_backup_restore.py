@@ -1,4 +1,4 @@
-"""Tests for backup / restore (services/backup.py).
+"""Tests for backup / restore (services/system/backup.py).
 
 Follows the repo convention: no async pytest runner, each test drives the
 async service through asyncio.run() with a throwaway DATA_DIR (same fixture
@@ -17,7 +17,7 @@ import pytest
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services import backup as backup_service
+from homestew.services.system import backup as backup_service
 
 VALID_PDF = b"%PDF-1.4\n" + b"x" * 2000
 
@@ -633,7 +633,7 @@ def _reset_restore_state():
     The index-phase fold reads the shared indexer state, so a leaked running
     flag from another test would keep a finished restore stuck in "index".
     """
-    from homestew.services import indexer
+    from homestew.services.search import indexer
 
     backup_service._RESTORE_STATE.update(backup_service._restore_blank())
     indexer._INDEX_STATE.update(

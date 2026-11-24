@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from homestew.db import get_db_context
-from homestew.services.calendar_engine import (
+from homestew.services.calendar.calendar_engine import (
     describe_schedule,
     event_status,
     next_due_date,

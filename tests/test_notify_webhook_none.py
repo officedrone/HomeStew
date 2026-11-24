@@ -19,7 +19,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from homestew import config as cfg
-from homestew.services import auth, notify_channels
+from homestew.services.system import auth
+from homestew.services.notifications import notify_channels
 
 
 @pytest.fixture()

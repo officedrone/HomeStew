@@ -25,8 +25,8 @@ from fastapi.testclient import TestClient
 
 from homestew import config as cfg
 from homestew.config import OPENAI_CLOUD_BASE_URL, effective_llm_base_url
-from homestew.services import auth
-from homestew.services.llm_client import LLMClient, _reasoning_params
+from homestew.services.system import auth
+from homestew.services.ai.llm_client import LLMClient, _reasoning_params
 
 
 @pytest.fixture(autouse=True)

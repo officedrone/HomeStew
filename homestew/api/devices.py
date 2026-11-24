@@ -23,10 +23,10 @@ from homestew.models.schemas import (
     DeviceResponse,
     Manual,
 )
-from homestew.services.device_icons import search_icon_keys
-from homestew.services.indexer import index_manual
-from homestew.services.photo_images import sniff_image
-from homestew.services.warranty import warranty_fields
+from homestew.services.devices.device_icons import search_icon_keys
+from homestew.services.search.indexer import index_manual
+from homestew.services.photos.photo_images import sniff_image
+from homestew.services.devices.warranty import warranty_fields
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def _warranty_fields(device: DeviceCreate) -> tuple:
     ``warranty_end`` is taken from the request when provided; otherwise it is
     computed from purchase date + warranty length/unit (months/years clamp
     the day-of-month, e.g. Jan 31 + 1 month -> Feb 28). The arithmetic lives
-    in services/warranty.py so the LLM device tool applies the same rule.
+    in services/devices/warranty.py so the LLM device tool applies the same rule.
     """
     return warranty_fields(
         device.purchase_date,
@@ -678,7 +678,7 @@ async def upload_device_photo(
             # should not wait on the LLM round-trip.
             import asyncio
 
-            from homestew.services.photo_analyzer import analyze_photo_job
+            from homestew.services.photos.photo_analyzer import analyze_photo_job
 
             asyncio.create_task(analyze_photo_job(photo_id, device_id))
 
@@ -786,7 +786,7 @@ async def analyze_device_photo(device_id: int, photo_id: int):
     async with get_db_context() as db:
         await _require_photo(db, device_id, photo_id)
 
-    from homestew.services.photo_analyzer import analyze_photo
+    from homestew.services.photos.photo_analyzer import analyze_photo
 
     try:
         result = await analyze_photo(photo_id, device_id)

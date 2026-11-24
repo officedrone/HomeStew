@@ -100,7 +100,7 @@ BING_HTML = f"""
 
 
 def test_bing_parse_unwraps_and_filters():
-    from homestew.services.web_search import _bing_parse
+    from homestew.services.search.web_search import _bing_parse
 
     results = _bing_parse(BING_HTML)
     assert [(r.title, r.url, r.engine) for r in results] == [
@@ -110,14 +110,14 @@ def test_bing_parse_unwraps_and_filters():
 
 
 def test_bing_parse_empty_on_garbage():
-    from homestew.services.web_search import _bing_parse
+    from homestew.services.search.web_search import _bing_parse
 
     assert _bing_parse("") == []
     assert _bing_parse("<html><body>nothing here</body></html>") == []
 
 
 def test_search_bing_uses_injected_fetcher_and_caps():
-    from homestew.services.web_search import search_bing
+    from homestew.services.search.web_search import search_bing
 
     calls = {}
 
@@ -148,7 +148,7 @@ def test_ddgs_engine_forwards_settings(fake_ddgs, recorded, monkeypatch):
         MANUAL_SEARCH_TIMEOUT=7,
         MANUAL_PROXY="http://proxy:3128",
     )
-    from homestew.services.web_search import search_ddgs_engine
+    from homestew.services.search.web_search import search_ddgs_engine
 
     results = search_ddgs_engine("q", engine="brave", max_results=5)
     assert [(r.title, r.url) for r in results] == [
@@ -164,7 +164,7 @@ def test_ddgs_engine_forwards_settings(fake_ddgs, recorded, monkeypatch):
 
 def test_ddgs_region_omitted_when_blank(fake_ddgs, recorded, monkeypatch):
     _settings(monkeypatch, MANUAL_SEARCH_REGION="")
-    from homestew.services.web_search import search_ddgs_engine
+    from homestew.services.search.web_search import search_ddgs_engine
 
     search_ddgs_engine("q", engine="yahoo")
     assert "region" not in recorded["kwargs"]
@@ -172,7 +172,7 @@ def test_ddgs_region_omitted_when_blank(fake_ddgs, recorded, monkeypatch):
 
 def test_ddgs_no_results_found_is_empty_not_error(fake_ddgs, monkeypatch):
     fake_ddgs.result = FakeDDGSException("No results found.")
-    from homestew.services.web_search import search_ddgs_engine
+    from homestew.services.search.web_search import search_ddgs_engine
 
     assert search_ddgs_engine("q", engine="yahoo") == []
 
@@ -184,14 +184,14 @@ def test_ddgs_no_results_found_is_empty_not_error(fake_ddgs, monkeypatch):
 def test_configured_engines_falls_back_to_defaults(monkeypatch):
     _settings(monkeypatch, MANUAL_SEARCH_ENGINES=[])
     from homestew.config import DEFAULT_MANUAL_SEARCH_ENGINES
-    from homestew.services.web_search import configured_engines
+    from homestew.services.search.web_search import configured_engines
 
     engines = configured_engines()
     assert [e["name"] for e in engines] == [e["name"] for e in DEFAULT_MANUAL_SEARCH_ENGINES]
 
 
 def test_enabled_engines_respects_order_and_flags():
-    from homestew.services.web_search import enabled_engines
+    from homestew.services.search.web_search import enabled_engines
 
     engines = _engines(("bing", True), ("brave", False), ("yahoo", True))
     assert enabled_engines(engines) == ["bing", "yahoo"]
@@ -202,7 +202,7 @@ def test_enabled_engines_respects_order_and_flags():
 # ---------------------------------------------------------------------------
 
 def test_search_web_first_engine_hit_wins(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     tried = []
 
@@ -221,7 +221,7 @@ def test_search_web_first_engine_hit_wins(monkeypatch):
 
 
 def test_search_web_skips_erroring_engine_and_continues(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         if name == "bing":
@@ -241,7 +241,7 @@ def test_search_web_accept_predicate_skips_unusable_answer(monkeypatch):
     manual lookup, so the chain has to continue to an engine that honors the
     operator instead of returning zero usable candidates.
     """
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     tried = []
 
@@ -263,7 +263,7 @@ def test_search_web_accept_predicate_skips_unusable_answer(monkeypatch):
 
 def test_search_web_accept_predicate_falls_back_to_first_non_empty(monkeypatch):
     """When no engine's answer is accepted, return something over nothing."""
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         return [web_search.WebResult(title="Landing", url=f"https://{name}.com/products", engine=name)]
@@ -278,14 +278,14 @@ def test_search_web_accept_predicate_falls_back_to_first_non_empty(monkeypatch):
 
 
 def test_search_web_all_empty_returns_empty_not_error(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     monkeypatch.setattr(web_search, "_run_engine", lambda name, query, **kw: [])
     assert web_search.search_web("q", engines=_engines(("bing", True), ("brave", True))) == []
 
 
 def test_search_web_all_error_raises(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         raise web_search.SearchUnavailableError(f"{name} down")
@@ -298,7 +298,7 @@ def test_search_web_all_error_raises(monkeypatch):
 
 
 def test_search_web_no_enabled_engines_raises(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     with pytest.raises(web_search.SearchUnavailableError) as exc:
         web_search.search_web("q", engines=_engines(("bing", False), ("brave", False)))
@@ -310,7 +310,7 @@ def test_search_web_no_enabled_engines_raises(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_search_web_records_outcome_per_attempted_engine(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         if name == "bing":
@@ -340,7 +340,7 @@ def test_search_web_records_outcome_per_attempted_engine(monkeypatch):
 def test_search_web_records_unaccepted_outcome(monkeypatch):
     """An engine whose answer the accept predicate rejects is reported as
     'unaccepted' - it answered, just not with anything usable."""
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         url = "https://brand.com/products" if name == "bing" else "https://brand.com/m.pdf"
@@ -364,7 +364,7 @@ def test_search_web_emits_live_progress_without_polluting_outcomes(monkeypatch):
     """on_progress sees each engine start and finish; the transient 'searching'
     status never leaks into the caller's outcomes list (which is merged and
     persisted, where a phantom in-flight engine would be nonsense)."""
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         if name == "bing":
@@ -394,7 +394,7 @@ def test_search_web_emits_live_progress_without_polluting_outcomes(monkeypatch):
 
 
 def test_search_web_progress_callback_failure_does_not_break_search(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     monkeypatch.setattr(
         web_search,
@@ -414,7 +414,7 @@ def test_search_web_progress_callback_failure_does_not_break_search(monkeypatch)
 
 
 def test_merge_engine_outcomes_collapses_per_engine_by_usefulness():
-    from homestew.services import web_search as ws
+    from homestew.services.search import web_search as ws
 
     first = [
         ws.engine_outcome("bing", ws.ENGINE_STATUS_UNACCEPTED, results=5),
@@ -439,7 +439,7 @@ def test_merge_engine_outcomes_collapses_per_engine_by_usefulness():
 
 
 def test_merge_engine_outcomes_keeps_highest_result_count():
-    from homestew.services import web_search as ws
+    from homestew.services.search import web_search as ws
 
     merged = ws.merge_engine_outcomes(
         [ws.engine_outcome("yahoo", ws.ENGINE_STATUS_ACCEPTED, results=4)],
@@ -453,7 +453,7 @@ def test_merge_engine_outcomes_keeps_highest_result_count():
 # ---------------------------------------------------------------------------
 
 def test_report_tests_every_engine_independently(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         if name == "bing":
@@ -476,7 +476,7 @@ def test_report_default_tests_all_supported_catalog_engines(monkeypatch):
     """No engine filter (the UI's "Test All Engines") must cover every
     supported catalog engine - including newly exposed ones not yet saved in
     settings - and must skip the ddgs-disabled engines (google, yandex)."""
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     monkeypatch.setattr(web_search, "_run_engine", lambda name, query, **kw: [])
     tested = [r.engine for r in web_search.search_engine_report("q")]
@@ -485,7 +485,7 @@ def test_report_default_tests_all_supported_catalog_engines(monkeypatch):
 
 
 def test_report_filters_to_requested_subset(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     monkeypatch.setattr(web_search, "_run_engine", lambda name, query, **kw: [])
     monkeypatch.setattr(
@@ -496,7 +496,7 @@ def test_report_filters_to_requested_subset(monkeypatch):
 
 
 def test_report_includes_requested_but_unconfigured(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     monkeypatch.setattr(web_search, "_run_engine", lambda name, query, **kw: [])
     monkeypatch.setattr(web_search, "engine_catalog", lambda: _engines(("bing", True)))
@@ -510,7 +510,7 @@ def test_report_includes_requested_but_unconfigured(monkeypatch):
 
 def test_invalid_impersonate_maps_to_rebuild_message(fake_ddgs, monkeypatch):
     fake_ddgs.result = FakeDDGSException('Invalid impersonate: "edge_131"')
-    from homestew.services.web_search import SearchUnavailableError, search_ddgs_engine
+    from homestew.services.search.web_search import SearchUnavailableError, search_ddgs_engine
 
     with pytest.raises(SearchUnavailableError) as exc:
         search_ddgs_engine("q", engine="brave")
@@ -521,7 +521,7 @@ def test_invalid_impersonate_maps_to_rebuild_message(fake_ddgs, monkeypatch):
 
 def test_ratelimit_maps_to_friendly_message(fake_ddgs, monkeypatch):
     fake_ddgs.result = FakeRatelimit("rate limit exceeded")
-    from homestew.services.web_search import SearchUnavailableError, search_ddgs_engine
+    from homestew.services.search.web_search import SearchUnavailableError, search_ddgs_engine
 
     with pytest.raises(SearchUnavailableError) as exc:
         search_ddgs_engine("q", engine="brave")
@@ -529,7 +529,7 @@ def test_ratelimit_maps_to_friendly_message(fake_ddgs, monkeypatch):
 
 
 def test_capture_http_events_collects_primp_log_lines(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     # ddgs turns a real 429 into a generic DDGSException("No results found.");
     # only primp's log line carries the true status. Reproduce that exactly.
@@ -573,7 +573,7 @@ def test_capture_http_events_collects_primp_log_lines(monkeypatch):
 
 
 def test_capture_http_events_ignores_non_response_lines():
-    from homestew.services.web_search import capture_http_events, worst_http_event
+    from homestew.services.search.web_search import capture_http_events, worst_http_event
 
     with capture_http_events([]) as seen:
         logging.getLogger("primp").info("some unrelated message 500")
@@ -584,7 +584,7 @@ def test_capture_http_events_ignores_non_response_lines():
 
 
 def test_worst_http_event_prefers_failures():
-    from homestew.services.web_search import worst_http_event
+    from homestew.services.search.web_search import worst_http_event
 
     assert worst_http_event([("a", 200), ("b", 429)]) == (429, "b")
     assert worst_http_event([("a", 200), ("b", 202)]) == (202, "b")
@@ -594,7 +594,7 @@ def test_worst_http_event_prefers_failures():
 
 
 def test_worst_http_event_prefers_search_page_url():
-    from homestew.services.web_search import worst_http_event
+    from homestew.services.search.web_search import worst_http_event
 
     # Same status on several URLs -> pick the one that looks like a results
     # page the user can actually open and re-run.
@@ -607,7 +607,7 @@ def test_worst_http_event_prefers_search_page_url():
 
 
 def test_report_uses_captured_status_for_unexpected_errors(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         logging.getLogger("primp").info("response: https://www.mojeek.com/search?q=x 403")
@@ -626,7 +626,7 @@ def test_report_uses_captured_status_for_unexpected_errors(monkeypatch):
 
 
 def test_report_success_path_reports_captured_url(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         logging.getLogger("primp").info(
@@ -646,7 +646,7 @@ def test_report_success_path_reports_captured_url(monkeypatch):
 
 
 def test_report_empty_success_notes_actual_status(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         logging.getLogger("primp").info("response: https://x.example/search?q=y 200")
@@ -664,7 +664,7 @@ def test_report_empty_success_notes_actual_status(monkeypatch):
 
 
 def test_extract_http_status_from_library_text():
-    from homestew.services.web_search import extract_http_status
+    from homestew.services.search.web_search import extract_http_status
 
     assert extract_http_status("Bing returned HTTP 403") == 403
     assert extract_http_status("Error code: 429 - Too Many Requests") == 429
@@ -674,7 +674,7 @@ def test_extract_http_status_from_library_text():
 
 
 def test_status_specific_guidance_messages():
-    from homestew.services.web_search import status_guidance
+    from homestew.services.search.web_search import status_guidance
 
     assert "API key" in status_guidance(401)
     assert "blocked" in status_guidance(403)
@@ -685,7 +685,7 @@ def test_status_specific_guidance_messages():
 
 def test_ddgs_error_carries_http_status_and_detail(fake_ddgs, monkeypatch):
     fake_ddgs.result = FakeDDGSException("Error code: 429 - ratelimited")
-    from homestew.services.web_search import SearchUnavailableError, search_ddgs_engine
+    from homestew.services.search.web_search import SearchUnavailableError, search_ddgs_engine
 
     with pytest.raises(SearchUnavailableError) as exc:
         search_ddgs_engine("q", engine="brave")
@@ -695,7 +695,7 @@ def test_ddgs_error_carries_http_status_and_detail(fake_ddgs, monkeypatch):
 
 
 def test_report_exposes_http_status_and_notes(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     def fake_run(name, query, **kwargs):
         if name == "bing":
@@ -731,7 +731,7 @@ def test_report_exposes_http_status_and_notes(monkeypatch):
 
 
 def test_bing_http_error_carries_status(monkeypatch):
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     class FakeResp:
         status_code = 403
@@ -757,7 +757,7 @@ def test_bing_http_error_carries_status(monkeypatch):
 def test_bing_fetch_passes_timeout_in_seconds(monkeypatch):
     # primp 2.x Client.timeout is in seconds; multiplying by 1000 (an old
     # bug) silently disabled the Bing timeout (~2.8 hours).
-    from homestew.services import web_search
+    from homestew.services.search import web_search
 
     class FakeResp:
         status_code = 200
@@ -783,7 +783,7 @@ def test_bing_fetch_passes_timeout_in_seconds(monkeypatch):
 def test_missing_library_reports_actionably(monkeypatch):
     # A None entry in sys.modules makes `from ddgs import DDGS` raise ImportError.
     monkeypatch.setitem(sys.modules, "ddgs", None)
-    from homestew.services.web_search import SearchUnavailableError, search_ddgs_engine
+    from homestew.services.search.web_search import SearchUnavailableError, search_ddgs_engine
 
     with pytest.raises(SearchUnavailableError) as exc:
         search_ddgs_engine("q", engine="brave")

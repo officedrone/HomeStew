@@ -13,7 +13,7 @@ from homestew.default_prompts import (
     DEFAULT_DEVICE_TOOL_DESCRIPTION,
     DEFAULT_SEARCH_TOOL_DESCRIPTION,
 )
-from homestew.services.secret_store import (
+from homestew.services.system.secret_store import (
     AUTO_KEY_FILENAME,
     SecretError,
     SecretStore,
@@ -70,7 +70,7 @@ EDITABLE_SETTINGS = (
     # First-run wizard bookkeeping: which steps were skipped/saved, so a
     # skipped step is never re-prompted on the next launch.
     "SETUP_STEPS",
-    # Single-user account: scrypt hash of the password (services/auth.py).
+    # Single-user account: scrypt hash of the password (services/system/auth.py).
     # NOT in SECRET_SETTINGS on purpose - those are encrypted with the
     # master key, and deleting that key would silently disable login. The
     # hash itself is one-way, so plaintext storage adds no exposure.
@@ -91,8 +91,8 @@ EDITABLE_SETTINGS = (
     # "notify_before_due_hours": int, "channels": [str]}}. An event is
     # enabled exactly when its channel list is non-empty - ticking a
     # "Notify via" checkbox IS the enablement. The registry in
-    # services/ui_notifications.py supplies the defaults and the valid event
-    # keys; services/dispatch.py owns the valid channel names. Anything
+    # services/notifications/ui_notifications.py supplies the defaults and the valid event
+    # keys; services/notifications/dispatch.py owns the valid channel names. Anything
     # unknown in settings.json is dropped at load.
     "NOTIFY_SUBSCRIPTIONS",
     # Ordered online manual-search engines (Settings > Search "Search Online
@@ -105,7 +105,7 @@ EDITABLE_SETTINGS = (
 )
 
 # Engine names accepted in MANUAL_SEARCH_ENGINES. "bing" is HomeStew's own
-# scraper (services/web_search.py); every other name is passed through to
+# scraper (services/search/web_search.py); every other name is passed through to
 # ddgs as a backend id. The pattern (rather than a closed set) lets a future
 # ddgs engine be enabled by editing settings.json without a code change,
 # while still rejecting junk that would just waste a request.
@@ -168,7 +168,7 @@ def search_engine_supported(name: str) -> bool:
     return name not in UNSUPPORTED_SEARCH_ENGINES
 
 # Subset of EDITABLE_SETTINGS holding credentials. These are encrypted with
-# AES-256-GCM (services/secret_store.py) before being written to
+# AES-256-GCM (services/system/secret_store.py) before being written to
 # settings.json and are never returned in plaintext by the settings API.
 # The webhook URL counts because Synology-style webhooks embed their secret
 # token in the URL query string.
@@ -276,7 +276,7 @@ class Settings(BaseSettings):
     # Single-user account. Empty = no password yet: every page load then
     # shows the forced create-account screen (first run AND upgrades from
     # pre-auth installs - there is deliberately no way to opt out).
-    # scrypt hash string, see services/auth.py; never returned by any API.
+    # scrypt hash string, see services/system/auth.py; never returned by any API.
     PASSWORD_HASH: str = ""
     # Failed-login lockout: consecutive failures per client IP before that
     # address is refused for AUTH_LOCKOUT_MINUTES minutes. Editable under
@@ -294,7 +294,7 @@ class Settings(BaseSettings):
     # Settings > Search - useful only to defer CPU work on weak hosts.
     INDEX_AUTO_ON_UPLOAD: bool = True
 
-    # Device photos (api/devices.py + services/photo_analyzer.py). The browser
+    # Device photos (api/devices.py + services/photos/photo_analyzer.py). The browser
     # downscales every photo before upload, so the server limits below are a
     # guard against non-browser clients rather than a resize request: an image
     # over either limit is refused with 413 instead of silently bloating the
@@ -318,7 +318,7 @@ class Settings(BaseSettings):
     # notification_log tables, not here.
     NOTIFY_SUBSCRIPTIONS: dict = {}
     
-    # Manual fetching (services/manual_finder.py + manual_downloader.py).
+    # Manual fetching (services/search/manual_finder.py + manual_downloader.py).
     # MANUAL_SEARCH_ENGINES is the UI-editable ordered engine list (see
     # EDITABLE_SETTINGS above); normalize_search_engines() sanitizes it on
     # load and search_web() falls back to DEFAULT_MANUAL_SEARCH_ENGINES when

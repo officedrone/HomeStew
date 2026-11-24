@@ -22,8 +22,8 @@ from homestew.api.calendar import router as calendar_router
 from homestew.api.notifications import router as notifications_router
 from homestew.api.backup import router as backup_router
 from homestew.api.auth import router as auth_router
-from homestew.services.notifier import notification_loop
-from homestew.services import auth
+from homestew.services.notifications.notifier import notification_loop
+from homestew.services.system import auth
 
 # Configure logging
 logging.basicConfig(
@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
     # Silence the per-healthcheck access-log line (Docker probes forever).
     install_health_access_log_filter()
 
-    # Background due-event notifier (services/notifier.py). uvicorn runs a
+    # Background due-event notifier (services/notifications/notifier.py). uvicorn runs a
     # single process, so one task per container is enough; it re-reads the
     # per-event notify_subscriptions every wake and does no database work
     # while no event subscribes an external channel.
@@ -137,7 +137,7 @@ async def no_cache_html(request: Request, call_next):
     return response
 
 
-# Single-user authentication (services/auth.py). Registered after
+# Single-user authentication (services/system/auth.py). Registered after
 # no_cache_html, so it runs first and a 401 never reaches the app.
 # Allowlist - everything else requires a valid session cookie:
 #   /health      Docker HEALTHCHECK must stay reachable without a login

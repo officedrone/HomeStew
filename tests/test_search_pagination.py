@@ -20,8 +20,8 @@ from fastapi.testclient import TestClient
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services import auth
-from homestew.services.search_engine import search_manuals
+from homestew.services.system import auth
+from homestew.services.search.search_engine import search_manuals
 
 # Distinctive whole-word term: qualifies under the trigram + word-boundary
 # rules without colliding with filler text.

@@ -12,7 +12,7 @@ from homestew.config import effective_llm_base_url, settings
 from homestew.db import get_db_context
 from homestew.default_prompts import DEFAULT_CHAT_SYSTEM_PROMPT
 from homestew.models.schemas import ChatMessage, ChatRequest, ChatResponse
-from homestew.services.llm_client import (
+from homestew.services.ai.llm_client import (
     LLMClient,
     ToolBinding,
     build_calendar_binding,
@@ -21,8 +21,10 @@ from homestew.services.llm_client import (
     chat_with_tool_support,
     chat_with_tool_events,
 )
-from homestew.services.search_engine import search_manuals
-from homestew.services import calendar_service, calendar_tool, device_tool
+from homestew.services.search.search_engine import search_manuals
+from homestew.services.calendar import calendar_service
+from homestew.services.calendar import calendar_tool
+from homestew.services.devices import device_tool
 
 logger = logging.getLogger(__name__)
 

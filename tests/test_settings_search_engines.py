@@ -24,7 +24,8 @@ from fastapi.testclient import TestClient
 
 from homestew import config as cfg
 from homestew.db import init_db
-from homestew.services import auth, web_search
+from homestew.services.system import auth
+from homestew.services.search import web_search
 
 
 @pytest.fixture()
@@ -155,7 +156,7 @@ def test_manual_search_response_reports_engines(client, monkeypatch):
     """The search endpoint returns one merged row per engine the chain
     walked (including errored/empty ones) and tags each candidate with the
     engine it came from."""
-    from homestew.services import web_search as ws
+    from homestew.services.search import web_search as ws
 
     def fake_run(name, query, **kwargs):
         if name == "bing":
@@ -189,7 +190,7 @@ def test_manual_search_stream_reports_engines_live(client, monkeypatch):
     """The SSE variant emits an event per engine as the chain walks it (start
     then end) and finishes with one `result` frame matching what the plain
     endpoint would have returned."""
-    from homestew.services import web_search as ws
+    from homestew.services.search import web_search as ws
 
     def fake_run(name, query, **kwargs):
         if name == "bing":

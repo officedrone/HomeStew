@@ -22,8 +22,8 @@ from datetime import date, datetime, time as dtime
 from typing import Any, Dict, Optional, Tuple
 
 from homestew.db import get_db_context
-from homestew.services import calendar_service
-from homestew.services.device_tool import device_link_note
+from homestew.services.calendar import calendar_service
+from homestew.services.devices.device_tool import device_link_note
 
 logger = logging.getLogger(__name__)
 

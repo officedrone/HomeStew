@@ -44,7 +44,7 @@ def _patch_get(monkeypatch, response_or_exc):
 
 def test_valid_pdf_is_saved_atomically(tmp_path, monkeypatch):
     _patch_get(monkeypatch, FakeResponse([VALID_PDF], {"content-type": "application/pdf"}))
-    from homestew.services.downloader import download_pdf_detail
+    from homestew.services.search.downloader import download_pdf_detail
 
     save = tmp_path / "manual.pdf"
     ok, reason = download_pdf_detail("https://x.com/m.pdf", save)
@@ -56,7 +56,7 @@ def test_valid_pdf_is_saved_atomically(tmp_path, monkeypatch):
 def test_html_served_as_pdf_is_rejected(tmp_path, monkeypatch):
     html = b"<html><body>Login required</body></html>" + b" " * 2000
     _patch_get(monkeypatch, FakeResponse([html], {"content-type": "text/html"}))
-    from homestew.services.downloader import download_pdf_detail
+    from homestew.services.search.downloader import download_pdf_detail
 
     save = tmp_path / "manual.pdf"
     ok, reason = download_pdf_detail("https://x.com/manual.pdf", save)
@@ -70,7 +70,7 @@ def test_declared_size_over_cap_rejected_before_writing(tmp_path, monkeypatch):
         monkeypatch,
         FakeResponse([], {"content-type": "application/pdf", "content-length": str(50 * 1024 * 1024)}),
     )
-    from homestew.services.downloader import download_pdf_detail
+    from homestew.services.search.downloader import download_pdf_detail
 
     ok, reason = download_pdf_detail("https://x.com/m.pdf", tmp_path / "m.pdf", max_mb=25)
     assert not ok and "too large" in reason
@@ -81,7 +81,7 @@ def test_streamed_size_over_cap_cleans_partial(tmp_path, monkeypatch):
         monkeypatch,
         FakeResponse([b"%PDF-1.4\n" + b"x" * (30 * 1024 * 1024)], {"content-type": "application/pdf"}),
     )
-    from homestew.services.downloader import download_pdf_detail
+    from homestew.services.search.downloader import download_pdf_detail
 
     save = tmp_path / "m.pdf"
     ok, reason = download_pdf_detail("https://x.com/m.pdf", save, max_mb=5)
@@ -91,7 +91,7 @@ def test_streamed_size_over_cap_cleans_partial(tmp_path, monkeypatch):
 
 def test_network_error_reports_reason(tmp_path, monkeypatch):
     _patch_get(monkeypatch, requests.exceptions.ConnectionError("dns failure"))
-    from homestew.services.downloader import download_pdf_detail
+    from homestew.services.search.downloader import download_pdf_detail
 
     ok, reason = download_pdf_detail("https://x.com/m.pdf", tmp_path / "m.pdf")
     assert not ok and "network error" in reason
@@ -110,7 +110,7 @@ class TestDomainOf:
         ],
     )
     def test_top_level_domain(self, url, expected):
-        from homestew.services.downloader import domain_of
+        from homestew.services.search.downloader import domain_of
 
         assert domain_of(url) == expected
 
@@ -128,13 +128,13 @@ class TestDisplayName:
         ],
     )
     def test_pdf_name_for_table(self, url, title, expected):
-        from homestew.services.downloader import display_name_for
+        from homestew.services.search.downloader import display_name_for
 
         assert display_name_for(url, title) == expected
 
 
 def test_enrich_candidates_flags_existing_urls():
-    from homestew.services.downloader import enrich_candidates
+    from homestew.services.search.downloader import enrich_candidates
 
     results = [
         {"title": "Official", "url": "https://nespresso.com/c62.pdf", "source": "bing"},
@@ -150,7 +150,7 @@ def test_enrich_candidates_flags_existing_urls():
 
 
 def test_stored_filename_prefers_pdf_basename():
-    from homestew.services.downloader import _stored_filename
+    from homestew.services.search.downloader import _stored_filename
 
     assert _stored_filename("https://x.com/a/UM-C62.pdf", "Nespresso", "PIXIE C62") == "UM-C62.pdf"
     # No usable basename -> deterministic brand/model name.
@@ -158,7 +158,7 @@ def test_stored_filename_prefers_pdf_basename():
 
 
 def test_unique_filename_avoids_overwrite(tmp_path):
-    from homestew.services.downloader import _unique_filename
+    from homestew.services.search.downloader import _unique_filename
 
     (tmp_path / "manual.pdf").write_bytes(b"x")
     assert _unique_filename(tmp_path, "manual.pdf") == "manual_2.pdf"
@@ -166,7 +166,7 @@ def test_unique_filename_avoids_overwrite(tmp_path):
 
 
 def test_manual_exists_error_carries_filename():
-    from homestew.services.downloader import ManualExistsError
+    from homestew.services.search.downloader import ManualExistsError
 
     exc = ManualExistsError("c62.pdf")
     assert exc.filename == "c62.pdf"

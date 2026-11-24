@@ -17,7 +17,7 @@ reloads and container restarts (state lives in ``ui_notification_state``) but
 never suppresses a genuinely new problem.
 
 The delivery side is unified: every check registers an EventDef with
-services/dispatch.py, so Settings > Notifications shows one row per event
+services/notifications/dispatch.py, so Settings > Notifications shows one row per event
 with channel checkboxes (Toast / Webhook / future channels). Evaluation
 happens in ``run_due_checks()``, driven by the background notifier loop -
 webhook-subscribed health alerts therefore fire even with no browser open.
@@ -42,8 +42,9 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from homestew.config import settings
 from homestew.db import get_db_context
-from homestew.services import calendar_service, dispatch
-from homestew.services.dispatch import CALENDAR_EVENT_KEY, UI_CHANNEL, EventDef
+from homestew.services.calendar import calendar_service
+from homestew.services.notifications import dispatch
+from homestew.services.notifications.dispatch import CALENDAR_EVENT_KEY, UI_CHANNEL, EventDef
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,7 @@ def sample_item(key: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Event registry bridge (per-event config lives in services/dispatch.py)
+# Event registry bridge (per-event config lives in services/notifications/dispatch.py)
 # ---------------------------------------------------------------------------
 
 def _event_defs() -> Dict[str, EventDef]:
@@ -312,7 +313,7 @@ def _index_job_running() -> bool:
     Imported lazily: indexer imports nothing from this module, but keeping
     the import here also avoids pulling it at app-config time.
     """
-    from homestew.services.indexer import get_index_status
+    from homestew.services.search.indexer import get_index_status
 
     return bool(get_index_status().get("running"))
 
