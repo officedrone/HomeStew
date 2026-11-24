@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.8]
+
+- REFACTOR: Services are organized into per-realm packages under `services/` — `calendar/`, `devices/`, `photos/`, `search/`, `notifications/`, `ai/` and `system/` — with each module keeping its name (e.g. `calendar_engine.py` now lives at `services/calendar/calendar_engine.py`). Pure code motion: all imports across the app and tests were rewritten to the new paths, no behavior changes.
+
 ## [0.2.7]
 
 - SECURITY: Bumped `pypdf` 6.19.0 → 6.21.4.
