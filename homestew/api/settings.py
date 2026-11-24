@@ -17,7 +17,9 @@ from homestew.config import (
     save_settings_overrides,
     settings,
 )
-from homestew.services import auth, dispatch, web_search
+from homestew.services.system import auth
+from homestew.services.notifications import dispatch
+from homestew.services.search import web_search
 from homestew.default_prompts import (
     DEFAULT_CALENDAR_TOOL_DESCRIPTION,
     DEFAULT_CHAT_SYSTEM_PROMPT,

@@ -24,8 +24,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from homestew import config as cfg
-from homestew.services import auth
-from homestew.services.llm_client import LLMClient, _reasoning_params
+from homestew.services.system import auth
+from homestew.services.ai.llm_client import LLMClient, _reasoning_params
 
 
 @pytest.fixture(autouse=True)

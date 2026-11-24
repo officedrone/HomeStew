@@ -27,7 +27,7 @@ from homestew.models.schemas import (
     PasswordLoginRequest,
     PasswordSetupRequest,
 )
-from homestew.services import auth
+from homestew.services.system import auth
 
 logger = logging.getLogger(__name__)
 

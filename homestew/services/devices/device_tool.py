@@ -30,12 +30,12 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from homestew.db import get_db_context
-from homestew.services.device_icons import (
+from homestew.services.devices.device_icons import (
     DEFAULT_DEVICE_ICON,
     is_valid_icon_key,
     search_icon_keys,
 )
-from homestew.services.warranty import WARRANTY_UNITS, compute_warranty_end
+from homestew.services.devices.warranty import WARRANTY_UNITS, compute_warranty_end
 
 logger = logging.getLogger(__name__)
 

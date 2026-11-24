@@ -1,4 +1,4 @@
-"""Tests for the background notifier tick (services/notifier.py) and the
+"""Tests for the background notifier tick (services/notifications/notifier.py) and the
 /health access-log filter (main.py) - issue #9, idle CPU optimization.
 
 Two behaviours are pinned down:
@@ -23,7 +23,8 @@ import pytest
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services import notify_channels, notifier
+from homestew.services.notifications import notify_channels
+from homestew.services.notifications import notifier
 
 
 @pytest.fixture
@@ -100,7 +101,7 @@ def _ledger_rows():
 # --- run_tick ordering (issue #9) ------------------------------------------
 
 # run_tick resolves the calendar event's SUBSCRIBED channels (via
-# services/dispatch.py, which looks instances up on notify_channels.CHANNELS
+# services/notifications/dispatch.py, which looks instances up on notify_channels.CHANNELS
 # at call time), so tests patch that registry plus settings.NOTIFY_SUBSCRIPTIONS
 # directly - update_subscriptions() validates names against CHANNEL_DEFS and
 # would reject the fake channel names used here.

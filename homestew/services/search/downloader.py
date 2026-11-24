@@ -3,7 +3,7 @@
 Successor to ``manual_downloader`` after manuals moved from "search and
 auto-download everything" to "search, present the list, approve each
 download". Candidate discovery and engine quirks stay in
-:mod:`homestew.services.manual_finder` / :mod:`web_search`; this module adds
+:mod:`homestew.services.search.manual_finder` / :mod:`web_search`; this module adds
 what the approval UI needs on top:
 
 - :func:`find_manual_candidates` - search plus per-candidate display metadata
@@ -111,7 +111,7 @@ def search_for_manuals(
     (an engine may therefore be reported twice when the relaxed retry runs).
     """
     from homestew.config import settings  # noqa: PLC0415 (settings singleton cycle)
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     if max_results is None:
         max_results = settings.MANUAL_MAX_RESULTS
@@ -151,7 +151,7 @@ def search_for_manuals(
     logger.info(f"Found {len(results)} potential manuals")
     if outcomes is not None:
         # Both passes wrote into the same list; collapse to one row per engine.
-        from homestew.services.web_search import merge_engine_outcomes
+        from homestew.services.search.web_search import merge_engine_outcomes
 
         outcomes[:] = merge_engine_outcomes(outcomes)
     if not results:
@@ -381,7 +381,7 @@ async def store_manual_for_device(
 
     from homestew.config import settings
     from homestew.db import get_db_context
-    from homestew.services.indexer import index_manual
+    from homestew.services.search.indexer import index_manual
 
     async with get_db_context() as db:
         cursor = await db.execute(

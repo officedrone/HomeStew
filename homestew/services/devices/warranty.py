@@ -13,7 +13,7 @@ next month, matching what the device forms do in the browser.
 from datetime import date, timedelta
 from typing import Optional, Tuple
 
-from homestew.services.calendar_engine import add_months
+from homestew.services.calendar.calendar_engine import add_months
 
 WARRANTY_UNITS = ("days", "months", "years")
 

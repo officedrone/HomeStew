@@ -30,8 +30,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from homestew import config as cfg
-from homestew.services import auth
-from homestew.services.llm_client import (
+from homestew.services.system import auth
+from homestew.services.ai.llm_client import (
     LLMClient,
     _flatten_tools,
     _normalize_responses_stream,

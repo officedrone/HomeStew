@@ -34,13 +34,13 @@ from fastapi.concurrency import run_in_threadpool
 from homestew.config import settings
 from homestew.db import get_db_context
 from homestew.models.schemas import BackupData
-from homestew.services.device_icons import is_valid_icon_key
-from homestew.services.photo_images import SUPPORTED_MIME_TYPES as PHOTO_MIME_TYPES
-from homestew.services.indexer import (
+from homestew.services.devices.device_icons import is_valid_icon_key
+from homestew.services.photos.photo_images import SUPPORTED_MIME_TYPES as PHOTO_MIME_TYPES
+from homestew.services.search.indexer import (
     get_index_status,
     start_background_reindex,
 )
-from homestew.services.warranty import compute_warranty_end
+from homestew.services.devices.warranty import compute_warranty_end
 
 logger = logging.getLogger(__name__)
 
@@ -1052,7 +1052,7 @@ def _apply_files(zip_path: Path, writes, deletes, progress_cb=None) -> None:
 # Background search re-index after a restore
 # ---------------------------------------------------------------------------
 #
-# Progress lives in the indexer's shared state (services/indexer.py) so the
+# Progress lives in the indexer's shared state (services/search/indexer.py) so the
 # same persistent toast can follow a restore re-index, a manual re-index or a
 # full rebuild. get_restore_index_status() stays as the /api/backup/
 # restore-status read path for backwards compatibility.

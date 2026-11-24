@@ -26,7 +26,7 @@ from typing import Optional
 
 from homestew.config import settings
 from homestew.db import get_db_context
-from homestew.services.llm_client import _pick
+from homestew.services.ai.llm_client import _pick
 
 logger = logging.getLogger(__name__)
 

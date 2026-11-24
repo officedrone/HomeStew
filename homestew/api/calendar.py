@@ -12,7 +12,7 @@ from homestew.models.schemas import (
     CalendarEventUpdate,
     UpcomingEventsResponse,
 )
-from homestew.services import calendar_service
+from homestew.services.calendar import calendar_service
 
 logger = logging.getLogger(__name__)
 

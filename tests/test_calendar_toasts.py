@@ -33,7 +33,11 @@ from fastapi.testclient import TestClient
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services import auth, indexer, notify_channels, notifier, ui_notifications
+from homestew.services.system import auth
+from homestew.services.search import indexer
+from homestew.services.notifications import notify_channels
+from homestew.services.notifications import notifier
+from homestew.services.notifications import ui_notifications
 
 
 @pytest.fixture(autouse=True)

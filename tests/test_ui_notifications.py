@@ -1,6 +1,6 @@
 """Tests for the in-app notification framework (condition checks -> toasts).
 
-Covers the feature added around ``services/ui_notifications.py``:
+Covers the feature added around ``services/notifications/ui_notifications.py``:
 
 * ``GET /api/notifications/ui`` evaluates due checks and returns active items;
   a manual with zero ``pdf_index`` rows produces the ``unindexed_manuals`` item
@@ -32,7 +32,10 @@ from fastapi.testclient import TestClient
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services import auth, dispatch, indexer, ui_notifications
+from homestew.services.system import auth
+from homestew.services.notifications import dispatch
+from homestew.services.search import indexer
+from homestew.services.notifications import ui_notifications
 
 
 @pytest.fixture(autouse=True)

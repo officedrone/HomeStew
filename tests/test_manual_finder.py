@@ -6,7 +6,7 @@ import pytest
 
 
 def test_build_query_targets_pdf_filetype():
-    from homestew.services.manual_finder import build_query
+    from homestew.services.search.manual_finder import build_query
 
     assert build_query("Nespresso", "PIXIE C62") == "Nespresso PIXIE C62 manual filetype:pdf"
 
@@ -22,7 +22,7 @@ def _capturing_search(record):
 
 
 def test_custom_search_terms_replace_brand_model():
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     calls: list = []
     find_manual_links(
@@ -33,7 +33,7 @@ def test_custom_search_terms_replace_brand_model():
 
 
 def test_blank_custom_terms_fall_back_to_brand_model():
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     for blank in (None, "", "   "):
         calls: list = []
@@ -45,21 +45,21 @@ def test_blank_custom_terms_fall_back_to_brand_model():
 
 class TestUnwrapRedirect:
     def test_duckduckgo_l_redirect(self):
-        from homestew.services.manual_finder import unwrap_redirect
+        from homestew.services.search.manual_finder import unwrap_redirect
 
         target = "https://www.nespresso.com/c62-manual.pdf"
         url = f"https://duckduckgo.com/l/?uddg={quote(target, safe='')}&rut=abc"
         assert unwrap_redirect(url) == target
 
     def test_google_url_redirect(self):
-        from homestew.services.manual_finder import unwrap_redirect
+        from homestew.services.search.manual_finder import unwrap_redirect
 
         target = "https://example.com/manual.pdf"
         url = f"https://www.google.com/url?q={quote(target, safe='')}&sa=D"
         assert unwrap_redirect(url) == target
 
     def test_bing_ck_redirect_base64(self):
-        from homestew.services.manual_finder import unwrap_redirect
+        from homestew.services.search.manual_finder import unwrap_redirect
 
         target = "https://example.com/manual.pdf"
         encoded = urlsafe_b64encode(target.encode()).decode().rstrip("=")
@@ -67,7 +67,7 @@ class TestUnwrapRedirect:
         assert unwrap_redirect(url) == target
 
     def test_bing_aclick_ad_wrapper_base64(self):
-        from homestew.services.manual_finder import unwrap_redirect
+        from homestew.services.search.manual_finder import unwrap_redirect
 
         target = "https://www.find-my-manual.com/register?utm_campaign=x"
         encoded = urlsafe_b64encode(quote(target, safe="").encode()).decode().rstrip("=")
@@ -75,14 +75,14 @@ class TestUnwrapRedirect:
         assert unwrap_redirect(url) == target
 
     def test_generic_url_param(self):
-        from homestew.services.manual_finder import unwrap_redirect
+        from homestew.services.search.manual_finder import unwrap_redirect
 
         target = "https://example.com/m.pdf"
         url = f"https://tracker.example.org/redirect?url={quote(target, safe='')}"
         assert unwrap_redirect(url) == target
 
     def test_plain_url_unchanged_and_empty_safe(self):
-        from homestew.services.manual_finder import unwrap_redirect
+        from homestew.services.search.manual_finder import unwrap_redirect
 
         plain = "https://www.nespresso.com/c62.pdf"
         assert unwrap_redirect(plain) == plain
@@ -100,7 +100,7 @@ class TestLooksLikePdf:
         ],
     )
     def test_cases(self, url, title, expected):
-        from homestew.services.manual_finder import looks_like_pdf
+        from homestew.services.search.manual_finder import looks_like_pdf
 
         assert looks_like_pdf(url, title) is expected
 
@@ -114,7 +114,7 @@ def _fake_search(results):
 
 
 def test_filters_ranks_and_dedupes(monkeypatch):
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     raw = [
         # Manufacturer domain wins even without .pdf in path.
@@ -142,7 +142,7 @@ def test_filters_ranks_and_dedupes(monkeypatch):
 
 def test_relaxed_query_drops_filetype_operator():
     """Retry query must drop `filetype:pdf`, which some engines can't answer."""
-    from homestew.services.manual_finder import relaxed_query
+    from homestew.services.search.manual_finder import relaxed_query
 
     assert relaxed_query("Lenovo", "Legion 5") == "Lenovo Legion 5 user guide pdf"
     assert "filetype" not in relaxed_query("Lenovo", "Legion 5")
@@ -151,7 +151,7 @@ def test_relaxed_query_drops_filetype_operator():
 
 
 def test_find_manual_links_can_skip_filetype_operator():
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     calls: list = []
     find_manual_links(
@@ -166,7 +166,7 @@ def test_find_manual_links_can_skip_filetype_operator():
 def test_find_manual_links_threads_outcomes_to_search():
     """The outcomes list must reach the injected search callable so the walk
     report flows up to the API; a search that ignores it still works."""
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     seen: dict = {}
 
@@ -181,7 +181,7 @@ def test_find_manual_links_threads_outcomes_to_search():
 
 def test_find_manual_links_omits_outcomes_kwarg_when_none():
     """Custom callables without an `outcomes` kwarg keep working (no pass)."""
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     seen: dict = {}
 
@@ -195,7 +195,8 @@ def test_find_manual_links_omits_outcomes_kwarg_when_none():
 
 def test_downloader_retries_with_relaxed_query(monkeypatch):
     """Empty first pass must retry without the operator (Yahoo flakiness)."""
-    from homestew.services import downloader, manual_finder
+    from homestew.services.search import downloader
+    from homestew.services.search import manual_finder
 
     monkeypatch.setattr(downloader.time, "sleep", lambda *_: None)
 
@@ -224,7 +225,7 @@ def test_find_manual_links_passes_pdf_accept_predicate():
     (HTTP 200, zero PDFs). Passing no predicate let that answer end the search,
     so every candidate was filtered out and the dialog showed nothing.
     """
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     captured = {}
 
@@ -247,7 +248,7 @@ def test_find_manual_links_passes_pdf_accept_predicate():
 
 def test_unresolved_engine_wrapper_is_dropped():
     """A Bing ad link we cannot decode must not be offered as a manual."""
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     raw = [
         {"title": "Manual", "url": "https://www.bing.com/aclick?ld=abc&rlid=123"},
@@ -259,12 +260,12 @@ def test_unresolved_engine_wrapper_is_dropped():
 
 
 def test_search_error_is_reported_not_raised(monkeypatch):
-    from homestew.services.web_search import SearchUnavailableError
+    from homestew.services.search.web_search import SearchUnavailableError
 
     def boom(query, **kwargs):
         raise SearchUnavailableError("Search engines are rate-limiting requests.")
 
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     candidates, error = find_manual_links("Nespresso", "C62", search=boom)
     assert candidates == []
@@ -275,7 +276,7 @@ def test_unexpected_search_error_is_normalized():
     def boom(query, **kwargs):
         raise RuntimeError('Invalid impersonate: "edge_131"')
 
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     candidates, error = find_manual_links("Nespresso", "C62", search=boom)
     assert candidates == []
@@ -284,7 +285,7 @@ def test_unexpected_search_error_is_normalized():
 
 
 def test_empty_results_is_not_an_error():
-    from homestew.services.manual_finder import find_manual_links
+    from homestew.services.search.manual_finder import find_manual_links
 
     candidates, error = find_manual_links("Nespresso", "C62", search=_fake_search([]))
     assert candidates == []

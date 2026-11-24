@@ -17,7 +17,7 @@ import getpass
 import os
 import sys
 
-from homestew.services import auth
+from homestew.services.system import auth
 
 
 def _read_new_password() -> str:

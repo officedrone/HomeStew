@@ -14,8 +14,9 @@ from homestew.models.schemas import (
     UINotificationTestResponse,
     WebhookTestRequest,
 )
-from homestew.services import dispatch, ui_notifications
-from homestew.services.notify_channels import send_test_webhook
+from homestew.services.notifications import dispatch
+from homestew.services.notifications import ui_notifications
+from homestew.services.notifications.notify_channels import send_test_webhook
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ async def check_ui_notification(key: str):
     if key in ui_notifications.CHECKS:
         await ui_notifications.run_due_checks(force_key=key)
     elif key == dispatch.CALENDAR_EVENT_KEY:
-        from homestew.services import notifier
+        from homestew.services.notifications import notifier
 
         await notifier.run_tick()
     else:

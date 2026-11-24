@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from homestew import config as cfg
 from homestew.db import init_db
-from homestew.services import auth
+from homestew.services.system import auth
 
 
 @pytest.fixture()

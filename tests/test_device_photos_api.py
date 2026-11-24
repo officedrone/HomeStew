@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from homestew import config as cfg
-from homestew.services import auth
+from homestew.services.system import auth
 
 
 def _png(width=8, height=6):

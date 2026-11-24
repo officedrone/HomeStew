@@ -33,7 +33,7 @@ from homestew.models.schemas import (
     StoreManualRequest,
     StoreManualResponse,
 )
-from homestew.services.downloader import (
+from homestew.services.search.downloader import (
     ManualDownloadError,
     ManualExistsError,
     find_manual_candidates,

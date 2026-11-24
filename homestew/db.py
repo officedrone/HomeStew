@@ -92,7 +92,7 @@ async def init_db():
         # ...) to raw Lucide names. Keys that are not valid Lucide names are
         # orphaned and would render the default glyph anyway, so clear them
         # once (idempotent — after this every stored icon is renderable).
-        from homestew.services.device_icons import LUCIDE_ICON_NAMES
+        from homestew.services.devices.device_icons import LUCIDE_ICON_NAMES
 
         cursor = await db.execute("SELECT id, icon FROM devices WHERE icon IS NOT NULL")
         orphaned = [row[0] for row in await cursor.fetchall() if row[1] not in LUCIDE_ICON_NAMES]
@@ -254,7 +254,7 @@ async def init_db():
         # (usually) to a device. device_id is nullable so an event can exist
         # without one; when set it cascades on device delete. The schedule is
         # stored as an anchor date + recurrence rule and the next due date is
-        # always computed from it (see services/calendar_engine.py), never
+        # always computed from it (see services/calendar/calendar_engine.py), never
         # mutated, so editing/completing can't drift the series.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS calendar_events (
@@ -286,7 +286,7 @@ async def init_db():
         # delivered to several channels independently: 'webhook' rows track
         # outbound posts, 'ui' rows back in-app toast delivery - a Dismissed
         # calendar toast writes a 'ui' row so the card never resurrects.
-        # Rows cascade with their event. See services/notifier.py.
+        # Rows cascade with their event. See services/notifications/notifier.py.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS notification_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -331,7 +331,7 @@ async def init_db():
             await db.execute("ALTER TABLE notification_log_new RENAME TO notification_log")
 
         # UI notification state - one row per in-app condition check (the
-        # registry in services/ui_notifications.py). This is what makes a
+        # registry in services/notifications/ui_notifications.py). This is what makes a
         # Dismissed notification stay dismissed: an "occurrence" is one
         # continuous episode where the condition holds, so dismissal lasts
         # until the condition goes false and a later recurrence re-notifies.
@@ -341,7 +341,7 @@ async def init_db():
         # {"targets": [...], "done": [...]}: the current episode's frozen
         # delivery targets and the channels already delivered, so a
         # webhook-subscribed check alerts once per episode even though the
-        # condition keeps re-evaluating. See services/ui_notifications.py.
+        # condition keeps re-evaluating. See services/notifications/ui_notifications.py.
         await db.execute("""
             CREATE TABLE IF NOT EXISTS ui_notification_state (
                 check_key TEXT PRIMARY KEY,
@@ -431,7 +431,7 @@ async def rebuild_search_index():
         await db.commit()
 
     logger.info("Rebuilt search index with trigram tokenizer; re-indexing manuals...")
-    from homestew.services.indexer import reindex_all_manuals
+    from homestew.services.search.indexer import reindex_all_manuals
 
     count = await reindex_all_manuals()
     logger.info(f"Search index rebuild complete: {count} manual(s) re-indexed")

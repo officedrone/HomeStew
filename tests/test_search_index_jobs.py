@@ -4,7 +4,7 @@ Covers the feature set added around the shared indexing progress state:
 
 * ``GET /api/search/index-status`` reports the current/last job (running,
   done, total, failed, current_file) from the single module-global in
-  ``services/indexer.py`` that every long-running index job shares.
+  ``services/search/indexer.py`` that every long-running index job shares.
 * ``POST /api/search/reindex`` upserts every registered manual and returns
   202 immediately; a second request while one is in flight gets 409.
 * ``POST /api/search/rebuild`` drops + recreates the FTS table first, so it
@@ -33,7 +33,8 @@ from homestew import config as cfg
 from homestew.api import devices as devices_api
 from homestew.api import search as search_api
 from homestew.db import get_db_context, init_db
-from homestew.services import auth, indexer
+from homestew.services.system import auth
+from homestew.services.search import indexer
 
 
 @pytest.fixture(autouse=True)

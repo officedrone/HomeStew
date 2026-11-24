@@ -1,6 +1,6 @@
 """Unified subscription + fan-out tests (dispatch core).
 
-Covers services/dispatch.py and the delivery side of ui_notifications/notifier:
+Covers services/notifications/dispatch.py and the delivery side of ui_notifications/notifier:
 
 * deliver() semantics: the UI pseudo-channel is a no-op success, an
   unavailable channel reports False without an attempt, results are
@@ -31,7 +31,12 @@ from fastapi.testclient import TestClient
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services import auth, dispatch, indexer, notify_channels, notifier, ui_notifications
+from homestew.services.system import auth
+from homestew.services.notifications import dispatch
+from homestew.services.search import indexer
+from homestew.services.notifications import notify_channels
+from homestew.services.notifications import notifier
+from homestew.services.notifications import ui_notifications
 
 
 @pytest.fixture(autouse=True)

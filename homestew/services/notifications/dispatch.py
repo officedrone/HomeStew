@@ -17,7 +17,7 @@ ment (there is no separate per-event or global switch any more). This module own
   ``notify_channels.CHANNELS``; ``ui`` is a pseudo-channel meaning "the
   frontend poll renders it", so delivering to it is a no-op here);
 * the EVENT registry (``EVENT_DEFS``): rule-based events are declared here,
-  condition-check events register themselves from services/ui_notifications.py
+  condition-check events register themselves from services/notifications/ui_notifications.py
   at import time (dispatch never imports that module - no circular import);
 * subscription config merge/validation (registry defaults + user overrides,
   persisted through ``save_settings_overrides``);
@@ -49,7 +49,7 @@ from homestew.config import (
     save_settings_overrides,
     settings,
 )
-from homestew.services import notify_channels
+from homestew.services.notifications import notify_channels
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ class EventDef:
     """Definition of one subscribable notification event.
 
     ``kind`` is ``"check"`` for condition-evaluation events (owned by
-    services/ui_notifications.py) or ``"rule"`` for rule-driven events like
+    services/notifications/ui_notifications.py) or ``"rule"`` for rule-driven events like
     calendar reminders. Both kinds carry their own scan interval now - the
     Settings table edits it per row - and rule events additionally carry the
     "notify before due" lead in hours (checks have no due date, so theirs is
@@ -102,7 +102,7 @@ class EventDef:
 
 
 #: Rule-based events declared here. Condition-check events live in
-#: services/ui_notifications.py and contribute their EventDefs through a
+#: services/notifications/ui_notifications.py and contribute their EventDefs through a
 #: provider callback (registered at import time), so dispatch never imports
 #: that module - no circular import - and the merged view always agrees with
 #: the live CHECKS registry, even when tests monkeypatch it.
@@ -128,7 +128,7 @@ _EVENT_DEF_PROVIDERS: List[Any] = []
 def register_event_def_provider(provider) -> None:
     """Register a callable returning extra ``{key: EventDef}`` entries.
 
-    Called once by services/ui_notifications.py at import time. Idempotent:
+    Called once by services/notifications/ui_notifications.py at import time. Idempotent:
     re-registering the same callable (module reload in tests) is a no-op.
     """
     if provider not in _EVENT_DEF_PROVIDERS:

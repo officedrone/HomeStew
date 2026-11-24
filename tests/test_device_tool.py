@@ -1,4 +1,4 @@
-"""Tests for the manage_devices LLM tool (services/device_tool.py).
+"""Tests for the manage_devices LLM tool (services/devices/device_tool.py).
 
 There is no async pytest runner in this repo, so each test drives the async
 executor through asyncio.run() inside a sync function. The db_env fixture
@@ -13,7 +13,7 @@ import pytest
 
 from homestew import config as cfg
 from homestew.db import get_db_context, init_db
-from homestew.services.device_tool import execute_device_tool
+from homestew.services.devices.device_tool import execute_device_tool
 
 
 @pytest.fixture
@@ -380,7 +380,7 @@ def test_icon_names_match_frontend_list():
     import re
     from pathlib import Path
 
-    from homestew.services.device_icons import (
+    from homestew.services.devices.device_icons import (
         DEFAULT_ICON_PICKER,
         LUCIDE_ICON_NAMES,
     )
@@ -403,7 +403,7 @@ def test_icon_names_match_frontend_list():
 # --- icon search (name matcher + tool action) ------------------------------
 
 def test_search_icon_keys_matches_name_substrings():
-    from homestew.services.device_icons import search_icon_keys
+    from homestew.services.devices.device_icons import search_icon_keys
 
     keys = [k for k, _l in search_icon_keys("coffee")]
     assert "coffee" in keys
@@ -416,14 +416,14 @@ def test_search_icon_keys_matches_name_substrings():
 
 
 def test_search_icon_keys_and_semantics_reject_partial_queries():
-    from homestew.services.device_icons import search_icon_keys
+    from homestew.services.devices.device_icons import search_icon_keys
 
     # 'wifi' matches many names but the AND with 'washing' must empty it.
     assert search_icon_keys("wifi washing") == []
 
 
 def test_search_icon_keys_blank_returns_curated_picker():
-    from homestew.services.device_icons import (
+    from homestew.services.devices.device_icons import (
         DEFAULT_ICON_PICKER,
         search_icon_keys,
     )
@@ -435,7 +435,7 @@ def test_search_icon_keys_blank_returns_curated_picker():
 
 
 def test_search_icon_keys_ranks_exact_name_first():
-    from homestew.services.device_icons import search_icon_keys
+    from homestew.services.devices.device_icons import search_icon_keys
 
     keys = [k for k, _l in search_icon_keys("fan")]
     assert keys[0] == "fan"  # exact name beats fan-tastic longer names

@@ -1,7 +1,7 @@
 """Pluggable notification channels.
 
 A channel knows how to deliver one notification payload somewhere. The
-notifier loop (services/notifier.py) iterates the CHANNELS registry and sends
+notifier loop (services/notifications/notifier.py) iterates the CHANNELS registry and sends
 through every enabled channel, so adding a new delivery method (ntfy, email,
 Home Assistant service call, ...) means subclassing NotificationChannel and
 appending an instance to CHANNELS - nothing else changes.

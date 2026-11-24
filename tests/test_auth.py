@@ -1,4 +1,4 @@
-"""Tests for the single-user authentication layer (services/auth.py,
+"""Tests for the single-user authentication layer (services/system/auth.py,
 api/auth.py, and the middleware in main.py).
 
 No async pytest runner exists in this repo - FastAPI's TestClient is fully
@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from homestew.config import settings
-from homestew.services import auth
+from homestew.services.system import auth
 
 
 @pytest.fixture()
